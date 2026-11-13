@@ -1,0 +1,58 @@
+<!doctype html>
+<!--
+  SUGGESTED summary scene: restyle it to match the film. Keep the root element
+  and its data-* attributes, #bg-fill, the text from window.CARD (card.js:
+  rows, image) and the timing (references/scenes.md).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=__WIDTH__, height=__HEIGHT__" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<script src="card.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; background: #0b1320; }
+  #root { position: relative; width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; color: #fff;
+          font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: radial-gradient(ellipse at 30% 20%, #1f3a5f 0%, #0b1320 70%); }
+  #bg-fill.image { background: url("__BACKGROUND__") center / cover no-repeat;
+                   filter: blur(24px) brightness(0.35); transform: scale(1.1); }
+  #summary { position: absolute; left: 240px; right: 240px; top: 0; bottom: 0; display: flex;
+             flex-direction: column; justify-content: center; }
+  .item { font-size: 56px; line-height: 1.25; margin: 22px 0; padding-left: 40px;
+          border-left: 8px solid #f2b134; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="__SCENE_ID__" data-start="0" data-duration="__DURATION__"
+     data-full-length data-width="__WIDTH__" data-height="__HEIGHT__" data-fps="__FPS__">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="__DURATION__" data-full-length
+       data-track-index="0"></div>
+  <div id="summary"></div>
+</div>
+<script>
+  const C = window.CARD;
+  if (C.image) document.getElementById("bg-fill").classList.add("image");
+  function add(parent, cls, text) {
+    const el = document.createElement("div");
+    el.className = cls;
+    el.textContent = text;
+    document.getElementById(parent).appendChild(el);
+    return el;
+  }
+  const hidden = { opacity: 0, y: 24 };
+  const shown = { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" };
+
+  const tl = gsap.timeline({ paused: true });
+  C.rows.forEach((text, i) => {
+    tl.fromTo(add("summary", "item", text), hidden, shown, Math.max(0, S(i + 1) - 0.1));
+  });
+
+  window.__timelines = window.__timelines || {};
+  window.__timelines["__SCENE_ID__"] = tl;
+</script>
+</body>
+</html>

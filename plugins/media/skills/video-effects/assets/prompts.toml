@@ -1,0 +1,32 @@
+# Prompt templates of `keys`. Placeholders: {style} the --style text,
+# {pct} the in-between's percentage, {stage} the stage text for its fraction.
+
+# The end image, generated from the start image alone.
+end = """Re-render this image in the following style: {style}. \
+Keep the exact composition, framing and camera, and every person, pose, object, position and size identical. \
+Only the rendering changes. No new objects, no removed objects, no text changes."""
+
+# An in-between keyframe; image 1 is the start image, image 2 the end image.
+between = """Image 1 is the start frame and image 2 the end frame of a style morph; \
+image 2 shows the same scene as image 1 in this style: {style}. \
+Produce one intermediate frame of the morph. \
+Keep the exact composition, framing and camera, and every person, pose, object, position and size identical to image 1. \
+No new objects, no text changes. \
+The frame is {pct}% of the way from image 1 toward image 2: {stage}"""
+
+# Stage text by fraction: the first stage whose `upto` is >= the fraction.
+[[stage]]
+upto = 0.4
+text = """still clearly in the style of image 1, with the first traits of image 2 appearing: \
+shading, texture and lighting begin to follow image 2, colours shift slightly toward its palette, \
+lines and shapes keep the character of image 1."""
+
+[[stage]]
+upto = 0.6
+text = """halfway between the two styles: forms, materials, lighting and detail are midway between image 1 and image 2, \
+colours midway between the two palettes. The frame reads as one coherent image, not a double exposure."""
+
+[[stage]]
+upto = 1.0
+text = """close to image 2: rendering, textures, lighting and colours nearly match image 2, \
+with only slight residual traits of the style of image 1."""

@@ -1,0 +1,25 @@
+# Neutral: no brand. Rules: guidelines.md. No logo.
+colors:
+  accent1: "#1B1B4B"
+  accent2: "#8064A2"
+  accent3: "#6AD0DC"
+  dk1: "#33333B"
+  lt1: "#FFFFFF"
+  caption: "#8A8A90"
+  chip_text: "#1F7A72"
+  chip_fill: "#DDF0EE"
+  neutral_chip_fill: "#EFEFF1"
+  neutral_chip_text: "#606068"
+
+fonts:
+  heading: Calibri
+  body: Calibri
+
+# PowerPoint template: 16:9, layouts "Title Slide", "Section Header", "Title
+# and Content", "Two Content" and "Blank", no slides. Theme colours and fonts
+# from this file. Built by scripts/build_neutral_pptx.py of the brand skill;
+# the .json is the inspect-template output of the pptx skill (docs plugin).
+pptx:
+  presentation:
+    pptx: pptx/presentation.pptx
+    json: pptx/presentation.json

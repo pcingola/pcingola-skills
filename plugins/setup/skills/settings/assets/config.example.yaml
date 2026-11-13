@@ -1,0 +1,139 @@
+# Settings of the pcingola-skills marketplace: the models of the skills and every
+# setting a skill reads. One file:
+#     <config dir>/plugins/data/config.yaml
+# <config dir> is $CLAUDE_CONFIG_DIR, else ~/.claude. SKILLS_CONFIG in the
+# process environment names another file. The file holds API keys: chmod 600.
+#
+# Sections:
+#     providers   where models run, with the key of each provider (api_key)
+#     models      the model of each task, as <provider name>:<model>
+#     diffusers   local image and music models (GPU)
+#     settings    every other setting, KEY: value
+#
+# A skill reads settings.<KEY>, else the variable KEY of the process
+# environment, else the default. CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA and
+# SKILLS_CONFIG come from the process environment only. Every setting is optional unless its comment says
+# "Required".
+
+
+# === Models ==================================================================
+# A model id is <provider name>:<model>; the first colon splits it, so
+# ollama:d3:4b is the Ollama tag d3:4b.
+#
+# Provider kinds: ollama, openrouter, openai (any OpenAI-compatible server),
+# azure (Azure OpenAI, needs api_version), google (Gemini, Lyria; vertex: true
+# for a Vertex endpoint), diffusers (local models of the diffusers section).
+# Every kind except diffusers takes timeout (seconds per request, default 600).
+# Delete the providers you do not use; replace each replace-me with a key.
+# azure and vertex below point at a company (enterprise) gateway that serves
+# Azure OpenAI and Vertex AI; for the services themselves, set base_url to the
+# Azure resource or remove it for Vertex.
+
+providers:
+  ollama:      {kind: ollama, base_url: http://localhost:11434/v1}
+  openrouter:  {kind: openrouter, api_key: sk-or-v1-replace-me}
+  azure:       {kind: azure, base_url: https://gateway.example.com/azure-openai, api_version: 2025-04-01-preview, api_key: replace-me}
+  vertex:      {kind: google, vertex: true, base_url: https://gateway.example.com/vertex-ai, api_key: replace-me}
+  local:       {kind: diffusers}
+
+# The model of each task. The skills ask for these tasks:
+#   chat        ai:classify (chat backend), ai:second-opinion
+#   vision      ai:second-opinion when an image is among the files
+#   system1     ai:classify (system1 backend, System-1 models)
+#   image       media:image-gen --tier fast (the default) without --ref:
+#               quick drafts, bulk variations
+#   image_edit  media:image-gen --tier fast with --ref
+#   image_best  media:image-gen --tier best, with and without --ref: best
+#               quality, text in the image (Studio "Best", the default tier
+#               of media:video-effects)
+#   image_multi_ref  media:image-gen --tier multi-ref, with and without --ref:
+#               several reference images, a character or product kept the
+#               same across images (Studio "Multi-reference")
+#   speech      media:voiceover (speech backend)
+#   music       media:music generate
+#   audio       media:music analyze (a chat model that takes audio)
+# A `--model <provider>:<model>` flag of a skill replaces the task's model.
+models:
+  chat: openrouter:google/gemini-3-pro
+  vision: ollama:gemma4:31b
+  system1: ollama:d3:4b
+  image: local:z-image-turbo
+  image_edit: local:flux2-klein-4b
+  image_best: azure:gpt-image-2
+  image_multi_ref: openrouter:google/gemini-3-pro-image
+  speech: azure:gpt-4o-mini-tts
+  music: vertex:lyria-002
+  audio: vertex:gemini-3.1-pro-preview
+
+# Local models (provider kind diffusers): repo (Hugging Face repository),
+# steps, guidance, inpaint (the diffusers pipeline class for edits with a
+# mask). The image-gen and music wrappers install torch and diffusers when a
+# provider of kind diffusers is present; the first run downloads the weights
+# to the Hugging Face cache (HF_HOME below).
+diffusers:
+  z-image-turbo:  {repo: Tongyi-MAI/Z-Image-Turbo, steps: 9, guidance: 0.0, inpaint: ZImageInpaintPipeline}
+  flux2-klein-4b: {repo: black-forest-labs/FLUX.2-klein-4B, steps: 4, guidance: 1.0, inpaint: Flux2KleinInpaintPipeline}
+  ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0}
+
+
+# === Settings ================================================================
+# Uncomment a line to set it. A value with ': ' or ' #' in it needs quotes.
+
+settings:
+
+  # --- TLS / CA certificates (all plugins) -----------------------------------
+  # An extra CA certificate for TLS-intercepting proxies.
+  # Export the proxy root CA to a PEM file and name it here. It is trusted on
+  # top of certifi's roots by every remote call of the model layer
+  # (ai:classify, ai:second-opinion, media:image-gen, media:music,
+  # media:voiceover).
+  # The readers take EXTRA_CA_CERT, else NODE_EXTRA_CA_CERTS, the first that
+  # names an existing file. With neither set, they use the default trust only.
+  # Chain and hostname verification stay on.
+  #EXTRA_CA_CERT: /path/to/proxy_root_ca.pem
+  # Checked after EXTRA_CA_CERT. Exported to the process environment, where
+  # Node.js programs read it.
+  #NODE_EXTRA_CA_CERTS: /path/to/proxy_root_ca.pem
+
+  # --- Read by libraries (exported to the process environment) ---------------
+  # A skill that loads the settings exports these to its process environment,
+  # where the HTTP, TLS and Hugging Face libraries and child processes read
+  # them.
+  #
+  # Proxies. Read by the HTTP clients of the model layer and by the httpx and
+  # requests of media:voiceover (weight downloads).
+  #HTTP_PROXY: http://proxy.example.com:8080
+  #HTTPS_PROXY: http://proxy.example.com:8080
+  #ALL_PROXY: http://proxy.example.com:8080
+  #NO_PROXY: localhost,127.0.0.1
+  # PEM bundle that replaces the default trust store. Read by httpx's default
+  # TLS context (media:voiceover weight downloads).
+  # The remote calls of the model layer do not read it: they
+  # use certifi's roots plus EXTRA_CA_CERT.
+  #SSL_CERT_FILE: /path/to/ca_bundle.pem
+  # Hugging Face cache, where the local diffusers models (media:image-gen,
+  # media:music) download their weights (4 to 33 GB per model). Default
+  # ~/.cache/huggingface.
+  #HF_HOME: /path/to/huggingface
+  # Hugging Face token. Needed only for a gated repository.
+  #HF_TOKEN: hf_replace-me
+
+  # --- media:voiceover -------------------------------------------------------
+  # The speech backend takes the task speech (models above).
+  # Kokoro, MMS_FA and Chatterbox weights. Default <media data dir>/voiceover.
+  #VOICEOVER_MODEL_DIR: /path/to/voiceover
+  # Chatterbox voice recordings written by `add-voice`.
+  # Default <VOICEOVER_MODEL_DIR>/voices.
+  #VOICEOVER_VOICES_DIR: /path/to/voices
+
+  # --- brand:brand -----------------------------------------------------------
+  # Colon-separated directories searched for brand folders (<dir>/<name>/
+  # brand.yaml) after the bundled brands, in order; the first match wins.
+  # Empty and missing entries are skipped.
+  #BRAND_PATH: /path/to/brands
+
+  # --- studio ----------------------------------------------------------------
+  # Directory of the Studio projects: <dir>/<skill>/<project>/ (images,
+  # infographic, slides, short-video). Created when missing. Default
+  # ~/Documents/Studio.
+  #STUDIO_DIR: ~/Documents/Studio

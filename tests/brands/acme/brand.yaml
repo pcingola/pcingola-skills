@@ -1,0 +1,17 @@
+# Acme: a fictitious brand for tests. Rules: guidelines.md.
+logo: logo.svg        # amber disc, for pages
+raster: logo.png      # the same disc as a trimmed PNG, for the video caption
+caption:
+  height: 1.3         # logo height / caption cap height
+  gap: 0.45           # ink gap between text and logo / caption font size
+
+colors:
+  dk1: "#222222"
+  lt1: "#FFFFFF"
+  accent1: "#0B3D91"
+  accent2: "#E69F00"
+  accent3: "#56B4E9"
+
+fonts:
+  heading: Calibri
+  body: Calibri

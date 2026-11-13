@@ -1,0 +1,17 @@
+[project]
+name = "studio-server"
+version = "0.1.0"
+requires-python = ">=3.11"
+# Standard-library HTTP server; plugin-settings reads STUDIO_DIR.
+dependencies = [
+    # the settings file config.yaml (lib/plugin_settings, git source)
+    "plugin-settings",
+]
+
+[tool.uv.sources]
+plugin-settings = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/plugin_settings", branch = "main" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]

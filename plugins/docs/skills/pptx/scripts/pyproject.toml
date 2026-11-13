@@ -1,0 +1,13 @@
+[project]
+name = "pptx-cli"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "python-pptx",
+    "Pillow",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]

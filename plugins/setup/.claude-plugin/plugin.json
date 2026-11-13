@@ -1,0 +1,7 @@
+{
+  "name": "setup",
+  "description": "Installation of the pcingola-skills marketplace and its plugins, and the settings file config.yaml: models, keys and every setting a skill reads.",
+  "author": {
+    "name": "Pablo Cingolani"
+  }
+}

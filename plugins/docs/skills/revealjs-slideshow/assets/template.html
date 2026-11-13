@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <link rel="stylesheet" href="reveal.js/dist/reset.css">
+    <link rel="stylesheet" href="reveal.js/dist/reveal.css">
+    <link rel="stylesheet" href="reveal.js/dist/theme/{{theme}}.css">
+    <link rel="stylesheet" href="reveal.js/plugin/highlight/monokai.css">
+    <style>
+      /* Opaque code background so step-by-step line highlights do not stack */
+      .reveal pre code.hljs { background: #272822; }
+    </style>
+  </head>
+  <body>
+    <div class="reveal">
+      <div class="slides">
+        <section>
+          <h1>{{title}}</h1>
+        </section>
+
+        <section data-markdown>
+          <textarea data-template>
+            ## Markdown slide
+            - Point one
+            - Point **two**
+
+            Note:
+            Speaker notes for this slide.
+          </textarea>
+        </section>
+
+        <section>
+          <h2>Code</h2>
+          <pre><code data-trim data-line-numbers="1|2" class="language-python">
+def square(x):
+    return x * x
+          </code></pre>
+        </section>
+
+        <section>
+          <h2>Math</h2>
+          <p>$$\int_0^1 x^2 \, dx = \frac{1}{3}$$</p>
+        </section>
+      </div>
+    </div>
+
+    <script src="reveal.js/dist/reveal.js"></script>
+    <script src="reveal.js/plugin/markdown/markdown.js"></script>
+    <script src="reveal.js/plugin/highlight/highlight.js"></script>
+    <script src="reveal.js/plugin/notes/notes.js"></script>
+    <script src="reveal.js/plugin/math/math.js"></script>
+    <script>
+      Reveal.initialize({
+        hash: true,
+        transition: 'slide',
+        // KaTeX is vendored next to the math plugin; without `local` it loads from a CDN.
+        katex: { local: 'reveal.js/plugin/math/katex' },
+        plugins: [RevealMarkdown, RevealHighlight, RevealNotes, RevealMath.KaTeX]
+      });
+    </script>
+  </body>
+</html>

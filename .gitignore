@@ -1,0 +1,33 @@
+# Python-generated files
+__pycache__/
+.pytest_cache/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.DS_Store
+*.zip
+
+# Virtual environments
+.venv
+
+tmp/
+data/
+# Output of the integration tests
+tests/data/tmp_*/
+prompts/
+PROMPT*.md
+.env
+.env.*
+*.pem
+*.key
+*.p12
+# Node
+node_modules/
+# Vendored reveal.js and KaTeX builds ship with the revealjs-slideshow skill
+!plugins/docs/skills/revealjs-slideshow/assets/reveal.js/dist/
+!plugins/docs/skills/revealjs-slideshow/assets/reveal.js/plugin/math/katex/dist/
+
+# Local implementation plans
+plans/

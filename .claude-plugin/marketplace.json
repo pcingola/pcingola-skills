@@ -1,0 +1,46 @@
+{
+  "name": "pcingola-skills",
+  "owner": {
+    "name": "Pablo Cingolani"
+  },
+  "metadata": {
+    "description": "Agent Skills for presentations, images, audio and video."
+  },
+  "plugins": [
+    {
+      "name": "docs",
+      "source": "./plugins/docs",
+      "description": "Raw PowerPoint (.pptx) operations: inspect, fill, add shapes with measured text, check overflow, copy slides between decks; offline reveal.js slideshows."
+    },
+    {
+      "name": "media",
+      "source": "./plugins/media",
+      "description": "Image, music and voiceover generation with the models of the model config (API providers, Ollama or local diffusers models), short narrated videos, and slide deck authoring."
+    },
+    {
+      "name": "dev",
+      "source": "./plugins/dev",
+      "description": "Implementation plans, and Agent Skill authoring and review."
+    },
+    {
+      "name": "brand",
+      "source": "./plugins/brand",
+      "description": "Brand folders (logos, colours, fonts, guidelines, PowerPoint templates) found in the bundled brands and in BRAND_PATH."
+    },
+    {
+      "name": "ai",
+      "source": "./plugins/ai",
+      "description": "Classification and scoring of text with System-1 models or chat models, and review of files by a second model, on the providers of the model config (Ollama, OpenRouter, Azure OpenAI, Vertex AI or a company gateway)."
+    },
+    {
+      "name": "studio",
+      "source": "./plugins/studio",
+      "description": "A local web page in the browser for making images, infographics and slide decks with Claude: projects, styles, versions and marked changes, carried out by this Claude Code session."
+    },
+    {
+      "name": "setup",
+      "source": "./plugins/setup",
+      "description": "Installation of the pcingola-skills marketplace and its plugins, and the settings file config.yaml: models, keys and every setting a skill reads."
+    }
+  ]
+}

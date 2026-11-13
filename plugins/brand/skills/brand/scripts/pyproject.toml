@@ -1,0 +1,23 @@
+[project]
+name = "brand-cli"
+version = "0.1.0"
+requires-python = ">=3.11"
+# The CLI only resolves and copies folders; plugin-settings (pyyaml)
+# reads the settings file.
+dependencies = [
+    "plugin-settings",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pyyaml>=6",
+]
+# build_neutral_pptx.py, a maintainer script that writes brands/neutral/pptx/.
+build = [
+    "python-pptx>=1.0",
+    "pyyaml>=6",
+]
+
+[tool.uv.sources]
+plugin-settings = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/plugin_settings", branch = "main" }

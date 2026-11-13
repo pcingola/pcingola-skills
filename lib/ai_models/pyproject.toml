@@ -1,0 +1,36 @@
+[project]
+name = "ai-models"
+version = "0.1.0"
+description = "Models for the skills through Pydantic-AI, set per task in config.yaml"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic-ai-slim[openai,google]>=2.66",
+    "pyyaml>=6",
+    "certifi>=2024.0.0",
+    "plugin-settings",
+]
+
+[project.optional-dependencies]
+# local images and music in process; only skills that need it install torch
+diffusers = [
+    "torch>=2.9",
+    "diffusers>=0.42",
+    "transformers>=5",
+    "accelerate",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+# CUDA 13.0 builds on Linux (aarch64 and x86_64); PyPI's default build on macOS (MPS)
+torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ai_models"]

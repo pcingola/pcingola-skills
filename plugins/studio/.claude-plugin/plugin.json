@@ -1,0 +1,12 @@
+{
+  "name": "studio",
+  "description": "A local web page in the browser for making images, infographics and slide decks with Claude: projects, styles, versions and marked changes, carried out by this Claude Code session.",
+  "author": {
+    "name": "Pablo Cingolani"
+  },
+  "dependencies": [
+    "brand",
+    "media",
+    "setup"
+  ]
+}

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Studio</title>
+<link rel="stylesheet" href="/static/studio.css">
+<script src="/static/shell.js"></script>
+<script src="/static/images.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">Studio</div>
+    <div class="nav" id="kinds"><h3>Make</h3></div>
+    <div>
+      <h3 id="projects-title">Projects</h3>
+      <div id="projects"></div>
+      <button class="project new" id="new-open">+ New project</button>
+    </div>
+    <div class="grow"></div>
+    <div class="settings">
+      <div class="pop" id="pop" hidden>
+        <h4>Settings</h4>
+        <label class="f">Appearance</label>
+        <div id="theme"></div>
+      </div>
+      <button class="gear" id="gear">⚙️ Settings</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="top" id="top" hidden>
+      <h1 id="title"></h1><span class="tag" id="tag"></span>
+      <div class="mode" id="mode" title="Step by step: Claude shows each result and waits. Automatic: Claude picks the style, generates, reviews and keeps the best one.">
+        <button data-v="step">Step by step</button>
+        <button data-v="auto">Automatic</button>
+      </div>
+    </div>
+    <div id="workspace"></div>
+    <div class="actbar" id="actbar" hidden></div>
+  </main>
+
+  <aside class="activity">
+    <header><span class="dot off" id="dot"></span><b>Claude</b><small id="state">connecting…</small></header>
+    <div class="feed" id="feed"></div>
+    <div class="notice" id="asking" hidden></div>
+    <div class="notice" id="queue" hidden></div>
+    <div class="ask">
+      <textarea id="ask" placeholder="Tell Claude what you want, in as much detail as you like."></textarea>
+      <div class="bar"><span id="send-key">⌘ Enter to send</span><button class="primary" id="send">Send</button></div>
+    </div>
+  </aside>
+</div>
+
+<div class="shade" id="shade" hidden>
+  <div class="detail">
+    <div class="stage">
+      <div class="tools">
+        <button data-tool="view">👁 View</button>
+        <button data-tool="box">▭ Box</button>
+        <button data-tool="point">● Point</button>
+        <button data-tool="loop">✎ Circle freehand</button>
+        <button id="d-clear">Clear marks</button>
+        <span id="d-hint"></span>
+      </div>
+      <div class="canvas"><div class="frame" id="d-frame"><img id="d-img" alt=""><canvas id="d-overlay"></canvas></div></div>
+    </div>
+    <div class="info">
+      <div class="head"><h2 id="d-title"></h2><button class="close" id="d-close" title="Close">×</button></div>
+      <dl id="d-meta"></dl>
+      <label class="f">Marked areas</label>
+      <div class="marks" id="d-marks"></div>
+      <label class="f" for="d-note">Anything else to change</label>
+      <textarea id="d-note" placeholder="For example: make the sky darker"></textarea>
+      <div class="acts" id="d-acts"></div>
+    </div>
+  </div>
+</div>
+<div class="banner" id="offline" hidden>Disconnected from the studio server. Reconnecting…</div>
+</body>
+</html>

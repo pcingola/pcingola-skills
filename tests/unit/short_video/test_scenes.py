@@ -1,0 +1,169 @@
+"""short_video_tool.scenes: the static check of timing-helper calls, filled
+starting pages, card.js, scene length, contact sheet and background videos."""
+import json
+import re
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from short_video_tool import scenes
+
+
+def _sentence(i: int, text: str, start: float) -> dict:
+    words = [{"text": w, "start": start + k * 0.3, "end": start + k * 0.3 + 0.25} for k, w in enumerate(text.split())]
+    return {"index": i, "text": text, "start": start, "end": words[-1]["end"], "words": words}
+
+
+TIMING = {"duration": 6.2, "sentences": [
+    _sentence(1, "A virus enters the cell.", 0.25),
+    _sentence(2, "The cell copies the virus, virus after Virus.", 2.45),
+]}
+
+
+class TestCheckHelpers(unittest.TestCase):
+
+    def test_calls(self) -> None:
+        """scenes.check_helpers accepts literal S/SE/W/WE calls that match timing.json, ignores non-literal and
+        other-name calls, and reports an unknown word, a missing occurrence, a missing sentence and a wrong
+        argument count with the line. Guards render's static helper check against the voiced timing."""
+        ok = 'S(1); SE(2); W(1, "virus"); WE(2, \'virus\', 3); W( 1 , "CELL" ); S(i); W(1, label); CSS(9); obj.S(9)'
+        self.assertEqual(scenes.check_helpers(ok, TIMING), ([], 5))
+        for call, fragment in [('W(1, "bacteria")', "not found"), ('W(2, "virus", 4)', "3 occurrence"),
+                               ("S(3)", "no sentence"), ('W(5, "virus")', "no sentence"), ("S(1, 2)", "takes one")]:
+            with self.subTest(call=call):
+                errors, _ = scenes.check_helpers("\n" + call, TIMING)
+                self.assertEqual(len(errors), 1)
+                self.assertIn(fragment, errors[0])
+                self.assertIn("line 2", errors[0])
+
+
+class TestPages(unittest.TestCase):
+
+    def test_filled_pages(self) -> None:
+        """scenes.render_template fills every starting page (scene, title, summary, end) with no placeholder
+        left, registers the timeline under the scene id and passes check_helpers. Guards the asset pages
+        rendering as given."""
+        for kind in ("scene", "title", "summary", "end"):
+            with self.subTest(kind=kind):
+                html = scenes.render_template(kind, 5.0, kind)
+                self.assertNotIn("__", html.replace("window.__timelines", ""))
+                self.assertIn(f'window.__timelines["{kind}"] = tl', html)
+                self.assertIn('data-composition-id="' + kind + '"', html)
+                self.assertEqual(scenes.check_helpers(html, TIMING)[0], [])
+
+    def test_set_full_length_rewrites_only_marked_tags(self) -> None:
+        """scenes.set_full_length rewrites data-duration only on tags marked data-full-length. Guards overlays
+        keeping their own durations when the scene length changes."""
+        html = scenes.render_template("intro", 6.2).replace(
+            "<!-- overlays here -->", '<div id="lbl" data-start="1" data-duration="6.2"></div>')
+        out = scenes.set_full_length(html, 9.75)
+        self.assertEqual(out.count('data-duration="9.75"'), html.count('data-duration="6.2"') - 1)
+        self.assertIn('id="lbl" data-start="1" data-duration="6.2"', out)
+
+    def test_card_js(self) -> None:
+        """scenes.card_js writes the card rows, author, byline and credit as JSON with `</script>` escaped.
+        Guards card text that would close the script tag."""
+        js = scenes.card_js({"template": "end", "author": "Jane O'Doe", "beats": ["A </script> & more"]})
+        self.assertNotIn("</script>", js)
+        card = json.loads(re.search(r"\{.*\}", js, re.S).group(0).replace("<\\/", "</"))
+        self.assertEqual(card, {"rows": ["A </script> & more"], "author": "Jane O'Doe", "image": False,
+                                "byline": "by Jane O'Doe", "credit": "Created by Jane O'Doe"})
+
+    def test_lengths(self) -> None:
+        """scenes.scene_duration adds a template's hold_seconds to the narration and scenes.contact_sheet_filter
+        picks the tile grid for a 12.3 s scene. Guards template scenes lasting past their narration."""
+        self.assertEqual(scenes.scene_duration({"template": "end"}, 5.0), 9.0)
+        self.assertEqual(scenes.scene_duration({"image": "a.png"}, 5.0), 5.0)
+        self.assertEqual(scenes.contact_sheet_filter(12.3), "fps=1,scale=384:-2,tile=5x3")
+
+    def test_doctor_judges_required_checks_only(self) -> None:
+        """scenes.doctor_failures reports failed required HyperFrames doctor checks only, with their detail.
+        Guards setup failing on an optional check such as Docker."""
+        report = {"checks": [{"name": n, "ok": True} for n in ("Node.js", "FFmpeg", "FFprobe")]
+                  + [{"name": "Chrome", "ok": False, "detail": "missing"}, {"name": "Docker", "ok": False}]}
+        self.assertEqual(scenes.doctor_failures(report), ["Chrome: missing"])
+
+
+class TestBackgroundVideo(unittest.TestCase):
+
+    PAGE = ('<video id="bg-video" class="clip bg" src="background.mp4" muted playsinline\n'
+            '       data-start="0" data-duration="6.2" data-full-length></video><img src="background.png">')
+
+    def test_sources(self) -> None:
+        """scenes.video_sources lists <video> sources and ignores images. Guards which files check_videos
+        checks."""
+        self.assertEqual(scenes.video_sources(self.PAGE), ["background.mp4"])
+        self.assertEqual(scenes.video_sources("<img src='a.png'>"), [])
+
+    def test_missing_and_short_files(self) -> None:
+        """scenes.check_videos reports a missing background video and one shorter than the scene by more than a
+        frame, suggesting tpad, and accepts one within a frame or longer. Guards render failing on a background
+        video that ends early."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sdir = Path(tmp)
+            self.assertIn("not found", scenes.check_videos(sdir, self.PAGE, 6.2, 30)[0])
+            for length, n_errors in ((6.2, 0), (10.0, 0), (4.0, 1)):
+                subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                                f"color=c=black:s=16x16:r=30:d={length}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                                str(sdir / "background.mp4")], check=True)
+                with self.subTest(length=length):
+                    errors = scenes.check_videos(sdir, self.PAGE, 6.2, 30)
+                    self.assertEqual(len(errors), n_errors)
+            self.assertIn("tpad", errors[0])
+
+    def test_scaffold_carries_the_video_forward(self) -> None:
+        """scenes.scaffold copies the previous version's background video into the next version. Guards a re-
+        scaffold losing the scene's background video."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, node_dir = Path(tmp, "p"), Path(tmp, "node")
+            voice = project / "voice" / "s" / "v1"
+            voice.mkdir(parents=True)
+            (voice / "timing.json").write_text(json.dumps(TIMING), encoding="utf-8")
+            (voice / "meta.json").write_text("{}", encoding="utf-8")
+            (node_dir / scenes.GSAP_REL).parent.mkdir(parents=True)
+            (node_dir / scenes.GSAP_REL).write_text("x", encoding="utf-8")
+            scene = {"id": "s", "brief": "b", "beats": []}
+            first = scenes.scaffold(project, scene, node_dir)
+            self.assertFalse((first / scenes.BACKGROUND_VIDEO).exists())
+            (first / scenes.BACKGROUND_VIDEO).write_bytes(b"clip")
+            second = scenes.scaffold(project, scene, node_dir)
+            self.assertEqual((second / scenes.BACKGROUND_VIDEO).read_bytes(), b"clip")
+
+
+class TestNodeReady(unittest.TestCase):
+
+    def _install(self, node_dir: Path) -> None:
+        for rel in (scenes.HYPERFRAMES_REL, scenes.GSAP_REL):
+            (node_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+            (node_dir / rel).write_text("x", encoding="utf-8")
+
+    def test_package_files_must_match_source(self) -> None:
+        """scenes.node_ready is false until the installed package.json and package-lock.json equal scripts/node/
+        and false again after the lock changes. Guards render rerunning npm ci when the pinned versions change."""
+        with tempfile.TemporaryDirectory() as tmp:
+            src, node_dir = Path(tmp, "src"), Path(tmp, "env", "node")
+            src.mkdir()
+            for f in scenes.NODE_FILES:
+                (src / f).write_text("{}", encoding="utf-8")
+            self._install(node_dir)
+            self.assertFalse(scenes.node_ready(node_dir, src))
+            for f in scenes.NODE_FILES:
+                shutil.copyfile(src / f, node_dir / f)
+            self.assertTrue(scenes.node_ready(node_dir, src))
+            (src / "package-lock.json").write_text('{"v": 2}', encoding="utf-8")
+            self.assertFalse(scenes.node_ready(node_dir, src))
+
+    def test_in_place_install_needs_no_source(self) -> None:
+        """scenes.node_ready without a source directory checks only that HyperFrames and GSAP are installed.
+        Guards the in-place install next to the package files."""
+        with tempfile.TemporaryDirectory() as tmp:
+            node_dir = Path(tmp)
+            self.assertFalse(scenes.node_ready(node_dir))
+            self._install(node_dir)
+            self.assertTrue(scenes.node_ready(node_dir))
+
+
+if __name__ == "__main__":
+    unittest.main()

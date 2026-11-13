@@ -1,0 +1,11 @@
+{
+  "name": "docs",
+  "description": "Raw PowerPoint (.pptx) operations: inspect, fill, add shapes with measured text, check overflow, copy slides between decks; offline reveal.js slideshows.",
+  "author": {
+    "name": "Pablo Cingolani"
+  },
+  "dependencies": [
+    "brand",
+    "setup"
+  ]
+}

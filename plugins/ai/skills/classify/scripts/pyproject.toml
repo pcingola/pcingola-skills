@@ -1,0 +1,19 @@
+[project]
+name = "classify-cli"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    # System-1 and chat models of config.yaml through Pydantic-AI (lib/ai_models, git source)
+    "ai-models",
+    # the settings file config.yaml (lib/plugin_settings, git source)
+    "plugin-settings",
+]
+
+[tool.uv.sources]
+ai-models = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/ai_models", branch = "main" }
+plugin-settings = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/plugin_settings", branch = "main" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]

@@ -1,0 +1,10 @@
+{
+  "name": "ai",
+  "description": "Classification and scoring of text with System-1 models or chat models, and review of files by a second model, on the providers of the model config (Ollama, OpenRouter, Azure OpenAI, Vertex AI or a company gateway).",
+  "author": {
+    "name": "Pablo Cingolani"
+  },
+  "dependencies": [
+    "setup"
+  ]
+}

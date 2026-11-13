@@ -1,0 +1,10 @@
+{
+  "name": "dev",
+  "description": "Implementation plans, and Agent Skill authoring and review.",
+  "author": {
+    "name": "Pablo Cingolani"
+  },
+  "dependencies": [
+    "setup"
+  ]
+}

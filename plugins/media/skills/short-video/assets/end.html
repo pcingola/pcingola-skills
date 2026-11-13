@@ -1,0 +1,66 @@
+<!doctype html>
+<!--
+  SUGGESTED end scene: restyle it to match the film. Keep the root element
+  and its data-* attributes, #bg-fill, the text from window.CARD (card.js:
+  rows, author, image, credit) and the timing (references/scenes.md).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=__WIDTH__, height=__HEIGHT__" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<script src="card.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; background: #0b1320; }
+  #root { position: relative; width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; color: #fff;
+          font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: radial-gradient(ellipse at 30% 20%, #1f3a5f 0%, #0b1320 70%); }
+  #bg-fill.image { background: url("__BACKGROUND__") center / cover no-repeat;
+                   filter: blur(24px) brightness(0.35); transform: scale(1.1); }
+  #card { position: absolute; left: 200px; right: 200px; top: 0; bottom: 0; display: flex;
+          flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+  #card > * { opacity: 0; }
+  .closing { font-size: 80px; font-weight: 700; line-height: 1.15; }
+  .rule { width: 160px; height: 6px; background: #f2b134; margin: 40px 0; border-radius: 3px; }
+  .line { font-size: 46px; line-height: 1.3; color: #dfe6ee; }
+  .credit { font-size: 36px; color: #b8c4d2; margin-top: 72px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="__SCENE_ID__" data-start="0" data-duration="__DURATION__"
+     data-full-length data-width="__WIDTH__" data-height="__HEIGHT__" data-fps="__FPS__">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="__DURATION__" data-full-length
+       data-track-index="0"></div>
+  <div id="card"></div>
+</div>
+<script>
+  const C = window.CARD;
+  if (C.image) document.getElementById("bg-fill").classList.add("image");
+  const card = document.getElementById("card");
+  function add(cls, text) {
+    const el = document.createElement("div");
+    el.className = cls;
+    el.textContent = text || "";
+    card.appendChild(el);
+    return el;
+  }
+  const hidden = { opacity: 0, y: 24 };
+  const shown = { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" };
+  const last = C.rows.length;
+
+  const tl = gsap.timeline({ paused: true });
+  tl.fromTo(add("closing", C.rows[0]), hidden, shown, Math.max(0, S(1) - 0.2));
+  tl.fromTo(add("rule"), { opacity: 0, scaleX: 0 }, { opacity: 1, scaleX: 1, duration: 0.6 }, S(1) + 0.3);
+  for (let n = 2; n <= last; n++) {
+    tl.fromTo(add("line", C.rows[n - 1]), hidden, shown, Math.max(0, S(n) - 0.1));
+  }
+  if (C.credit) tl.fromTo(add("credit", C.credit), hidden, shown, SE(last) + 0.4);
+
+  window.__timelines = window.__timelines || {};
+  window.__timelines["__SCENE_ID__"] = tl;
+</script>
+</body>
+</html>

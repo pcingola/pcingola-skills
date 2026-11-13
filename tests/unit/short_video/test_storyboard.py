@@ -1,0 +1,279 @@
+"""short_video_tool.storyboard: parsing storyboard.md, and validating what the
+parser cannot check (files, settings, template positions, length)."""
+import tempfile
+import unittest
+from pathlib import Path
+
+from short_video_tool import settings, storyboard
+
+MD = """\
+<!-- a comment -->
+# Vaccines
+
+Topic: How a vaccine
+trains the immune system.
+Source: sources/notes.md
+
+## title
+Template: title
+
+| Narration | On screen |
+|---|---|
+| This film is about vaccines. | How a vaccine works |
+
+## injection
+Image: a.png
+Brief: Start wide.
+<a href="images/a.png"><img src="images/a.png" width="30%"></a>
+
+| Narration | On screen |
+| :-- | --: |
+| A cell \\| a virus. |   Label "cell" on "cell".   |
+
+## end
+Template: end
+
+| Narration | On screen |
+|---|---|
+| Check your vaccinations. | Check them |
+"""
+
+PARSED = {
+    "title": "Vaccines", "topic": "How a vaccine trains the immune system.", "source": "sources/notes.md",
+    "scenes": [
+        {"id": "title", "template": "title", "narration": ["This film is about vaccines."],
+         "beats": ["How a vaccine works"]},
+        {"id": "injection", "image": "a.png", "brief": "Start wide.", "preview": "images/a.png",
+         "narration": ["A cell | a virus."], "beats": ['Label "cell" on "cell".']},
+        {"id": "end", "template": "end", "narration": ["Check your vaccinations."], "beats": ["Check them"]},
+    ],
+}
+
+
+def _error(text: str) -> str:
+    with unittest.TestCase().assertRaises(storyboard.StoryboardError) as cm:
+        storyboard.parse_markdown(text)
+    return str(cm.exception)
+
+
+class TestParse(unittest.TestCase):
+
+    def test_parse(self) -> None:
+        """storyboard.parse_markdown reads title, a multi-line topic, source, template and image scenes, the
+        preview link, escaped pipes and aligned table rules into the scene dicts. Guards the deterministic parse
+        of the storyboard format in references/storyboard.md."""
+        self.assertEqual(storyboard.parse_markdown(MD), PARSED)
+
+    def test_errors_name_their_line(self) -> None:
+        """storyboard.parse_markdown reports a missing brief, wrong cell count, empty narration, duplicate or
+        invalid scene id, unknown template, Brief on a template, settings keys in the storyboard, unknown keys
+        and text after the table, each with its line. Guards parse errors the agent can fix from the message."""
+        cases = [  # (replace, with, line, fragment)
+            ("Brief: Start wide.\n", "", 15, "missing `Brief:`"),
+            ("| A cell \\| a virus. |", "| A cell | a virus. |", 22, "has 3 cells"),
+            ("| A cell \\| a virus. |", "|  |", 22, "empty Narration"),
+            ("## end", "## injection", 24, "duplicate scene id 'injection'"),
+            ("## end", "## End-1", 24, "invalid scene id"),
+            ("Template: end", "Template: outro", 25, "must be one of"),
+            ("Template: title\n", "Template: title\nBrief: x\n", 10, "takes no `Brief:`"),
+            ("Source: sources/notes.md", "Voice: backend=kokoro", 6, "settings.yaml (`voice:`)"),
+            ("Source: sources/notes.md", "Author: Jane", 6, "settings.yaml (`author:`)"),
+            ("Brief: Start wide.", "Brief: Start wide.\nDuration: 5", 18, "unknown key `Duration:`"),
+            ("| Check them |", "| Check them |\nmore text", 30, "text after the table"),
+        ]
+        for old, new, line, fragment in cases:
+            with self.subTest(fragment=fragment):
+                msg = _error(MD.replace(old, new))
+                prefix = f"storyboard.md line {line}: "
+                self.assertTrue(any(m.startswith(prefix) and fragment in m for m in msg.splitlines()), msg)
+
+
+SPEAKERS_MD = """\
+# Interview
+
+Topic: Two people talk.
+
+| Speaker | Backend | Voice | Speed | Style |
+|---|---|---|---|---|
+| host | kokoro | bm_george | 1.1 | |
+| guest | speech | | | warm, curious |
+
+## talk
+Image: a.png
+Brief: Two faces.
+
+| Speaker | Narration | On screen |
+|---|---|---|
+| host | Welcome. | host face |
+| guest | Thank you. | guest face |
+|  | They talk. | both \\| faces |
+"""
+
+
+class TestSpeakers(unittest.TestCase):
+
+    def test_parse(self) -> None:
+        """storyboard.parse_markdown reads the header speaker table (empty cells as None, speed as a number) and
+        a scene's Speaker column, empty for the default voice. Guards the speakers format."""
+        data = storyboard.parse_markdown(SPEAKERS_MD)
+        self.assertEqual(data["speakers"], {
+            "host": {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None},
+            "guest": {"backend": "speech", "name": None, "speed": None, "style": "warm, curious"},
+        })
+        [scene] = data["scenes"]
+        self.assertEqual(scene["narration"], ["Welcome.", "Thank you.", "They talk."])
+        self.assertEqual(scene["beats"], ["host face", "guest face", "both | faces"])
+        self.assertEqual(scene["speakers"], ["host", "guest", None])
+
+    def test_without_speakers_no_new_keys(self) -> None:
+        """storyboard.parse_markdown without a speaker table adds no `speakers` key to the film or its scenes.
+        Guards one-voice films taking the single-voice path."""
+        data = storyboard.parse_markdown(MD)
+        self.assertNotIn("speakers", data)
+        self.assertFalse(any("speakers" in s for s in data["scenes"]))
+
+    def test_errors_name_their_line(self) -> None:
+        """storyboard.parse_markdown reports duplicate and invalid speaker names, a non-numeric speed, wrong
+        cell counts, a second header table, a table outside a scene, an undefined speaker and a wrong rule
+        width, each with its line. Guards the speaker table checks."""
+        cases = [  # (replace, with, line, fragment)
+            ("| guest | speech |", "| host | speech |", 8, "duplicate speaker 'host' (first at line 7)"),
+            ("| guest | speech |", "| Guest-2 | speech |", 8, "invalid speaker name 'Guest-2'"),
+            ("| 1.1 |", "| fast |", 7, "Speed 'fast' is not a number"),
+            ("| host | kokoro | bm_george | 1.1 | |", "| host | kokoro | bm_george |", 7, "needs 5"),
+            ("Topic: Two people talk.\n", "Topic: Two people talk.\n\n| Speaker | Backend | Voice | Speed | Style |\n"
+             "|---|---|---|---|---|\n| x | kokoro | | | |\n", 9, "a second table in the header"),
+            ("| Speaker | Backend |", "| Name | Backend |", 5, "table outside a scene"),
+            ("| guest | Thank you. |", "| critic | Thank you. |", 17, "speaker 'critic' is not defined"),
+            ("| guest | Thank you. | guest face |", "| Thank you. | guest face |", 17, "has 2 cells, needs 3"),
+            ("| On screen |\n|---|---|---|\n", "| On screen |\n|---|---|\n", 15, "`|---|---|---|`"),
+        ]
+        for old, new, line, fragment in cases:
+            with self.subTest(fragment=fragment):
+                self.assertIn(old, SPEAKERS_MD)
+                msg = _error(SPEAKERS_MD.replace(old, new))
+                prefix = f"storyboard.md line {line}: "
+                self.assertTrue(any(m.startswith(prefix) and fragment in m for m in msg.splitlines()), msg)
+
+    def test_speaker_voice(self) -> None:
+        """storyboard.speaker_voice fills a speaker's empty cells with the backend's defaults and gives the
+        settings voice for no speaker. Guards the voice each part is checked against."""
+        settings.use_project(None)
+        data = storyboard.parse_markdown(SPEAKERS_MD)
+        self.assertEqual(storyboard.speaker_voice(data, "guest"),
+                         {"backend": "speech", "name": None, "speed": 1.0, "style": "warm, curious"})
+        self.assertEqual(storyboard.speaker_voice(data, None),
+                         {"backend": "kokoro", "name": "af_heart", "speed": 1.0, "style": None})
+
+
+class TestValidate(unittest.TestCase):
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.project = Path(self._tmp.name)
+        for d in ("images", "sources"):
+            (self.project / d).mkdir()
+        (self.project / "images" / "a.png").write_bytes(b"")
+        (self.project / "sources" / "notes.md").write_text("")
+        self.settings("author: [Jane Doe]\nlength: {min_seconds: 1}")
+
+    def tearDown(self) -> None:
+        settings.use_project(None)
+        self._tmp.cleanup()
+
+    def settings(self, text: str) -> None:
+        (self.project / "settings.yaml").write_text(text)
+        settings.use_project(self.project)
+
+    def check(self, md: str = MD) -> storyboard.Validation:
+        (self.project / "storyboard.md").write_text(md)
+        return storyboard.validate(storyboard.load(self.project), self.project)
+
+    def test_clean(self) -> None:
+        """storyboard.validate of a complete storyboard, with and without speakers, gives no errors or warnings.
+        Guards against false findings."""
+        r = self.check()
+        self.assertEqual((r.errors, r.warnings), ([], []))
+        r = self.check(SPEAKERS_MD.replace("Brief: Two faces.\n", "Brief: Two faces.\n"
+                                           '<a href="images/a.png"><img src="images/a.png" width="30%"></a>\n'))
+        self.assertEqual((r.errors, r.warnings), ([], []))
+
+    def test_errors(self) -> None:
+        """storyboard.validate reports a missing image or source, invalid voice, music, critic and speaker
+        settings and backend limits on style and speed. Guards the checks the parser cannot do, before any voice
+        or render."""
+        for settings_text, md, fragment in [
+            ("", MD.replace("Image: a.png", "Image: b.png"), "image 'b.png' not found"),
+            ("", MD.replace("notes.md", "other.md"), "sources/other.md does not exist"),
+            ("voice: {backend: kokoro, style: calm}", MD, "`voice.style` needs"),
+            ("voice: {backend: elevenlabs}", MD, "`voice.backend` must be"),
+            ("voice: {speed: 3}", MD, "`voice.speed` must be"),
+            ("music: {prompt: piano}", MD, "`music.prompt` is no longer read"),
+            ("music: {file: m.mp3}", MD, "'m.mp3' does not exist"),
+            ("voice: {speaker_gap: -1}", MD, "`voice.speaker_gap` must be"),
+            ("critic: {claude: yes please}", MD, "`critic.claude` must be"),
+            ("critic: {model: 4}", MD, "`critic.model` must be"),
+            ("", SPEAKERS_MD.replace("| speech |", "| elevenlabs |"), "speaker 'guest': backend must be"),
+            ("", SPEAKERS_MD.replace("| 1.1 |", "| 9 |"), "speaker 'host': speed must be"),
+            ("", SPEAKERS_MD.replace("| kokoro | bm_george | 1.1 | |", "| kokoro | bm_george | 1.1 | calm |"),
+             "speaker 'host': style needs"),
+            ("", SPEAKERS_MD.replace("| speech | | | warm, curious |", "| chatterbox | | 0.9 | |"),
+             "speaker 'guest': speed must be 1.0 for chatterbox"),
+            ("voice: {backend: chatterbox, speed: 1.2}", MD, "`voice.speed` must be 1.0 for chatterbox"),
+        ]:
+            with self.subTest(fragment=fragment):
+                self.settings(f"author: [Jane Doe]\nlength: {{min_seconds: 1}}\n{settings_text}")
+                self.assertTrue(any(fragment in e for e in self.check(md).errors), self.check(md).errors)
+
+    def test_warnings(self) -> None:
+        """storyboard.validate warns about title and end templates out of position, too many card rows, a
+        missing or wrong image preview, a missing author and the estimated length, without making them errors.
+        Guards the warning rules."""
+        swapped = MD.replace("Template: title", "Template: x").replace("Template: end", "Template: title") \
+            .replace("Template: x", "Template: end")
+        rows = MD.replace("| Check them |", "| Check them |\n| Two. | 2 |\n| Three. | 3 |")
+        for md, fragment in [
+            (swapped, "usually the first scene"), (swapped, "usually the last scene"),
+            (rows, "at most 2 rows"),
+            (MD.replace('<a href="images/a.png"><img src="images/a.png" width="30%"></a>\n', ""), "no image preview"),
+            (MD.replace('src="images/a.png"', 'src="images/b.png"'), "is not the scene's image"),
+        ]:
+            with self.subTest(fragment=fragment):
+                r = self.check(md)
+                self.assertTrue(r.ok, r.errors)
+                self.assertTrue(any(fragment in w for w in r.warnings), r.warnings)
+        self.settings("")
+        self.assertTrue(any("author" in w for w in self.check().warnings))
+        self.assertTrue(any("estimated length" in w for w in self.check().warnings))
+
+    def test_author_reaches_template_scenes_only(self) -> None:
+        """storyboard.load adds the normalised author names to template scenes only, none without `author:`.
+        Guards the byline on cards."""
+        self.settings("author: [Alice  Smith, Bob Jones]")
+        self.check()
+        title, injection, _ = storyboard.load(self.project)["scenes"]
+        self.assertEqual(title["author"], "Alice Smith, Bob Jones")
+        self.assertNotIn("author", injection)
+        self.settings("")
+        self.assertNotIn("author", storyboard.load(self.project)["scenes"][0])
+
+    def test_init_storyboard(self) -> None:
+        """storyboard.template with one image gives a storyboard that validates with no preview warning. Guards
+        init's starting storyboard."""
+        r = self.check(storyboard.template("Demo", ["a.png"]))
+        self.assertEqual(r.errors, [])
+        self.assertFalse(any("preview" in w for w in r.warnings))
+
+    def test_init_storyboard_without_images(self) -> None:
+        """storyboard.template without images leaves no placeholder or blank-line run and gives the title,
+        summary and end scenes. Guards init without --images."""
+        text = storyboard.template("Demo", [])
+        self.assertNotIn("__IMAGE_SCENES__", text)
+        self.assertNotIn("\n\n\n", text)
+        r = self.check(text)
+        self.assertEqual(r.errors, [])
+        self.assertEqual([s["id"] for s in storyboard.load(self.project)["scenes"]], ["title", "summary", "end"])
+
+
+if __name__ == "__main__":
+    unittest.main()

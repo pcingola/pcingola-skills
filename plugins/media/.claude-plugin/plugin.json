@@ -1,0 +1,13 @@
+{
+  "name": "media",
+  "description": "Image, music and voiceover generation with the models of the model config (API providers, Ollama or local diffusers models), short narrated videos, image-to-image video effects, infographics, and slide deck authoring.",
+  "author": {
+    "name": "Pablo Cingolani"
+  },
+  "dependencies": [
+    "ai",
+    "brand",
+    "docs",
+    "setup"
+  ]
+}

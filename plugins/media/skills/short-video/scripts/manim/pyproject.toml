@@ -1,0 +1,11 @@
+# Manim Community Edition for scenes with `Engine: manim`. A separate uv
+# project so the short-video CLI's own environment stays small; short-video
+# runs `uv run --project <this directory> manim render ...` with its own
+# UV_PROJECT_ENVIRONMENT (see short_video_tool/config.py).
+[project]
+name = "short-video-manim"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "manim==0.19.0",
+]

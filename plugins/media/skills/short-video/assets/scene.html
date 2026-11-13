@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=__WIDTH__, height=__HEIGHT__" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; background: #000; }
+  #root { position: relative; width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden;
+          font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* Blurred, darkened cover copy behind the image, so non-16:9 images are
+     neither cropped nor letterboxed with black. */
+  #bg-fill { background: url("__BACKGROUND__") center / cover no-repeat;
+             filter: blur(40px) brightness(0.45); transform: scale(1.1); }
+  #bg-image { object-fit: contain; }
+  /* Overlays (labels, arrows, highlights) go below, driven by the timeline. */
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="__SCENE_ID__" data-start="0" data-duration="__DURATION__"
+     data-full-length data-width="__WIDTH__" data-height="__HEIGHT__" data-fps="__FPS__">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="__DURATION__" data-full-length
+       data-track-index="0"></div>
+  <img id="bg-image" class="clip bg" src="__BACKGROUND__" alt="" data-start="0" data-duration="__DURATION__"
+       data-full-length data-track-index="1" />
+  <!-- overlays here -->
+</div>
+<script>
+  // Times come from timing.js: S(n) / SE(n) = start / end of sentence n,
+  // W(n, "word", k) / WE(n, "word", k) = start / end of the k-th "word" in sentence n.
+  const tl = gsap.timeline({ paused: true });
+  // Example: tl.fromTo("#label", { opacity: 0 }, { opacity: 1, duration: 0.4 }, W(sentence, "word"));
+  window.__timelines = window.__timelines || {};
+  window.__timelines["__SCENE_ID__"] = tl;
+</script>
+</body>
+</html>

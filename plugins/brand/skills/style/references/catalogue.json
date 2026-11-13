@@ -1,0 +1,1249 @@
+[
+  {
+    "name": "aerial-dawn-photo",
+    "description": "Aerial drone photograph at dawn of a large building complex, thousands of lit warm windows, sky with first golden light.",
+    "tags": [
+      "photographic",
+      "calm",
+      "warm",
+      "saturated",
+      "dense"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/aerial-dawn-photo.png"
+  },
+  {
+    "name": "animated-feature-3d",
+    "description": "Stylised 3D render in the soft look of a modern animated feature film: rounded forms, soft global illumination, subsurface skin, believable proportions.",
+    "tags": [
+      "3d",
+      "playful",
+      "warm",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene"
+    ],
+    "sample": "assets/animated-feature-3d.png"
+  },
+  {
+    "name": "architectural-blue-hour-photo",
+    "description": "Architecture-magazine photograph of a near-future building at blue hour, tilt-shift 35 mm, empty dusk sky, warm lit interior through glass, wet reflective paving, subtle grain.",
+    "tags": [
+      "photographic",
+      "calm",
+      "serious",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "slide",
+      "poster"
+    ],
+    "sample": "assets/architectural-blue-hour-photo.png"
+  },
+  {
+    "name": "backlit-cut-paper-diorama",
+    "description": "Photograph of a handmade backlit layered cut-paper diorama in a shallow box, layer edges glowing with warm paper light, translucent fibres, shallow depth of field.",
+    "tags": [
+      "paper",
+      "photographic",
+      "calm",
+      "warm",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/backlit-cut-paper-diorama.png"
+  },
+  {
+    "name": "big-number-glass-render",
+    "description": "Warm off-white page with very large thin numerals, a thin arrow and one photoreal glass object render; a variant draws a thin-line instrument instead.",
+    "tags": [
+      "3d",
+      "glass",
+      "typographic",
+      "calm",
+      "serious",
+      "muted",
+      "minimal"
+    ],
+    "suits": [
+      "slide"
+    ],
+    "sample": "assets/big-number-glass-render.png"
+  },
+  {
+    "name": "blue-hour-executive-editorial-photo",
+    "description": "Magazine-feature editorial photograph, one strong directional key light, deep cool shadows, warm tungsten practicals, walnut and real paper, shallow depth of field.",
+    "tags": [
+      "photographic",
+      "serious",
+      "warm",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/blue-hour-executive-editorial-photo.png"
+  },
+  {
+    "name": "bold-color-block",
+    "description": "Bold poster-style flat vector with solid colour block panels tiling the canvas and high-contrast white text and icons.",
+    "tags": [
+      "vector",
+      "serious",
+      "saturated",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "poster"
+    ],
+    "sample": "assets/bold-color-block.png"
+  },
+  {
+    "name": "bright-high-key-product-photo",
+    "description": "Bright, crisp, high-key product-style photograph with a cool grade, morning window light and one large laptop with a black screen.",
+    "tags": [
+      "photographic",
+      "calm",
+      "natural",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/bright-high-key-product-photo.png"
+  },
+  {
+    "name": "bright-natural-editorial-photo",
+    "description": "Bright, well-exposed high-end editorial photograph in natural colour and soft window daylight, subject filling the frame.",
+    "tags": [
+      "photographic",
+      "calm",
+      "serious",
+      "natural",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/bright-natural-editorial-photo.png"
+  },
+  {
+    "name": "bw-reportage-one-colour-object",
+    "description": "Candid black-and-white reportage photograph, fine grain, full tonal range, monochrome except one matte coloured object carrying the scene's subject.",
+    "tags": [
+      "photographic",
+      "serious",
+      "calm",
+      "monochrome",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "slide",
+      "poster"
+    ],
+    "sample": "assets/bw-reportage-one-colour-object.png"
+  },
+  {
+    "name": "cinematic-film-grain-photo",
+    "description": "Cinematic photograph, 35 mm, shallow depth of field, soft window light from one side, gentle film grain, strongly blurred bokeh background, no named grade.",
+    "tags": [
+      "photographic",
+      "calm",
+      "warm",
+      "natural",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene"
+    ],
+    "sample": "assets/cinematic-film-grain-photo.png"
+  },
+  {
+    "name": "clay-miniature",
+    "description": "Soft 3D plasticine figures and objects in a tilt-shift miniature world under warm studio light.",
+    "tags": [
+      "3d",
+      "clay",
+      "warm",
+      "playful",
+      "pastel",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "video-scene"
+    ],
+    "sample": "assets/clay-miniature.png"
+  },
+  {
+    "name": "clean-line-comic",
+    "description": "European ligne claire comic: clean uniform black outlines, flat colours, no hatching, expressive characters.",
+    "tags": [
+      "comic",
+      "ink",
+      "playful",
+      "saturated",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "video-scene"
+    ],
+    "sample": "assets/clean-line-comic.png"
+  },
+  {
+    "name": "cool-graded-documentary-photo",
+    "description": "Documentary photograph with a restrained cinematic grade: cool shadows, natural skin, slightly desaturated, low contrast, soft daylight, shallow depth of field.",
+    "tags": [
+      "photographic",
+      "calm",
+      "serious",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/cool-graded-documentary-photo.png"
+  },
+  {
+    "name": "dark-bokeh-backdrop-photo",
+    "description": "Dark, strongly out-of-focus photograph of equipment with a soft even glow and low contrast, used blurred behind overlaid cards.",
+    "tags": [
+      "photographic",
+      "calm",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "video-scene",
+      "slide"
+    ],
+    "sample": "assets/dark-bokeh-backdrop-photo.png"
+  },
+  {
+    "name": "dark-glow-orbit-diagram",
+    "description": "Near-black field with a glowing ring of nodes and a glowing timeline with points, particle-like sparkle.",
+    "tags": [
+      "glow",
+      "technical",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "slide"
+    ],
+    "sample": "assets/dark-glow-orbit-diagram.png"
+  },
+  {
+    "name": "dark-glowing-isometric-3d",
+    "description": "Deep navy field with glowing isometric 3D hardware on dark platforms, lit edges, ghosted wireframe for future items, thin light type.",
+    "tags": [
+      "3d",
+      "isometric",
+      "glow",
+      "technical",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "poster"
+    ],
+    "sample": "assets/dark-glowing-isometric-3d.png"
+  },
+  {
+    "name": "dark-html-render",
+    "description": "Dark application screens and diagrams written as HTML/SVG and rendered by a browser, few restrained elements, real text, no image generation.",
+    "tags": [
+      "html",
+      "vector",
+      "technical",
+      "serious",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/dark-html-render.png"
+  },
+  {
+    "name": "dark-isometric-diorama",
+    "description": "High-end isometric 3D miniature diorama on a deep navy gradient: tilt-shift, matte and satin materials, a thin rim line, no glow.",
+    "tags": [
+      "3d",
+      "isometric",
+      "calm",
+      "technical",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "infographic"
+    ],
+    "sample": "assets/dark-isometric-diorama.png"
+  },
+  {
+    "name": "dark-line-icon-diagram",
+    "description": "Dark minimal flat diagram: thin uniform line icons and arrows on a navy radial gradient or flat navy, one warm accent, much negative space, no words.",
+    "tags": [
+      "vector",
+      "technical",
+      "calm",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "video-scene",
+      "slide"
+    ],
+    "sample": "assets/dark-line-icon-diagram.png"
+  },
+  {
+    "name": "dark-studio-render-glass-cards",
+    "description": "Dark grey studio render of white lab hardware on a table inside a glowing ellipse, frosted glass cards floating with text.",
+    "tags": [
+      "3d",
+      "glass",
+      "glow",
+      "technical",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "slide"
+    ],
+    "sample": "assets/dark-studio-render-glass-cards.png"
+  },
+  {
+    "name": "daylight-dark-walled-room-photo",
+    "description": "Editorial photograph of a dark-walled room in bright late-morning daylight with a warm brass lamp accent and a lighter mood.",
+    "tags": [
+      "photographic",
+      "calm",
+      "warm",
+      "saturated",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene"
+    ],
+    "sample": "assets/daylight-dark-walled-room-photo.png"
+  },
+  {
+    "name": "dim-night-room-cinematic-photo",
+    "description": "Cinematic photograph of a room at night, dim, with soft blue night light and a warm lamp accent.",
+    "tags": [
+      "photographic",
+      "serious",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene"
+    ],
+    "sample": "assets/dim-night-room-cinematic-photo.png"
+  },
+  {
+    "name": "dusk-glowing-display-photo",
+    "description": "Photo of scientists in white coats before a huge curved wall display of a glowing molecule and network graph, dark interior, dusk city view.",
+    "tags": [
+      "photographic",
+      "glow",
+      "serious",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene"
+    ],
+    "sample": "assets/dusk-glowing-display-photo.png"
+  },
+  {
+    "name": "editorial-big-number",
+    "description": "Editorial magazine-style layout on white: oversized pale numerals, magazine typography, hairline rules instead of boxes.",
+    "tags": [
+      "vector",
+      "serious",
+      "calm",
+      "muted",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "infographic"
+    ],
+    "sample": "assets/editorial-big-number.png"
+  },
+  {
+    "name": "editorial-flat-vector",
+    "description": "Bold magazine-style flat vector illustration with a strong limited palette, crisp geometric shapes and characters with personality.",
+    "tags": [
+      "vector",
+      "playful",
+      "warm",
+      "saturated",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/editorial-flat-vector.png"
+  },
+  {
+    "name": "engraved-print-diagram",
+    "description": "Diagram as an engraved or etched monochrome print: fine line hatching, light images on a dark ground, serif type, thin double frames, a faint grid.",
+    "tags": [
+      "print",
+      "ink",
+      "serious",
+      "technical",
+      "dark",
+      "monochrome",
+      "dense"
+    ],
+    "suits": [
+      "infographic",
+      "poster"
+    ],
+    "sample": "assets/engraved-print-diagram.png"
+  },
+  {
+    "name": "extreme-macro-product-photo",
+    "description": "Extreme macro product photograph of a keyboard key, very shallow depth of field, defocused display behind, coloured rim light on dark keys.",
+    "tags": [
+      "photographic",
+      "technical",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/extreme-macro-product-photo.png"
+  },
+  {
+    "name": "flat-filled-shape-diagram",
+    "description": "Light slide with one large diagram of filled flat shapes in heavier colour, thick strokes and thick arrows.",
+    "tags": [
+      "vector",
+      "serious",
+      "saturated",
+      "minimal"
+    ],
+    "suits": [
+      "slide"
+    ],
+    "sample": "assets/flat-filled-shape-diagram.png"
+  },
+  {
+    "name": "frosted-glass-rendered-plate",
+    "description": "Light keynote plate with one dominant rendered object of frosted glass on matte pale stone, soft daylight, long soft shadows, very few words.",
+    "tags": [
+      "3d",
+      "glass",
+      "calm",
+      "pastel",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "poster"
+    ],
+    "sample": "assets/frosted-glass-rendered-plate.png"
+  },
+  {
+    "name": "glowing-crystal-render",
+    "description": "Path-traced 3D render of a translucent crystal object with refraction and caustics, glowing internal structures and light pulses, floating in a dark void.",
+    "tags": [
+      "3d",
+      "glass",
+      "glow",
+      "technical",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/glowing-crystal-render.png"
+  },
+  {
+    "name": "graded-reportage-photo",
+    "description": "Unposed reportage photograph in available light with slight film grain and a cool grade, real wear and clutter, nobody looking at the camera.",
+    "tags": [
+      "photographic",
+      "serious",
+      "muted",
+      "dense"
+    ],
+    "suits": [
+      "video-scene",
+      "slide"
+    ],
+    "sample": "assets/graded-reportage-photo.png"
+  },
+  {
+    "name": "hand-built-physical-model-photo",
+    "description": "Studio photograph of a hand-built tabletop model of walnut, brass, glass, cream paper and linen thread on dark slate, soft key light, shallow depth of field.",
+    "tags": [
+      "photographic",
+      "3d",
+      "calm",
+      "warm",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/hand-built-physical-model-photo.png"
+  },
+  {
+    "name": "ink-drafting-plate",
+    "description": "Technical drafting plate: fine ink line drawing on cream drafting paper with a faint grid, typed engineering lettering, thin double border and one accent, like a 1950s patent plate.",
+    "tags": [
+      "ink",
+      "blueprint",
+      "technical",
+      "calm",
+      "monochrome",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "poster"
+    ],
+    "sample": "assets/ink-drafting-plate.png"
+  },
+  {
+    "name": "ink-watercolour-sketchbook",
+    "description": "Hand-drawn travel sketchbook with loose black ink lines, transparent watercolour washes and much untouched white paper.",
+    "tags": [
+      "ink",
+      "watercolour",
+      "calm",
+      "warm",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "video-scene"
+    ],
+    "sample": "assets/ink-watercolour-sketchbook.png"
+  },
+  {
+    "name": "isometric-illustrated-map",
+    "description": "Isometric flat vector illustration with soft gradients, gentle shading and no outlines, in 30-degree isometric perspective.",
+    "tags": [
+      "isometric",
+      "vector",
+      "calm",
+      "technical",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "icon"
+    ],
+    "sample": "assets/isometric-illustrated-map.png"
+  },
+  {
+    "name": "journal-cover-metaphor",
+    "description": "Journal cover illustration without masthead: one bold central visual metaphor, dramatic cinematic light, rich saturated colour, painterly digital art.",
+    "tags": [
+      "painting",
+      "serious",
+      "saturated",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "poster",
+      "slide"
+    ],
+    "sample": "assets/journal-cover-metaphor.png"
+  },
+  {
+    "name": "large-format-archive-photo",
+    "description": "Large-format architectural documentary photograph: level symmetrical one-point perspective, sharp throughout, even daylight, monumental interiors with small people.",
+    "tags": [
+      "photographic",
+      "calm",
+      "serious",
+      "muted",
+      "dense"
+    ],
+    "suits": [
+      "video-scene",
+      "slide",
+      "poster"
+    ],
+    "sample": "assets/large-format-archive-photo.png"
+  },
+  {
+    "name": "light-isometric-clay-render",
+    "description": "Light, calm isometric 3D render in soft matte clay on a pale seamless ground, mechanisms shown as objects (pipelines, machines, grids of desks).",
+    "tags": [
+      "3d",
+      "clay",
+      "isometric",
+      "calm",
+      "pastel",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "video-scene",
+      "icon"
+    ],
+    "sample": "assets/light-isometric-clay-render.png"
+  },
+  {
+    "name": "light-room-editorial-photo",
+    "description": "Editorial photograph in a bright airy room of warm white plaster, pale oak and light stone, abundant side daylight, plants, well-groomed smiling people and one small dark accent.",
+    "tags": [
+      "photographic",
+      "calm",
+      "warm",
+      "natural",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "slide"
+    ],
+    "sample": "assets/light-room-editorial-photo.png"
+  },
+  {
+    "name": "light-scientific-editorial-illustration",
+    "description": "Light, clean scientific editorial illustration like a journal review figure: fine linework, flat softly shaded fills on warm off-white, one structure in an accent colour.",
+    "tags": [
+      "vector",
+      "ink",
+      "calm",
+      "technical",
+      "pastel",
+      "minimal"
+    ],
+    "suits": [
+      "infographic",
+      "video-scene"
+    ],
+    "sample": "assets/light-scientific-editorial-illustration.png"
+  },
+  {
+    "name": "light-trail-data-art",
+    "description": "Abstract generative data art: waveforms as long-exposure glowing light trails, smooth gradients, fine particles, a minimal night landscape.",
+    "tags": [
+      "glow",
+      "calm",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/light-trail-data-art.png"
+  },
+  {
+    "name": "low-key-still-life-photo",
+    "description": "Photorealistic still life of matte physical objects on a dark surface under low warm light, deep shadows, cinematic.",
+    "tags": [
+      "photographic",
+      "serious",
+      "warm",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/low-key-still-life-photo.png"
+  },
+  {
+    "name": "magazine-cover-flat-editorial",
+    "description": "Bold flat editorial illustration in the manner of a technology magazine cover: strong simple geometric shapes, slight print grain, a cheerful stylised crowd.",
+    "tags": [
+      "vector",
+      "print",
+      "playful",
+      "warm",
+      "saturated",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/magazine-cover-flat-editorial.png"
+  },
+  {
+    "name": "matte-clay-tilt-shift-miniature",
+    "description": "Premium stylised 3D miniature world of matte clay and unglazed ceramic, tilt-shift focus, dignified sculpted adult figures, like an architectural model in a design studio.",
+    "tags": [
+      "3d",
+      "clay",
+      "calm",
+      "serious",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "infographic"
+    ],
+    "sample": "assets/matte-clay-tilt-shift-miniature.png"
+  },
+  {
+    "name": "matte-keynote-diagram",
+    "description": "Matte dark keynote diagram: a coloured engine slab, dark columns holding coloured data images, thin connector lines, sans-serif labels, no glow.",
+    "tags": [
+      "3d",
+      "vector",
+      "serious",
+      "technical",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/matte-keynote-diagram.png"
+  },
+  {
+    "name": "medical-glass-anatomy-render",
+    "description": "Photorealistic medical 3D render of a semi-transparent glass-like body part with realistic anatomy inside, on a dark gradient background with nothing else.",
+    "tags": [
+      "3d",
+      "glass",
+      "technical",
+      "serious",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "slide"
+    ],
+    "sample": "assets/medical-glass-anatomy-render.png"
+  },
+  {
+    "name": "mid-century-scientific-poster",
+    "description": "1950s scientific poster in screen-print texture with grain, slight misregistration and stylised simplified figures.",
+    "tags": [
+      "print",
+      "warm",
+      "serious",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "poster",
+      "infographic",
+      "video-scene"
+    ],
+    "sample": "assets/mid-century-scientific-poster.png"
+  },
+  {
+    "name": "minimal-enterprise",
+    "description": "Clean flat white enterprise infographic with much white space and crisp thin lines, in the manner of a premium keynote slide.",
+    "tags": [
+      "vector",
+      "calm",
+      "serious",
+      "muted",
+      "minimal"
+    ],
+    "suits": [
+      "slide"
+    ],
+    "sample": "assets/minimal-enterprise.png"
+  },
+  {
+    "name": "neon-glass-diagram",
+    "description": "Dark diagram of neon-edged glass panels, glowing icon tiles and towers, bloom, saturated rainbow colour and braided glowing flow lines, flat or isometric.",
+    "tags": [
+      "glow",
+      "glass",
+      "3d",
+      "technical",
+      "dark",
+      "saturated",
+      "dense"
+    ],
+    "suits": [
+      "slide"
+    ],
+    "sample": "assets/neon-glass-diagram.png"
+  },
+  {
+    "name": "neuroanatomy-ink-plate",
+    "description": "Hand-drawn ink and watercolour in the manner of a 19th-century neuroanatomy plate: fine hatching, stippled cells, branching fibres, pale ink on dark toned paper.",
+    "tags": [
+      "ink",
+      "watercolour",
+      "calm",
+      "technical",
+      "dark",
+      "dense"
+    ],
+    "suits": [
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/neuroanatomy-ink-plate.png"
+  },
+  {
+    "name": "painterly-gouache",
+    "description": "Gouache painting with visible opaque brush strokes, matte soft-edged colour fields, warm window light.",
+    "tags": [
+      "painting",
+      "calm",
+      "warm",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/painterly-gouache.png"
+  },
+  {
+    "name": "pale-line-drawing-illustration",
+    "description": "Light slide built around one picture in thin, even line drawings with pale fills and much empty space, no card grid.",
+    "tags": [
+      "vector",
+      "calm",
+      "technical",
+      "pastel",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "infographic"
+    ],
+    "sample": "assets/pale-line-drawing-illustration.png"
+  },
+  {
+    "name": "paper-cut-diorama",
+    "description": "Layered coloured cardstock diorama with soft drop shadows between layers and subtle paper grain.",
+    "tags": [
+      "paper",
+      "3d",
+      "calm",
+      "warm",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "video-scene"
+    ],
+    "sample": "assets/paper-cut-diorama.png"
+  },
+  {
+    "name": "photoreal-engineering-cutaway",
+    "description": "Engineering cutaway and exploded view with photoreal materials: a machined enclosure opened along section planes with engraved hatching, 1 px leader lines to labels, on a dark ground.",
+    "tags": [
+      "3d",
+      "blueprint",
+      "technical",
+      "serious",
+      "dark",
+      "dense"
+    ],
+    "suits": [
+      "slide",
+      "infographic",
+      "poster"
+    ],
+    "sample": "assets/photoreal-engineering-cutaway.png"
+  },
+  {
+    "name": "political-thriller-film-still",
+    "description": "35 mm film still of a slow political thriller: organic grain, lifted blacks, desaturated earth tones, tungsten lamps against overcast windows.",
+    "tags": [
+      "photographic",
+      "serious",
+      "warm",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene"
+    ],
+    "sample": "assets/political-thriller-film-still.png"
+  },
+  {
+    "name": "quiet-low-light-documentary-photo",
+    "description": "Calm documentary photograph in natural low light with shallow depth of field and no person: a night window, a desk with objects and a monitor.",
+    "tags": [
+      "photographic",
+      "calm",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "video-scene",
+      "slide"
+    ],
+    "sample": "assets/quiet-low-light-documentary-photo.png"
+  },
+  {
+    "name": "risograph-editorial-illustration",
+    "description": "Refined magazine editorial illustration without black outlines, forms from soft colour shapes, risograph-like paper grain and stippling.",
+    "tags": [
+      "print",
+      "calm",
+      "warm",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "infographic",
+      "poster"
+    ],
+    "sample": "assets/risograph-editorial-illustration.png"
+  },
+  {
+    "name": "scientific-feature-cutaway-illustration",
+    "description": "Explanatory cutaway illustration in the manner of a Nature or Science feature on a dark ink ground: precise ink line work, finely rendered steel, paper, thread and clay discs, soft key light.",
+    "tags": [
+      "ink",
+      "3d",
+      "technical",
+      "serious",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "infographic",
+      "poster"
+    ],
+    "sample": "assets/scientific-feature-cutaway-illustration.png"
+  },
+  {
+    "name": "semi-realistic-digital-painting",
+    "description": "Concept-art or book-cover digital painting with realistic anatomy and light, soft brushwork in the background, sharper face and hands.",
+    "tags": [
+      "painting",
+      "serious",
+      "warm",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "poster"
+    ],
+    "sample": "assets/semi-realistic-digital-painting.png"
+  },
+  {
+    "name": "soft-shaded-flat-illustration",
+    "description": "Editorial flat illustration of simplified people with soft shading, thin dark outlines and flat pastel fills.",
+    "tags": [
+      "vector",
+      "comic",
+      "calm",
+      "warm",
+      "pastel",
+      "moderate"
+    ],
+    "suits": [
+      "infographic",
+      "video-scene"
+    ],
+    "sample": "assets/soft-shaded-flat-illustration.png"
+  },
+  {
+    "name": "soft-wash-metaphor-illustration",
+    "description": "Flat metaphor illustration with soft painterly gradient washes fading at the edges, pale outlined shapes, labels set directly on the picture.",
+    "tags": [
+      "vector",
+      "watercolour",
+      "calm",
+      "pastel",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "infographic"
+    ],
+    "sample": "assets/soft-wash-metaphor-illustration.png"
+  },
+  {
+    "name": "specimen-photograph",
+    "description": "Museum specimen photograph shot straight from above on dark matte cloth, soft studio light, natural specimen colours, one structure tinted.",
+    "tags": [
+      "photographic",
+      "serious",
+      "technical",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "slide"
+    ],
+    "sample": "assets/specimen-photograph.png"
+  },
+  {
+    "name": "swiss-typographic-poster",
+    "description": "International Typographic Style poster: flat colour fields on a strict grid, bold grotesk type flush left, one flat geometric picture, no shadows.",
+    "tags": [
+      "vector",
+      "typographic",
+      "serious",
+      "saturated",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "poster"
+    ],
+    "sample": "assets/swiss-typographic-poster.png"
+  },
+  {
+    "name": "technical-blueprint",
+    "description": "Blueprint and cutaway engineering drawing: fine line work on dark paper with a faint grid, hatching, dimension lines and callouts.",
+    "tags": [
+      "blueprint",
+      "isometric",
+      "technical",
+      "serious",
+      "dark",
+      "monochrome",
+      "dense"
+    ],
+    "suits": [
+      "infographic",
+      "poster"
+    ],
+    "sample": "assets/technical-blueprint.png"
+  },
+  {
+    "name": "terminal-typography-card",
+    "description": "Typographic card from a terminal session on a near-black page: an error line struck through, then a passing test line in large monospace, a title in large sans below a thin rule.",
+    "tags": [
+      "typographic",
+      "html",
+      "technical",
+      "serious",
+      "dark",
+      "minimal"
+    ],
+    "suits": [
+      "slide",
+      "poster"
+    ],
+    "sample": "assets/terminal-typography-card.png"
+  },
+  {
+    "name": "tilted-desktop-mockup",
+    "description": "HTML-rendered desktop (real application window, terminal, dock) tilted in perspective on a dark page, title cards beside it.",
+    "tags": [
+      "html",
+      "technical",
+      "serious",
+      "dark",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/tilted-desktop-mockup.png"
+  },
+  {
+    "name": "vogon",
+    "title": "Vogon",
+    "description": "Flat-shaded editorial cartoon of a warty, toad-like alien bureaucrat in a black suit stamping REJECTED, in front of a large solid disc, on cream paper.",
+    "tags": [
+      "vector",
+      "comic",
+      "satirical",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "poster",
+      "infographic"
+    ],
+    "links": {
+      "Project": "https://github.com/pcingola/vogon",
+      "Site": "https://pcingola.github.io/vogon/"
+    },
+    "sample": "assets/vogon.png"
+  },
+  {
+    "name": "warm-cinematic-portrait-photo",
+    "description": "Cinematic photograph with soft flattering window key light, a slightly warm grade, gentle contrast, creamy highlights and a photogenic subject.",
+    "tags": [
+      "photographic",
+      "warm",
+      "calm",
+      "natural",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene",
+      "slide"
+    ],
+    "sample": "assets/warm-cinematic-portrait-photo.png"
+  },
+  {
+    "name": "warm-morning-documentary-photo",
+    "description": "Natural documentary photograph of a warm, optimistic morning: bright window daylight with gentle cool shadows, a relaxed person at a home desk.",
+    "tags": [
+      "photographic",
+      "warm",
+      "calm",
+      "natural",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/warm-morning-documentary-photo.png"
+  },
+  {
+    "name": "warm-period-photograph",
+    "description": "Warm, dim, sepia-toned period photograph of a historical interior.",
+    "tags": [
+      "photographic",
+      "warm",
+      "serious",
+      "muted",
+      "moderate"
+    ],
+    "suits": [
+      "video-scene"
+    ],
+    "sample": "assets/warm-period-photograph.png"
+  },
+  {
+    "name": "wide-dusk-office-photo",
+    "description": "Wide cinematic dusk photograph with 24 mm deep perspective of a huge dimmed office floor, people at glowing laptops, skyline through the windows.",
+    "tags": [
+      "photographic",
+      "serious",
+      "dark",
+      "dense"
+    ],
+    "suits": [
+      "slide",
+      "video-scene"
+    ],
+    "sample": "assets/wide-dusk-office-photo.png"
+  },
+  {
+    "name": "wowbagger-card-dark",
+    "title": "Wowbagger: Dark card",
+    "description": "Inked comic caricature in a dim, cluttered room under warm amber light: a smug, deadpan expert and a horrified victim, dense hatching, grime, labelled props.",
+    "tags": [
+      "comic",
+      "ink",
+      "satirical",
+      "warm",
+      "dark",
+      "dense"
+    ],
+    "suits": [
+      "slide",
+      "poster",
+      "video-scene"
+    ],
+    "links": {
+      "Project": "https://github.com/pcingola/wowbagger",
+      "Site": "https://pcingola.github.io/wowbagger/"
+    },
+    "sample": "assets/wowbagger-card-dark.png"
+  },
+  {
+    "name": "wowbagger-card-pale",
+    "title": "Wowbagger: Pale card",
+    "description": "Inked comic caricature in soft, pale daylight: a smug, knowing character among bystanders, thinner lines, clean surfaces, labelled props and badges.",
+    "tags": [
+      "comic",
+      "ink",
+      "satirical",
+      "warm",
+      "pastel",
+      "moderate"
+    ],
+    "suits": [
+      "slide",
+      "poster",
+      "video-scene"
+    ],
+    "links": {
+      "Project": "https://github.com/pcingola/wowbagger",
+      "Site": "https://pcingola.github.io/wowbagger/"
+    },
+    "sample": "assets/wowbagger-card-pale.png"
+  },
+  {
+    "name": "wowbagger-hero",
+    "title": "Wowbagger: Hero",
+    "description": "Painted sci-fi cartoon: a bored, scruffy immortal traveller on a rock above an alien desert at dusk, rock spires, a huge planet, hand-brushed title lettering.",
+    "tags": [
+      "painting",
+      "comic",
+      "satirical",
+      "saturated",
+      "moderate"
+    ],
+    "suits": [
+      "poster",
+      "slide",
+      "video-scene"
+    ],
+    "links": {
+      "Project": "https://github.com/pcingola/wowbagger",
+      "Site": "https://pcingola.github.io/wowbagger/"
+    },
+    "sample": "assets/wowbagger-hero.png"
+  }
+]
