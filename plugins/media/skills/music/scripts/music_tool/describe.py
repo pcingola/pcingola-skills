@@ -164,6 +164,10 @@ def describe(model: str, path: Path, clip_brief: str | None, style_brief: str | 
         verdict = dict(NO_VERDICT)
         if (clip_brief or "").strip() or (style_brief or "").strip():
             verdict = _ask(model, audio, mime, verdict_prompt(description, clip_brief, style_brief), VERDICT_SCHEMA)
+            # A brief that was not given has no verdict, whatever the model answered for it.
+            for key, brief in (("clip_brief", clip_brief), ("style_brief", style_brief)):
+                if not (brief or "").strip():
+                    verdict[f"{key}_verdict"], verdict[f"{key}_reasons"] = "no brief", []
     except Exception as e:  # noqa: BLE001 - model errors are reported per clip
         raise DescribeError(f"{model}: {e}") from e
     return {"status": "ok", "model": model, "sent_mime_type": mime, **description, **verdict}

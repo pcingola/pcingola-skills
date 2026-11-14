@@ -45,10 +45,3 @@ def require_ollama(*tags: str) -> None:
     if missing:
         pytest.fail(f"Ollama at {OLLAMA} lacks {', '.join(missing)}: run ollama pull {' '.join(missing)}")
 
-
-def require_gpu() -> None:
-    """Fail the test when torch sees neither CUDA nor MPS."""
-    import torch
-
-    if not (torch.cuda.is_available() or torch.backends.mps.is_available()):
-        pytest.fail(f"local diffusers models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")
