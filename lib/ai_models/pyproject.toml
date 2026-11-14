@@ -14,9 +14,11 @@ dependencies = [
 # local images, music and video in process; only skills that need it install torch.
 # imageio-ffmpeg: MP4 encoding of video clips (diffusers.utils.export_to_video); av: the LTX-2
 # image-to-video pipeline re-encodes its conditioning image as H.264; sentencepiece, protobuf: transformers
-# reads a T5 tokenizer (`spiece.model`, LTX-Video) with them; transformers 5 parses it with protobuf 7.36 gencode
+# reads a T5 tokenizer (`spiece.model`, LTX-Video) with them; transformers 5 parses it with protobuf 7.36 gencode;
+# torchvision: transformers' Qwen-VL processors (a Qwen-VL text encoder, Qwen-Image)
 diffusers = [
     "torch>=2.9",
+    "torchvision",
     "diffusers>=0.42",
     "transformers>=5",
     "accelerate",
@@ -35,6 +37,7 @@ explicit = true
 [tool.uv.sources]
 # CUDA 13.0 builds on Linux (aarch64 and x86_64); PyPI's default build on macOS (MPS)
 torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
 
 [build-system]
 requires = ["hatchling"]

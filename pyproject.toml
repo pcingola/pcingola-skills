@@ -33,6 +33,7 @@ dev = [
     "kokoro-onnx>=0.6.1,<0.7",
     "torch==2.11.*",
     "torchaudio==2.11.*",
+    "torchvision==0.26.*",
     "num2words",
     "chatterbox-tts==0.1.7",
     "soundfile",
@@ -41,11 +42,12 @@ dev = [
 
 [tool.uv]
 # chatterbox-tts pins exact versions. It runs on torch 2.11 (torchaudio's last release, needed by the MMS_FA
-# aligner), numpy 2 (needed by kokoro-onnx), and the diffusers, transformers and safetensors of lib/'s diffusers extra.
+# aligner) and its torchvision 0.26, numpy 2 (needed by kokoro-onnx), and the diffusers, transformers and safetensors of lib/'s diffusers extra.
 # Its demo UI and its Chinese and Japanese tokenisers are not needed.
 override-dependencies = [
     "torch==2.11.*",
     "torchaudio==2.11.*",
+    "torchvision==0.26.*",
     "numpy>=2",
     "diffusers>=0.42",
     "transformers>=5",
@@ -60,6 +62,7 @@ ai-models = { path = "lib/ai_models", editable = true }
 plugin-settings = { path = "lib/plugin_settings", editable = true }
 # CUDA 13.0 builds on Linux (aarch64 and x86_64); PyPI's default build on macOS (MPS)
 torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
 torchaudio = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
 
 [[tool.uv.index]]

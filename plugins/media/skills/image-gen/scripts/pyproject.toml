@@ -21,6 +21,7 @@ explicit = true
 [tool.uv.sources]
 # CUDA 13.0 builds on Linux (aarch64 and x86_64); PyPI's default build on macOS (MPS)
 torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
 ai-models = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/ai_models", branch = "main" }
 plugin-settings = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/plugin_settings", branch = "main" }
 
