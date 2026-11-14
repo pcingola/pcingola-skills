@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import NamedTuple
 
 from .deck import ASSEMBLY, SLIDE_DIR, VERSION_JSON, deck_details, slide_count, versions_of
 from .paths import HttpError, inside, read_json, resolve_abs, slug, write_atomic
+from .video import default_film, film_count, film_of, films_of, is_video, sources_of, video_details, watched_subdirs
 
 
 class Kind(NamedTuple):
@@ -24,10 +26,10 @@ class Kind(NamedTuple):
 
 
 KINDS = (
+    Kind("short-video", "Short videos", "short-video", "videos", True),
+    Kind("slide", "Slide decks", "slides", "images", True),
     Kind("image", "Images", "images", "images", True),
     Kind("infographic", "Infographics", "infographics", "images", True),
-    Kind("slide", "Slides", "slides", "images", True),
-    Kind("short-video", "Short videos", "short-video", "short-video", False),
 )
 KIND_BY_ID = {k.id: k for k in KINDS}
 KIND_BY_DIRECTORY = {k.directory: k for k in KINDS}
@@ -58,7 +60,7 @@ def iso(ts: float) -> str:
 
 
 # Subdirectories of a project whose files are watched besides its top level; a deck's `slide-<k>/` directories
-# and their `marks/` are watched too.
+# and their `marks/` are watched too, and in a short-video project the paths of video.watched_subdirs.
 WATCHED_SUBDIRS = ("refs", "marks")
 
 
@@ -74,10 +76,14 @@ def _slide_subdirs(directory: Path) -> list[str]:
 
 
 def files_of(directory: Path) -> dict[str, tuple[int, int]]:
-    """`{relative path: (mtime_ns, size)}` of the files at the top level of a project, in its WATCHED_SUBDIRS and in
-    each `slide-<k>/` and `slide-<k>/marks/`, links not followed."""
+    """`{relative path: (mtime_ns, size)}` of the files at the top level of a project, in its WATCHED_SUBDIRS, in
+    each `slide-<k>/` and `slide-<k>/marks/` and, in a short-video project, in video.watched_subdirs, links not
+    followed."""
     out: dict[str, tuple[int, int]] = {}
-    for rel in ("", *WATCHED_SUBDIRS, *_slide_subdirs(directory)):
+    extra = watched_subdirs(directory) if is_video(directory) else _slide_subdirs(directory)
+    for rel in ("", *WATCHED_SUBDIRS, *extra):
+        if rel and (directory / rel).is_symlink():
+            continue
         try:
             with os.scandir(directory / rel) as it:
                 for entry in it:
@@ -111,7 +117,8 @@ def _complete_versions(files: dict[str, tuple[int, int]], rel: str = "") -> int:
 def list_projects(root: Path, kind: Kind) -> list[dict]:
     """`[{"dir", "name", "brief", "updated", "versions"}]`, newest first; `versions` counts complete versions
     (v<N>.png with v<N>.json), for a deck those of its slides, and a deck also has `slides`, its number of slides;
-    `updated` is the latest change of a file files_of sees in the project."""
+    for a short-video project `versions` counts its complete films; `updated` is the latest change of a file
+    files_of sees in the project."""
     out = []
     for p in project_dirs(root, kind):
         meta = read_json(p / PROJECT_FILE)
@@ -130,6 +137,8 @@ def list_projects(root: Path, kind: Kind) -> list[dict]:
             n = slide_count(p)
             entry["versions"] = sum(_complete_versions(files, f"slide-{k}") for k in range(1, n + 1))
             entry["slides"] = n
+        elif kind.id == "short-video":
+            entry["versions"] = film_count(p)
         else:
             entry["versions"] = _complete_versions(files)
         out.append(entry)
@@ -159,8 +168,9 @@ def is_deck(project: Path) -> bool:
 
 
 def project_details(root: Path, value: object) -> dict:
-    """`{"dir", "project", "versions", "refs"}` of a project, plus `deck` (deck_details) for a deck, whose own
-    `versions` is empty; 404 without project.json."""
+    """`{"dir", "project", "versions", "refs"}` of a project, plus `deck` (deck_details) for a deck, and `sources`
+    and `video` (video_details) for a short-video project, whose own `versions` are empty; 404 without
+    project.json."""
     p = project_path(root, value)
     meta = read_json(p / PROJECT_FILE)
     if meta is None:
@@ -170,6 +180,9 @@ def project_details(root: Path, value: object) -> dict:
         if refs_dir.is_dir() else []
     if is_deck(p):
         return {"dir": str(p), "project": meta, "versions": [], "refs": refs, "deck": deck_details(p, meta)}
+    if is_video(p):
+        return {"dir": str(p), "project": meta, "versions": [], "refs": refs, "sources": sources_of(p),
+                "video": video_details(p, meta)}
     return {"dir": str(p), "project": meta, "versions": versions_of(p), "refs": refs}
 
 
@@ -178,15 +191,15 @@ def write_project_json(project: Path, meta: dict) -> None:
 
 
 # Held across each read, change and write of a project.json by the server, so two requests at once (two quick
-# /api/chosen calls) do not lose one change.
-_project_lock = threading.Lock()
+# /api/chosen calls) do not lose one change; /api/storyboard and /api/picture hold it too.
+PROJECT_LOCK = threading.Lock()
 
 
 def update_project(project: Path, update) -> dict:
     """Read project.json, apply `update(meta)` (which changes the dict in place, or returns False to change nothing)
     and replace the file atomically, under one lock; returns the contents. 404 when project.json is missing or not an
     object."""
-    with _project_lock:
+    with PROJECT_LOCK:
         meta = read_json(project / PROJECT_FILE)
         if not isinstance(meta, dict):
             raise HttpError(404, f"no readable {PROJECT_FILE} in {project}")
@@ -197,6 +210,8 @@ def update_project(project: Path, update) -> dict:
 
 NAME_WORDS = 6
 UNTITLED = "Untitled"
+# Longest project name `/api/name` takes.
+NAME_MAX = 120
 
 
 def project_name(brief: str) -> str:
@@ -209,24 +224,71 @@ def project_name(brief: str) -> str:
     return name if slug(name) else UNTITLED
 
 
-def create_project(root: Path, kind: Kind, brief: str, created: str, autonomy: str = AUTONOMY[0]) -> Path:
-    """A new project `<root>/<directory of kind>/<slug of the brief's first words>` (`-2`, `-3` when taken) with its
-    project.json, `kind` and `autonomy` in it (a deck also `assembly` and `chosen`). The directory is made with mkdir, which fails when it exists, so two requests at once never get
-    the same directory."""
-    name = project_name(brief)
-    base = slug(name)
+def _new_dir(parent: Path, base: str) -> Path:
+    """`parent/base`, else `base-2`, `-3`, ...: the first that mkdir creates, so two requests at once never get the
+    same directory."""
     n = 1
     while True:
-        p = root / kind.directory / (base if n == 1 else f"{base}-{n}")
+        p = parent / (base if n == 1 else f"{base}-{n}")
         try:
             p.mkdir()
-            break
+            return p
         except FileExistsError:
             n += 1
+
+
+def folder_name(created: str) -> str:
+    """The folder of a new project: its creation time as `YYYYMMDD-HHMMSS` (from the ISO time `created`, else now),
+    which says nothing about the project, so the project's name can change without moving its files."""
+    try:
+        t = datetime.fromisoformat(created)
+    except (TypeError, ValueError):
+        t = datetime.now()
+    return t.strftime("%Y%m%d-%H%M%S")
+
+
+def create_project(root: Path, kind: Kind, brief: str, created: str, autonomy: str = AUTONOMY[0],
+                   film: dict | None = None) -> Path:
+    """A new project `<root>/<directory of kind>/<folder_name(created)>` (`-2`, `-3` when taken) with its
+    project.json, `kind` and `autonomy` in it (a deck also `assembly` and `chosen`; a short-video project `film`,
+    the defaults when not given, `style` null and `scene_styles`)."""
+    name = project_name(brief)
+    p = _new_dir(root / kind.directory, folder_name(created))
     meta = {"name": name, "brief": brief, "kind": kind.id, "created": created, "autonomy": autonomy, "settings": {}}
     if kind.id == "slide":
         meta |= {"assembly": ASSEMBLY[0], "chosen": {}}
+    elif kind.id == "short-video":
+        meta |= {"film": film if film is not None else default_film(), "style": None, "scene_styles": {}}
     write_project_json(p, meta)
+    return p
+
+
+def create_phone(original: Path, film: int, created: str, shape: str, length: int) -> Path:
+    """The phone version of film `film` of the short-video project `original`: a new project
+    `<folder_name(created)>` (`-2`, `-3` when taken) next to it, with the original's brief, autonomy, film
+    settings (with `shape` and `length`) and style, and `origin`. The music version film `film` used is copied in as
+    music version 1 (its files, studio.json included), which `film.music.version` names; without one it is null."""
+    meta = read_json(original / PROJECT_FILE)
+    meta = meta if isinstance(meta, dict) else {}
+    p = _new_dir(original.parent, folder_name(created))
+    name = meta.get("name") if isinstance(meta.get("name"), str) else original.name
+    used = next((f["music"] for f in films_of(original) if f["n"] == film), None)
+    track = original / "music" / f"v{used}"
+    copied = used is not None and track.is_dir() and not track.is_symlink()
+    if copied:
+        shutil.copytree(track, p / "music" / "v1", symlinks=True)
+    film_settings = film_of(meta)
+    # The copied track is used whatever the original's mode was: the mode follows its studio.json source.
+    source = read_json(p / "music" / "v1" / "studio.json") if copied else None
+    source = source.get("source") if isinstance(source, dict) else None
+    film_settings["music"] = {**film_settings["music"], "version": 1 if copied else None}
+    if source in ("made", "own"):
+        film_settings["music"]["mode"] = source
+    write_project_json(p, {
+        "name": f"{name} (phone)", "brief": meta.get("brief", ""), "kind": "short-video", "created": created,
+        "autonomy": meta.get("autonomy") if meta.get("autonomy") in AUTONOMY else AUTONOMY[0], "settings": {},
+        "film": {**film_settings, "shape": shape, "length": length}, "style": meta.get("style"),
+        "scene_styles": {}, "origin": {"project": str(original), "film": film}})
     return p
 
 
@@ -247,7 +309,10 @@ def name_untitled(project: Path, brief: str) -> None:
 def subdir(project: Path, name: str) -> Path:
     """`<project>/<name>`, created when missing; 400 when it resolves outside the project (a link)."""
     d = project / name
-    d.mkdir(exist_ok=True)
+    try:
+        d.mkdir(exist_ok=True)
+    except FileExistsError:  # a file of that name
+        raise HttpError(400, f"{d} is not a directory inside the project") from None
     if not inside(d.resolve(), project) or not d.resolve().is_dir():
         raise HttpError(400, f"{d} is not a directory inside the project")
     return d.resolve()

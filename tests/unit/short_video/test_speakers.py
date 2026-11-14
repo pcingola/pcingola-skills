@@ -41,15 +41,44 @@ class TestRuns(unittest.TestCase):
     def test_without_speaker_column_one_default_run(self) -> None:
         """speakers.runs of a scene without a Speaker column is one default-voice run. Guards one-voice scenes
         keeping a single script.txt."""
-        self.assertEqual(speakers.runs({"narration": ["A.", "B."]}), [(None, 0, ["A.", "B."])])
+        settings.use_project(None)
+        film = storyboard.resolve_voice({})
+        self.assertEqual(speakers.runs({}, {"narration": ["A.", "B."]}), [(None, film, 0, ["A.", "B."])])
 
     def test_consecutive_sentences_grouped(self) -> None:
         """speakers.runs groups consecutive sentences of one speaker and starts a new run at each change, with
         the first sentence index. Guards the part layout p<k>/script.txt."""
+        settings.use_project(None)
         scene = {"narration": ["A.", "B.", "C.", "D.", "E."],
                  "speakers": ["host", "host", None, "host", None]}
-        self.assertEqual(speakers.runs(scene), [
-            ("host", 0, ["A.", "B."]), (None, 2, ["C."]), ("host", 3, ["D."]), (None, 4, ["E."])])
+        host, film = storyboard.resolve_voice(DATA_HOST, "host"), storyboard.resolve_voice(DATA_HOST)
+        self.assertEqual(speakers.runs(DATA_HOST, scene), [
+            ("host", host, 0, ["A.", "B."]), (None, film, 2, ["C."]), ("host", host, 3, ["D."]),
+            (None, film, 4, ["E."])])
+
+    def test_own_voice_settings_split_runs(self) -> None:
+        """speakers.runs starts a new run where a sentence's own voice settings change its resolved voice, and
+        keeps sentences with the same resolved voice together. Guards a sentence with its own settings being
+        voiced as its own part."""
+        settings.use_project(None)
+        scene = {"narration": ["A.", "B.", "C.", "D."], "speakers": ["host", "host", "host", "host"],
+                 "voices": [None, {"speed": 1.2}, {"speed": 1.2}, {"name": "bm_george"}]}
+        got = speakers.runs(DATA_HOST, scene)
+        self.assertEqual([(r[2], r[3]) for r in got], [(0, ["A."]), (1, ["B.", "C."]), (3, ["D."])])
+        self.assertEqual([r[1] for r in got], [
+            {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None},
+            {"backend": "kokoro", "name": "bm_george", "speed": 1.2, "style": None},
+            {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None}])
+
+    def test_same_resolved_voice_one_run(self) -> None:
+        """speakers.runs keeps a sentence whose own settings equal its speaker's voice in the speaker's run.
+        Guards splitting on the resolved voice, not on the presence of settings."""
+        settings.use_project(None)
+        scene = {"narration": ["A.", "B."], "voices": [None, {"backend": "kokoro", "speed": 1.0}]}
+        self.assertEqual(len(speakers.runs({}, scene)), 1)
+
+
+DATA_HOST = {"speakers": {"host": {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None}}}
 
 
 class TestJoin(unittest.TestCase):
@@ -101,8 +130,20 @@ class TestJoin(unittest.TestCase):
         voice. Guards the voice record in meta.json."""
         self.assertEqual((self.timing["backend"], self.timing["voice"], self.timing["speed"]),
                          ("kokoro", "af_heart", 1.0))
-        self.assertEqual([(v["speaker"], v["voice"]) for v in self.timing["speakers"]],
-                         [(None, "af_heart"), ("guest", "bm_george"), (None, "af_heart")])
+        self.assertEqual([(v["speaker"], v["voice"], v["sentences"]) for v in self.timing["speakers"]],
+                         [(None, "af_heart", 2), ("guest", "bm_george", 1), (None, "af_heart", 1)])
+
+    def test_recorded_voices(self) -> None:
+        """speakers.recorded_voices gives each sentence of a joined recording its part's voice, from the part
+        sizes or, without them, from runs of `speaker`; a single recording gives its own voice to every
+        sentence. Guards the voice check of stored voice versions in `status`."""
+        self.assertEqual([v["voice"] for v in speakers.recorded_voices(self.timing)],
+                         ["af_heart", "af_heart", "bm_george", "af_heart"])
+        old = {**self.timing, "speakers": [{k: v for k, v in p.items() if k != "sentences"}
+                                           for p in self.timing["speakers"]]}
+        self.assertEqual([v["voice"] for v in speakers.recorded_voices(old)],
+                         ["af_heart", "af_heart", "bm_george", "af_heart"])
+        self.assertEqual(speakers.recorded_voices(self.ta), [self.ta, self.ta])
 
     def test_sample_rate_mismatch_refused(self) -> None:
         """speakers.join refuses parts with different sample rates. Guards joining samples at the wrong speed."""
@@ -116,6 +157,24 @@ class TestJoin(unittest.TestCase):
         with self.assertRaisesRegex(narration.NarrationError, "part 3.*'bf_emma'.*'af_heart'"):
             speakers.join([(None, self.a, SR, self.ta), ("guest", self.b, SR, self.tb), (None, self.c, SR, other)],
                           0.35)
+
+    def test_own_voice_name_allowed(self) -> None:
+        """speakers.join accepts a part of the default voice whose sentence names its own voice (same backend,
+        speed and style, another name), as the storyboard's per-sentence Voice column allows
+        (references/storyboard.md, "Voice settings per sentence"). Guards refusing a voice-name-only change."""
+        _, own = part([("Six.", 0.5)], voice="bf_emma")
+        _, timing = speakers.join([(None, self.a, SR, self.ta), ("guest", self.b, SR, self.tb),
+                                   (None, self.c, SR, own)], 0.35, [None, None, "bf_emma"])
+        self.assertEqual([p["voice"] for p in timing["speakers"]], ["af_heart", "bm_george", "bf_emma"])
+
+    def test_one_null_name_two_voices_refused_with_names(self) -> None:
+        """speakers.join still refuses two default-voice parts with null names voiced with different voices when
+        another part has its own name. Guards the default voice changing inside a scene."""
+        _, own = part([("Six.", 0.5)], voice="bf_emma")
+        _, other = part([("Seven.", 0.5)], voice="bf_isabella")
+        with self.assertRaisesRegex(narration.NarrationError, "part 4.*'bf_isabella'.*'af_heart'"):
+            speakers.join([(None, self.a, SR, self.ta), ("guest", self.b, SR, self.tb), (None, self.c, SR, own),
+                           (None, self.c, SR, other)], 0.35, [None, None, "bf_emma", None])
 
 
 class TestReadWav(unittest.TestCase):
@@ -162,18 +221,18 @@ class TestCheckVoice(unittest.TestCase):
             speakers.check_voice({"backend": "chatterbox", "voice": "/other/anna.wav", "speed": 1.0}, voice, "anna")
 
     def test_null_name_resolves_to_backend_default(self) -> None:
-        """storyboard.speaker_voice resolves an empty voice to the backend default (null for speech, whose
+        """storyboard.resolve_voice resolves an empty voice to the backend default (null for speech, whose
         default depends on the provider); check_voice accepts the voice recorded with it and refuses a recording
         without one. Guards speakers defined with empty Voice cells."""
         data = {"speakers": {"guest": {"backend": "speech", "name": None, "speed": None, "style": None}}}
-        voice = storyboard.speaker_voice(data, "guest")
+        voice = storyboard.resolve_voice(data, "guest")
         self.assertEqual(voice, {"backend": "speech", "name": None, "speed": 1.0, "style": None})
         speakers.check_voice({"backend": "speech", "voice": "Kore", "speed": 1.0}, voice, "guest")
         speakers.check_voice({"backend": "speech", "voice": "marin", "speed": 1.0}, voice, "guest")
         with self.assertRaisesRegex(narration.NarrationError, "records no voice"):
             speakers.check_voice({"backend": "speech", "speed": 1.0}, voice, "guest")
         speakers.check_voice({"backend": "kokoro", "voice": "af_heart", "speed": 1.0},
-                             storyboard.speaker_voice(data, None), None)
+                             storyboard.resolve_voice(data), None)
 
 
 DATA = {"speakers": {"guest": {"backend": "kokoro", "name": "bm_george", "speed": None, "style": None}}}
@@ -200,34 +259,35 @@ class TestScenes(unittest.TestCase):
     def test_two_speakers_write_parts(self) -> None:
         """narration.write_script of a two-speaker scene writes p1 and p2 scripts with their speakers and no
         scene script.txt. Guards the multi-speaker script layout."""
-        written = narration.write_script(self.project, TWO)
+        written = narration.write_script(self.project, DATA, TWO)
         scene_dir = narration.script_dir(self.project, "talk")
-        self.assertEqual(written, [(scene_dir / "p1" / "script.txt", None),
-                                   (scene_dir / "p2" / "script.txt", "guest")])
+        self.assertEqual([w[:2] for w in written], [(scene_dir / "p1" / "script.txt", None),
+                                                    (scene_dir / "p2" / "script.txt", "guest")])
+        self.assertEqual(written[1][2]["name"], "bm_george")
         self.assertEqual((scene_dir / "p2" / "script.txt").read_text(), "Hi.\n")
         self.assertFalse((scene_dir / "script.txt").exists())
 
     def test_stale_parts_removed_when_one_speaker_left(self) -> None:
         """narration.write_script removes part directories and the joined recording when a scene goes back to
         one speaker. Guards importing a recording of the old layout."""
-        narration.write_script(self.project, TWO)
+        narration.write_script(self.project, DATA, TWO)
         scene_dir = narration.script_dir(self.project, "talk")
         self.voice(scene_dir / "p1", ["Hello."])
         self.voice(scene_dir / "p2", ["Hi."], "bm_george")
         narration.join_parts(self.project, DATA, TWO, scene_dir)
         self.assertTrue((scene_dir / "timing.json").is_file())
 
-        written = narration.write_script(self.project, ONE)
-        self.assertEqual(written, [(scene_dir / "script.txt", None)])
+        written = narration.write_script(self.project, DATA, ONE)
+        self.assertEqual([w[:2] for w in written], [(scene_dir / "script.txt", None)])
         self.assertEqual(sorted(p.name for p in scene_dir.iterdir()), ["script.txt"])
 
     def test_stale_recording_removed_when_speakers_added(self) -> None:
         """narration.write_script removes the scene's single recording when speakers are added. Guards importing
         a one-voice recording of a two-voice scene."""
-        narration.write_script(self.project, ONE)
+        narration.write_script(self.project, DATA, ONE)
         scene_dir = narration.script_dir(self.project, "talk")
         self.voice(scene_dir, ["Hello.", "Hi."])
-        narration.write_script(self.project, TWO)
+        narration.write_script(self.project, DATA, TWO)
         self.assertEqual(sorted(p.name for p in scene_dir.iterdir()), ["p1", "p2"])
 
     def test_rewritten_one_run_script_drops_old_recording(self) -> None:
@@ -237,10 +297,10 @@ class TestScenes(unittest.TestCase):
         to the default voice, so import_voice refuses. Guards a recording in the wrong voice whose sentences
         still match."""
         guest = {"id": "talk", "narration": ["Hello.", "Hi."], "speakers": ["guest", "guest"]}
-        narration.write_script(self.project, guest)
+        narration.write_script(self.project, DATA, guest)
         scene_dir = narration.script_dir(self.project, "talk")
         self.voice(scene_dir, ["Hello.", "Hi."], "bm_george")
-        narration.write_script(self.project, ONE)
+        narration.write_script(self.project, DATA, ONE)
         self.assertEqual(sorted(p.name for p in scene_dir.iterdir()), ["script.txt"])
         with self.assertRaisesRegex(narration.NarrationError, "has no narration.wav, timing.json"):
             narration.import_voice(self.project, DATA, ONE, scene_dir)
@@ -262,7 +322,7 @@ class TestScenes(unittest.TestCase):
     def test_import_two_speakers(self) -> None:
         """narration.import_voice joins two voiced parts into one voice version with the scene's script and
         records each sentence's speaker and voice in meta.json. Guards the multi-speaker import end to end."""
-        narration.write_script(self.project, TWO)
+        narration.write_script(self.project, DATA, TWO)
         scene_dir = narration.script_dir(self.project, "talk")
         self.voice(scene_dir / "p1", ["Hello."])
         self.voice(scene_dir / "p2", ["Hi."], "bm_george")
@@ -277,7 +337,7 @@ class TestScenes(unittest.TestCase):
     def test_import_refuses_part_in_wrong_voice(self) -> None:
         """narration.import_voice refuses a part voiced in another voice and creates no voice version. Guards
         the per-part voice check."""
-        narration.write_script(self.project, TWO)
+        narration.write_script(self.project, DATA, TWO)
         scene_dir = narration.script_dir(self.project, "talk")
         self.voice(scene_dir / "p1", ["Hello."])
         self.voice(scene_dir / "p2", ["Hi."])
@@ -288,18 +348,29 @@ class TestScenes(unittest.TestCase):
     def test_import_refuses_part_with_stale_text(self) -> None:
         """narration.import_voice refuses a part whose sentence differs, naming part and sentence. Guards the
         per-part sentence check."""
-        narration.write_script(self.project, TWO)
+        narration.write_script(self.project, DATA, TWO)
         scene_dir = narration.script_dir(self.project, "talk")
         self.voice(scene_dir / "p1", ["Hello."])
         self.voice(scene_dir / "p2", ["Bye."], "bm_george")
         with self.assertRaisesRegex(narration.NarrationError, "part 2 sentence 1"):
             narration.import_voice(self.project, DATA, TWO, scene_dir)
 
+    def test_part_with_own_settings_named_by_them(self) -> None:
+        """narration.import_voice names a part with its own voice settings and no speaker by those settings in
+        its error. Guards a message that blamed the film's voice for a sentence's own settings."""
+        scene = {"id": "talk", "narration": ["Hello.", "Hi."], "voices": [None, {"name": "bm_george"}]}
+        narration.write_script(self.project, DATA, scene)
+        scene_dir = narration.script_dir(self.project, "talk")
+        self.voice(scene_dir / "p1", ["Hello."])
+        self.voice(scene_dir / "p2", ["Hi."])
+        with self.assertRaisesRegex(narration.NarrationError, "part 2: sentence 2's own voice settings: voiced"):
+            narration.import_voice(self.project, DATA, scene, scene_dir)
+
     def test_one_run_with_speaker_column_checked(self) -> None:
         """narration.import_voice checks a one-run scene with a speaker against that speaker's voice and records
         it. Guards the voice check on single-run speaker scenes."""
         scene = {"id": "talk", "narration": ["Hello.", "Hi."], "speakers": ["guest", "guest"]}
-        narration.write_script(self.project, scene)
+        narration.write_script(self.project, DATA, scene)
         scene_dir = narration.script_dir(self.project, "talk")
         self.voice(scene_dir, ["Hello.", "Hi."])
         with self.assertRaisesRegex(narration.NarrationError, "speaker 'guest'"):

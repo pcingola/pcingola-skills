@@ -5,8 +5,9 @@
     images   `image_generator` (generation, edits with reference images, masks)
     system1  `system1_model`, `decide`
     speech   `speak` (OpenAI-style `audio/speech`, Gemini TTS)
-    music    `compose` (Lyria, local diffusers)
-    local    diffusers image and music models (extra `ai-models[diffusers]`)
+    music    `compose` (Google predict and stream models, local diffusers)
+    video    `animate`, `aanimate` (image to video, local diffusers)
+    local    diffusers image, music and video models (extra `ai-models[diffusers]`)
     tls      certifi roots plus EXTRA_CA_CERT for remote clients
 
 Every error of this package is an `AIModelsError`.

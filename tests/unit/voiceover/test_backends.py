@@ -8,7 +8,7 @@ import pytest
 
 from tests.unit.voiceover.cli_run import voiceover
 from voiceover_tool.backends import KokoroBackend, get_backend, kokoro_lang
-from voiceover_tool.speech import OPENAI_VOICES, decode
+from voiceover_tool.speech import decode
 from voiceover_tool.timing import build_timing
 
 
@@ -42,20 +42,20 @@ def test_decode_wav_and_raw_pcm():
 
 
 def test_speech_backend_from_config(tmp_path):
-    """The `speech` backend takes the config's `speech` model: an OpenAI-style one lists the OpenAI voices with
-    `marin` as default; no `speech` task is an error; a speed outside 0.25 to 4, or any speed other than 1 with
+    """The `speech` backend takes the config's `speech` model; `voices` lists the setting VOICEOVER_SPEECH_VOICES
+    with VOICEOVER_SPEECH_VOICE as default; no `speech` task is an error; a speed outside 0.25 to 4, or any speed other than 1 with
     Gemini TTS, is refused before any request."""
     config = tmp_path / "config.yaml"
     config.write_text("providers:\n  oai: {kind: openai, base_url: http://127.0.0.1:1/v1}\nmodels: {}\n")
     p = voiceover("voices", "--backend", "speech", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "no model for task 'speech'" in p.stderr
 
+    voice_settings = "settings: {VOICEOVER_SPEECH_VOICE: two, VOICEOVER_SPEECH_VOICES: 'one,two'}\n"
     config.write_text("providers:\n  oai: {kind: openai, base_url: http://127.0.0.1:1/v1}\n"
-                      "models: {speech: 'oai:tts-1'}\n")
+                      "models: {speech: 'oai:tts-1'}\n" + voice_settings)
     p = voiceover("voices", "--backend", "speech", SKILLS_CONFIG=str(config))
     assert p.returncode == 0, p.stderr
-    assert p.stdout.split("\n")[:len(OPENAI_VOICES)] == [f"{v}  (default)" if v == "marin" else v
-                                                        for v in OPENAI_VOICES]
+    assert p.stdout.split("\n")[:2] == ["one", "two  (default)"]
 
     script = tmp_path / "s.txt"
     script.write_text("Hello there.\n")
@@ -63,7 +63,7 @@ def test_speech_backend_from_config(tmp_path):
     p = voiceover(*synth, "--speed", "5", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "between 0.25 and 4" in p.stderr
 
-    config.write_text("providers:\n  g: {kind: google}\nmodels: {speech: 'g:gemini-3.8-flash-tts'}\n")
+    config.write_text("providers:\n  g: {kind: google}\nmodels: {speech: 'g:gemini-3.8-flash-tts'}\n" + voice_settings)
     p = voiceover(*synth, "--speed", "1.2", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "no speed setting" in p.stderr
 

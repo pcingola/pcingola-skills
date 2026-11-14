@@ -27,9 +27,11 @@ results, show concrete outcomes, leave out methods and technical detail.
    sentences. Reuse the original images; generate a new one only when no
    original image fits a scene.
 4. Follow the workflow from step 3 (voice) in the new project. Give each scene
-   subagent the latest `index.html` (or `scene.py`) of the original scene with
-   the same image, as the starting style; its timing calls follow the new
-   narration. A clip scene (`Engine: clip`) imports the original's clip
+   subagent, as the starting style, the latest `index.html` (or `scene.py`)
+   of the original scene the new scene draws on (the one that showed the
+   same point or used the same image); its timing calls and its movement
+   follow the new narration, and it passes the motion check
+   (`references/scenes.md`) like any scene. A clip scene (`Engine: clip`) imports the original's clip
    (`clip.<ext>` in its latest version) with `clip`, or a new one when its
    images or the `video:` size changed. For music, generate a track of the
    new `length`, or copy the original's track into the new `sources/` and
@@ -58,5 +60,4 @@ the same, with these differences:
   original pages give the colours and fonts, not the positions. Text is
   larger than the landscape defaults (labels at least 56 px), at most two
   overlays at once, and away from the bottom and right edges, where the
-  phone app draws its buttons and the video title. Something changes on
-  screen every 2 to 3 seconds.
+  phone app draws its buttons and the video title.

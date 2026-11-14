@@ -4,7 +4,7 @@
 `align_fn` for the time span of every aligner token, and places each written
 word. If `align_fn` raises, the words are spread over the sentence in
 proportion to their character length and the sentence is marked unaligned.
-`MMSAligner` is the real `align_fn` (torchaudio MMS_FA, CPU).
+`MMSAligner` is the real `align_fn` (a torchaudio forced-alignment pipeline, CPU).
 """
 
 from __future__ import annotations
@@ -95,15 +95,15 @@ def sentence_words(
 
 
 class MMSAligner:
-    """torchaudio MMS_FA forced aligner, loaded from a pre-downloaded file."""
+    """torchaudio forced aligner `torchaudio.pipelines.<pipeline>`, loaded from a pre-downloaded file."""
 
-    def __init__(self, weights_dir: str | Path) -> None:
+    def __init__(self, pipeline: str, weights_dir: str | Path) -> None:
         import torch
         import torchaudio
 
         self._torch = torch
         self._resample = torchaudio.functional.resample
-        bundle = torchaudio.pipelines.MMS_FA
+        bundle = getattr(torchaudio.pipelines, pipeline)
         # model_dir makes torch.hub find <weights_dir>/model.pt and skip the download
         self.model = bundle.get_model(dl_kwargs={"model_dir": str(weights_dir)})
         self.model.eval()

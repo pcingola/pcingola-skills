@@ -24,12 +24,13 @@ def log(text: str) -> None:
 
 
 class HttpError(Exception):
-    """An error answered with `status` and `{"error": message}`."""
+    """An error answered with `status` and `{"error": message}`, plus the keys of `extra`."""
 
-    def __init__(self, status: int, message: str) -> None:
+    def __init__(self, status: int, message: str, extra: dict | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
+        self.extra = extra or {}
 
 
 def read_json(path: Path) -> object | None:
@@ -88,8 +89,8 @@ IMAGE_SUFFIXES = {
 }
 
 
-def decode_data_url(value: object, allowed: tuple[str, ...]) -> tuple[str, bytes]:
-    """`(mime type, bytes)` of a base64 data URL whose type is in `allowed`; 400 otherwise."""
+def decode_data_url(value: object, allowed: tuple[str, ...] | None) -> tuple[str, bytes]:
+    """`(mime type, bytes)` of a base64 data URL whose type is in `allowed` (None: any type); 400 otherwise."""
     if not isinstance(value, str) or not value.startswith("data:") or "," not in value:
         raise HttpError(400, "expected a data URL")
     header, payload = value[5:].split(",", 1)
@@ -97,7 +98,7 @@ def decode_data_url(value: object, allowed: tuple[str, ...]) -> tuple[str, bytes
     mime = parts[0].strip().lower()
     if "base64" not in parts[1:]:
         raise HttpError(400, "the data URL must be base64")
-    if mime not in allowed:
+    if allowed is not None and mime not in allowed:
         raise HttpError(400, f"data URL type {mime or '(none)'} is not one of {', '.join(allowed)}")
     try:
         data = base64.b64decode(payload, validate=True)

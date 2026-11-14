@@ -2,15 +2,21 @@
 
 Commands:
     init       Create a film project, copy the PNGs and source text if given,
-               write settings.yaml and a storyboard.md template.
-    validate   Check storyboard.md and estimate the film length.
+               write settings.yaml and a storyboard.md (or, with --json,
+               storyboard.json) template.
+    validate   Check the storyboard and estimate the film length.
+    storyboard Print the storyboard as storyboard.json stores it.
+    status     Print, per scene, whether it needs a new voice recording or a
+               new render (JSON).
     script     Write each scene's narration script (one sentence per line)
                to sources/narration/<scene>/ for the voiceover skill (one
-               p<k>/ part per run of speakers; prints each named speaker's voice).
+               p<k>/ part per run of voices; prints each part's voice when it
+               is not the film's `voice:`).
     voice      Import the narration voiced there as the next voice version,
                after checking it against the storyboard.
     scaffold   Create the next version of a scene's composition.
-    render     Check, lint and render a scene; mux its narration; contact sheet.
+    render     Check, lint and render a scene (a video scene: animate its image
+               with the video model); mux its narration; contact sheet.
     clip       Import a video made elsewhere as the next version of a clip scene.
     frames     Extract full-size frames of a rendered scene at given times.
     music      Import music.file (made with the music skill) as the next
@@ -30,13 +36,17 @@ directory) and reads its `settings.yaml` over the skill defaults.
 
 `scaffold` and `render` of a scene with `Engine: manim` work on its Manim
 `scene.py` (`manim_scene`) instead of an HTML composition and need no
-HyperFrames. A scene with `Engine: clip` has no page: `clip` imports its
-video (`clip`), and `scaffold` and `render` refuse it.
+HyperFrames. Those of a scene with `Engine: video` work on its motion prompt
+`prompt.txt` (`video_scene`): `render` sends the scene's image and the prompt
+to the video model (`render --seed N` fixes the model's seed). A scene with
+`Engine: clip` has no page: `clip` imports its video (`clip`), and
+`scaffold` and `render` refuse it.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import platform
 import shutil
 import subprocess
@@ -44,8 +54,7 @@ import sys
 from pathlib import Path
 
 from . import audiocheck, brand, clip, config, credit, media, mix, music, narration, scenes, settings, speakers, state
-from . import storyboard
-from . import manim_scene
+from . import manim_scene, status, storyboard, video_scene
 
 LAYOUT = ("images", "sources", "voice", "scenes", "music", "film")
 
@@ -69,7 +78,7 @@ def _valid(project: Path) -> dict:
     data = _load(project)
     v = storyboard.validate(data, project)
     if not v.ok:
-        config.error(f"{storyboard.MD_FILE} is invalid:\n  " + "\n  ".join(v.errors))
+        config.error(f"{storyboard.source_file(project).name} is invalid:\n  " + "\n  ".join(v.errors))
     return data
 
 
@@ -136,12 +145,13 @@ def _cmd_init(args: argparse.Namespace) -> int:
     if not lessons.exists():
         lessons.write_text(settings.asset("lessons.md"), encoding="utf-8")
     title = project.name.replace("-", " ").replace("_", " ").capitalize()
-    (project / storyboard.MD_FILE).write_text(
-        storyboard.template(title, [p.name for p in pngs]), encoding="utf-8")
+    name, make = ((storyboard.JSON_FILE, storyboard.json_template) if args.json
+                  else (storyboard.MD_FILE, storyboard.template))
+    (project / name).write_text(make(title, [p.name for p in pngs]), encoding="utf-8")
     _load(project)
     print(project)
     print(f"  {settings.PROJECT_FILE}")
-    print(f"  {storyboard.MD_FILE}")
+    print(f"  {name}")
     for p in pngs:
         print(f"  images/{p.name}")
     return 0
@@ -168,6 +178,22 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     return 0 if v.ok else 1
 
 
+def _cmd_storyboard(args: argparse.Namespace) -> int:
+    project = _project(args)
+    try:
+        data = storyboard.read(project)
+    except storyboard.StoryboardError as e:
+        config.error(str(e))
+    print(storyboard.to_json(data), end="")
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    project = _project(args)
+    print(json.dumps(status.report(project, _load(project)), indent=2, ensure_ascii=False))
+    return 0
+
+
 def _targets(data: dict, ids: list[str] | None, pending) -> list[dict]:
     """The narrated scenes named, or every narrated scene for which
     `pending(scene)` holds; a clip scene without narration is never one."""
@@ -180,9 +206,9 @@ def _targets(data: dict, ids: list[str] | None, pending) -> list[dict]:
     return [s for s in storyboard.scenes(data) if storyboard.narrated(s) and pending(s)]
 
 
-def _voice_line(speaker: str, voice: dict) -> str:
-    """The voice to voice a speaker's script with, as `script` prints it."""
-    return " ".join([f"speaker={speaker}", f"backend={voice['backend']}"]
+def _voice_line(speaker: str | None, voice: dict) -> str:
+    """The voice to voice a script with, as `script` prints it."""
+    return " ".join(([f"speaker={speaker}"] if speaker else []) + [f"backend={voice['backend']}"]
                     + ([f"name={voice['name']}"] if voice["name"] else [])
                     + [f"speed={voice['speed']}"] + ([f"style={voice['style']}"] if voice["style"] else []))
 
@@ -190,12 +216,13 @@ def _voice_line(speaker: str, voice: dict) -> str:
 def _cmd_script(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
+    film = storyboard.resolve_voice(data)
     targets = _targets(data, args.scene, lambda s: state.latest_voice(project, s["id"]) is None)
     for s in targets:
-        for path, speaker in narration.write_script(project, s):
+        for path, speaker, voice in narration.write_script(project, data, s):
             print(path)
-            if speaker is not None:
-                print("  " + _voice_line(speaker, storyboard.speaker_voice(data, speaker)))
+            if speaker is not None or voice != film:
+                print("  " + _voice_line(speaker, voice))
     if not targets:
         print("every scene has narration; name scenes with --scene to write their scripts again")
     return 0
@@ -206,8 +233,8 @@ def _cmd_voice(args: argparse.Namespace) -> int:
     data = _valid(project)
 
     def voiced(s: dict) -> bool:
-        if narration.is_multipart(s):
-            n = len(speakers.runs(s))
+        if narration.is_multipart(data, s):
+            n = len(speakers.runs(data, s))
             return all((speakers.part_dir(project, s["id"], k) / "timing.json").is_file() for k in range(1, n + 1))
         return (narration.script_dir(project, s["id"]) / "timing.json").is_file()
 
@@ -250,6 +277,26 @@ def _render_manim(project: Path, scene: dict) -> int:
     return 0
 
 
+def _scaffold_video(project: Path, scene: dict) -> int:
+    try:
+        out = video_scene.scaffold(project, scene)
+    except scenes.SceneError as e:
+        config.error(str(e))
+    print(out / video_scene.PROMPT)
+    print(out / "brief.md")
+    return 0
+
+
+def _render_video(project: Path, scene: dict, seed: int | None) -> int:
+    try:
+        out = video_scene.render(project, scene, seed)
+    except (scenes.SceneError, media.ToolError) as e:
+        config.error(str(e))
+    print(out)
+    print(out.parent / "contact.png")
+    return 0
+
+
 def _cmd_scaffold(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
@@ -257,6 +304,8 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
         config.error(clip.refuse(args.scene, "scaffold"))
     if manim_scene.is_manim(_scene(data, args.scene)):
         return _scaffold_manim(project, _scene(data, args.scene))
+    if storyboard.is_video(_scene(data, args.scene)):
+        return _scaffold_video(project, _scene(data, args.scene))
     _ensure_node()
     try:
         out = scenes.scaffold(project, _scene(data, args.scene), config.NODE_DIR)
@@ -269,11 +318,16 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
 
 def _cmd_render(args: argparse.Namespace) -> int:
     project = _project(args)
+    seed = getattr(args, "seed", None)
     data = _valid(project)
     if storyboard.is_clip(_scene(data, args.scene)):
         config.error(clip.refuse(args.scene, "render"))
     if manim_scene.is_manim(_scene(data, args.scene)):
         return _render_manim(project, _scene(data, args.scene))
+    if storyboard.is_video(_scene(data, args.scene)):
+        return _render_video(project, _scene(data, args.scene), seed)
+    if seed is not None:
+        config.error("--seed applies only to a video scene (`Engine: video`)")
     # A scene switched from manim to html has a latest version with no page.
     latest = state.latest_scene(project, args.scene)
     if latest is not None and not (latest / "index.html").is_file():
@@ -457,15 +511,21 @@ def _build_parser() -> argparse.ArgumentParser:
         c.add_argument("-p", "--project", help="Project folder path; default: current dir")
         return c
 
-    c = sub.add_parser("init", help="Create a project, copy the PNGs if given, write settings.yaml and storyboard.md")
+    c = sub.add_parser("init", help="Create a project, copy the PNGs if given, write settings.yaml and "
+                       "storyboard.md (or storyboard.json)")
     c.add_argument("project", help="Path of the new project folder (created if missing)")
     c.add_argument("--images", help="Folder with the PNGs, one image scene each (optional)")
     c.add_argument("--source", help="Topic or source text file, copied to sources/")
+    c.add_argument("--json", action="store_true", help="Write storyboard.json instead of storyboard.md")
     c.set_defaults(func=_cmd_init)
 
-    c = project_cmd("validate", "Validate storyboard.md and estimate length")
+    c = project_cmd("validate", "Validate the storyboard and estimate length")
     c.add_argument("--brand", metavar="DIR", help=BRAND_HELP)
     c.set_defaults(func=_cmd_validate)
+
+    project_cmd("storyboard", "Print the storyboard as storyboard.json stores it").set_defaults(func=_cmd_storyboard)
+    project_cmd("status", "Print per scene whether it needs a new voice recording or render (JSON)").set_defaults(
+        func=_cmd_status)
 
     c = project_cmd("script", "Write each scene's narration script for the voiceover skill")
     c.add_argument("--scene", action="append", help="Write this scene's script again (repeatable)")
@@ -483,6 +543,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     c = project_cmd("render", "Render the latest version of a scene")
     c.add_argument("--scene", required=True)
+    c.add_argument("--seed", type=int, help="Seed of the video model (a scene with `Engine: video`)")
     c.set_defaults(func=_cmd_render)
 
     c = project_cmd("clip", "Import a video as the next version of a clip scene (`Engine: clip`)")

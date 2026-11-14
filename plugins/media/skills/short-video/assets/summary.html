@@ -2,7 +2,8 @@
 <!--
   SUGGESTED summary scene: restyle it to match the film. Keep the root element
   and its data-* attributes, #bg-fill, the text from window.CARD (card.js:
-  rows, image) and the timing (references/scenes.md).
+  rows, image), the timing and a movement
+  of its own in every sentence (references/scenes.md).
 -->
 <html lang="en">
 <head>
@@ -22,8 +23,14 @@
                    filter: blur(24px) brightness(0.35); transform: scale(1.1); }
   #summary { position: absolute; left: 240px; right: 240px; top: 0; bottom: 0; display: flex;
              flex-direction: column; justify-content: center; }
-  .item { font-size: 56px; line-height: 1.25; margin: 22px 0; padding-left: 40px;
-          border-left: 8px solid #f2b134; opacity: 0; }
+  .item { position: relative; display: flex; align-items: center; font-size: 56px; line-height: 1.25;
+          margin: 28px 0; opacity: 0; }
+  /* The drawn element of each point: a mark beside it and a bar under it. */
+  .mark { flex: none; width: 72px; height: 72px; margin-right: 36px; }
+  .mark circle, .mark path { fill: none; stroke: #f2b134; stroke-width: 5; stroke-linecap: round;
+                             stroke-linejoin: round; }
+  .bar { position: absolute; left: 108px; right: 0; bottom: -12px; height: 4px; border-radius: 2px;
+         background: #f2b134; opacity: 0.6; transform-origin: 0 50%; transform: scaleX(0); }
 </style>
 </head>
 <body>
@@ -36,19 +43,78 @@
 <script>
   const C = window.CARD;
   if (C.image) document.getElementById("bg-fill").classList.add("image");
+  // One point: its drawn mark, its text and the bar under it.
   function add(parent, cls, text) {
     const el = document.createElement("div");
     el.className = cls;
-    el.textContent = text;
+    el.innerHTML = '<svg class="mark" viewBox="0 0 72 72"><circle cx="36" cy="36" r="30"/>'
+      + '<path d="M22 37 L32 47 L51 26"/></svg><span></span><div class="bar"></div>';
+    el.querySelector("span").textContent = text;
     document.getElementById(parent).appendChild(el);
     return el;
+  }
+  function draw(shape) {
+    const len = shape.getTotalLength();
+    gsap.set(shape, { strokeDasharray: len, strokeDashoffset: len });
+    return shape;
   }
   const hidden = { opacity: 0, y: 24 };
   const shown = { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" };
 
   const tl = gsap.timeline({ paused: true });
+  const last = Number(document.getElementById("root").dataset.duration) - 0.5;
   C.rows.forEach((text, i) => {
-    tl.fromTo(add("summary", "item", text), hidden, shown, Math.max(0, S(i + 1) - 0.1));
+    const n = i + 1, el = add("summary", "item", text);
+    const until = Math.min(n < C.rows.length ? S(n + 1) : last, last);
+    tl.fromTo(el, hidden, shown, Math.max(0, S(n) - 0.1));
+    tl.to(draw(el.querySelector("circle")), { strokeDashoffset: 0, duration: 0.7, ease: "power2.out" }, S(n));
+    tl.to(draw(el.querySelector("path")), { strokeDashoffset: 0, duration: 0.4, ease: "power2.out" }, S(n) + 0.5);
+    tl.to(el.querySelector(".bar"), { scaleX: 1, duration: Math.max(0.1, until - S(n)), ease: "none" }, S(n));
+  });
+
+  // Every sentence, and a hold after the narration, gets its own movement
+  // with a new target: the background moves to a new framing (it has no
+  // margin limit), and the text block moves and scales as far as the 60 px
+  // margin allows, measured on its rows. Each point arrives with a mark drawn
+  // beside it and a bar drawn under it during its sentence.
+  // Nothing moves in the last 0.5 s.
+  const root = document.getElementById("root");
+  const FW = Number(root.dataset.width), FH = Number(root.dataset.height);
+  const END = Number(root.dataset.duration) - 0.5, MARGIN = 60, REACH = 160;
+  // x, y: the direction of the text shift (up to REACH px); bx, by, bs: the background's.
+  const SHOTS = [{ x: -1, y: 1, scale: 1.08, bx: -7, by: 5, bs: 1.2 },
+                 { x: 1, y: -1, scale: 0.96, bx: 18, by: -12, bs: 1.55 },
+                 { x: -1, y: -1, scale: 1.05, bx: -15, by: -10, bs: 1.4 },
+                 { x: 1, y: 1, scale: 1, bx: 12, by: 12, bs: 1.6 }];
+  // The shot's shift and scale, reduced so the scaled, shifted rows stay inside the margin.
+  function fit(el, shot) {
+    const o = el.getBoundingClientRect();
+    const ox = o.left + o.width / 2, oy = o.top + o.height / 2;
+    let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+    for (const c of el.children) {
+      const b = c.getBoundingClientRect();
+      if (!b.width || !b.height) continue;
+      L = Math.min(L, b.left); T = Math.min(T, b.top); R = Math.max(R, b.right); B = Math.max(B, b.bottom);
+    }
+    if (L === Infinity) return { x: 0, y: 0, scale: 1 };
+    const s = Math.min(shot.scale, (FW - 2 * MARGIN) / (R - L), (FH - 2 * MARGIN) / (B - T));
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    return {
+      x: clamp(shot.x * REACH, MARGIN - (ox + s * (L - ox)), FW - MARGIN - (ox + s * (R - ox))),
+      y: clamp(shot.y * REACH, MARGIN - (oy + s * (T - oy)), FH - MARGIN - (oy + s * (B - oy))),
+      scale: s,
+    };
+  }
+  const text = document.querySelector("#summary");
+  const marks = C.rows.map((_, i) => S(i + 1));
+  if (END - SE(C.rows.length) > 1) marks.push(SE(C.rows.length));
+  marks.forEach((t, i) => {
+    const until = Math.min(i + 1 < marks.length ? marks[i + 1] : END, END);
+    if (until <= t) return;
+    const shot = SHOTS[i % SHOTS.length];
+    tl.to(text, { ...fit(text, shot), duration: until - t, ease: "sine.inOut" }, t);
+    tl.to("#bg-fill", { xPercent: shot.bx, yPercent: shot.by, scale: shot.bs, duration: until - t,
+                        ease: "sine.inOut" }, t);
   });
 
   window.__timelines = window.__timelines || {};

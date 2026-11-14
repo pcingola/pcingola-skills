@@ -6,10 +6,11 @@ voiceover skill into the same directory (`narration.wav` + `timing.json`),
 and `voice` imports that directory as the scene's next voice version after
 checking that the voiced sentences are the storyboard's narration.
 
-A scene with several speakers (see `speakers`) gets one part directory per
+A scene with several voices (see `speakers`) gets one part directory per
 run of sentences, `sources/narration/<scene>/p<k>/`, each voiced in its
-speaker's voice; `voice` checks every part, joins them into
-`sources/narration/<scene>/` and imports that.
+run's voice; `voice` checks every part, joins them into
+`sources/narration/<scene>/` and imports that. Every recording is checked
+against the resolved voice of its sentences.
 
 `pronounce:` in the settings maps written words to their spoken form. The
 scripts hold the spoken form; `voice` accepts a sentence voiced in the spoken
@@ -77,17 +78,17 @@ def _written(sentence: dict, text: str) -> dict:
     return {**sentence, "text": text, "words": merged}
 
 
-def write_script(project: Path, scene: dict) -> list[tuple[Path, str | None]]:
-    """Write the scene's script(s): `script.txt` for a scene with one run of
-    speakers, `p<k>/script.txt` per run otherwise. Returns each script with
-    its speaker (None = the default voice). Recordings in the scene's
+def write_script(project: Path, data: dict, scene: dict) -> list[tuple[Path, str | None, dict]]:
+    """Write the scene's script(s): `script.txt` for a scene with one run
+    (`speakers.runs`), `p<k>/script.txt` per run otherwise. Returns each
+    script with its speaker (None = no speaker) and resolved voice. Recordings in the scene's
     directory (a single recording, or a joined one) and part directories left
     from the other layout are removed, so a recording in another voice cannot
     be imported; recordings in part directories that stay are kept and
     checked on import."""
     d = script_dir(project, scene["id"])
     d.mkdir(parents=True, exist_ok=True)
-    parts = speakers.runs(scene)
+    parts = speakers.runs(data, scene)
     old_parts = speakers.part_dirs(d)
     if len(parts) == 1:
         for p in old_parts:
@@ -96,18 +97,18 @@ def write_script(project: Path, scene: dict) -> list[tuple[Path, str | None]]:
             (d / f).unlink(missing_ok=True)
         p = d / "script.txt"
         p.write_text(script_text(scene), encoding="utf-8")
-        return [(p, parts[0][0])]
+        return [(p, parts[0][0], parts[0][1])]
     for f in FILES:
         (d / f).unlink(missing_ok=True)
     for p in old_parts:
         if int(p.name[1:]) > len(parts) or int(p.name[1:]) < 1:
             shutil.rmtree(p)
     out = []
-    for k, (speaker, _, sentences) in enumerate(parts, 1):
+    for k, (speaker, voice, _, sentences) in enumerate(parts, 1):
         pd = speakers.part_dir(project, scene["id"], k)
         pd.mkdir(exist_ok=True)
         (pd / "script.txt").write_text(_lines(sentences), encoding="utf-8")
-        out.append((pd / "script.txt", speaker))
+        out.append((pd / "script.txt", speaker, voice))
     return out
 
 
@@ -157,8 +158,8 @@ def _missing(scene: dict, d: Path) -> None:
         raise NarrationError(f"scene {scene['id']}: {d} has no {', '.join(missing)}")
 
 
-def is_multipart(scene: dict) -> bool:
-    return len(speakers.runs(scene)) > 1
+def is_multipart(data: dict, scene: dict) -> bool:
+    return len(speakers.runs(data, scene)) > 1
 
 
 def join_parts(project: Path, data: dict, scene: dict, src: Path) -> Path:
@@ -166,18 +167,19 @@ def join_parts(project: Path, data: dict, scene: dict, src: Path) -> Path:
     (files, sentences, voice) and write the joined `narration.wav`,
     `timing.json` and `script.txt` into the scene's `script_dir`. Returns
     that directory."""
-    parts = []
-    for k, (speaker, _, sentences) in enumerate(speakers.runs(scene), 1):
+    parts, names = [], []
+    for k, (speaker, voice, first, sentences) in enumerate(speakers.runs(data, scene), 1):
         d = src / f"p{k}"
         _missing(scene, d)
         timing = _check_sentences(f"scene {scene['id']} part {k}", sentences, _read_timing(d))
         try:
-            speakers.check_voice(timing, storyboard.speaker_voice(data, speaker), speaker)
+            speakers.check_voice(timing, voice, speaker, speakers.run_label(scene, speaker, first))
         except NarrationError as e:
             raise NarrationError(f"scene {scene['id']} part {k}: {e}") from None
         samples, sr = speakers.read_wav(d / "narration.wav")
         parts.append((speaker, samples, sr, timing))
-    audio, timing = speakers.join(parts, settings.get()["voice"]["speaker_gap"])
+        names.append(voice.get("name"))
+    audio, timing = speakers.join(parts, settings.get()["voice"]["speaker_gap"], names)
     out = script_dir(project, scene["id"])
     out.mkdir(parents=True, exist_ok=True)
     speakers.write_wav(out / "narration.wav", audio, timing["sample_rate"])
@@ -187,31 +189,49 @@ def join_parts(project: Path, data: dict, scene: dict, src: Path) -> Path:
 
 
 def _speakers_meta(data: dict, scene: dict, timing: dict) -> list[dict]:
-    """Each sentence's speaker and that speaker's resolved voice; a null voice
-    name is the voice recorded in `timing` (its parts' `speakers`, else its `voice`)."""
-    recorded = {v["speaker"]: v.get("voice") for v in timing.get("speakers") or []}
+    """Each sentence's speaker and resolved voice; a null voice name is the
+    voice recorded for that sentence in `timing`."""
+    n = len(scene["narration"])
+    recorded = speakers.recorded_voices(timing)
     out = []
-    for name in scene["speakers"]:
-        voice = storyboard.speaker_voice(data, name)
-        if voice["name"] is None:
-            voice["name"] = recorded.get(name, timing.get("voice"))
+    for i, (name, voice) in enumerate(zip(scene.get("speakers") or [None] * n, storyboard.sentence_voices(data, scene))):
+        if voice["name"] is None and i < len(recorded):
+            voice = {**voice, "name": recorded[i].get("voice")}
         out.append({"speaker": name, "voice": voice})
+    return out
+
+
+def recording_problems(data: dict, scene: dict, vdir: Path) -> list[str]:
+    """Why the voice version `vdir` is not the scene's narration as the
+    storyboard stands: its sentences differ, or a sentence was voiced in
+    another voice than its resolved voice. Empty when it matches."""
+    timing = _read_timing(vdir)
+    try:
+        check(scene, timing)
+    except NarrationError as e:
+        return [str(e)]
+    out = []
+    for i, (got, want) in enumerate(zip(speakers.recorded_voices(timing), storyboard.sentence_voices(data, scene)), 1):
+        try:
+            speakers.check_voice(got, want, None, f"scene {scene['id']} sentence {i}")
+        except NarrationError as e:
+            out.append(str(e))
     return out
 
 
 def import_voice(project: Path, data: dict, scene: dict, src: Path) -> Path:
     """Copy a voiced narration directory into the scene's next voice version.
-    A scene with several runs of speakers is joined from its part directories
-    first; a scene with a Speaker column has each recording's voice checked.
-    The stored `timing.json` holds the written form of every sentence."""
-    if is_multipart(scene):
+    A scene with several runs is joined from its part directories first; each
+    recording's voice is checked against its run's resolved voice. The stored
+    `timing.json` holds the written form of every sentence."""
+    if is_multipart(data, scene):
         src = join_parts(project, data, scene, src)
     _missing(scene, src)
     timing = check(scene, _read_timing(src))
-    if "speakers" in scene and not is_multipart(scene):
-        speaker = speakers.runs(scene)[0][0]
+    if not is_multipart(data, scene):
+        speaker, voice, first, _ = speakers.runs(data, scene)[0]
         try:
-            speakers.check_voice(timing, storyboard.speaker_voice(data, speaker), speaker)
+            speakers.check_voice(timing, voice, speaker, speakers.run_label(scene, speaker, first))
         except NarrationError as e:
             raise NarrationError(f"scene {scene['id']}: {e}") from None
     out = versions.next_version(state.voice_root(project, scene["id"]))
@@ -227,7 +247,7 @@ def import_voice(project: Path, data: dict, scene: dict, src: Path) -> Path:
         "source": str(src.relative_to(project)) if src.is_relative_to(project) else str(src),
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    if "speakers" in scene:
+    if "speakers" in scene or "voices" in scene:
         meta["speakers"] = _speakers_meta(data, scene, timing)
     state.write_meta(out, meta)
     return out

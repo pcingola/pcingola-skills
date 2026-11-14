@@ -2,7 +2,7 @@
 
     ollama, openrouter, openai, azure   OpenAI SDK `audio.speech` of the provider's client;
                                         a `speed` other than 1 is sent (the server may refuse it)
-    google                              Gemini TTS: `generate_content` with an AUDIO response
+    google                              `generate_content` with an AUDIO response
                                         and a prebuilt voice; raw PCM comes back as a WAV file;
                                         no speed
 """
@@ -43,7 +43,7 @@ async def _openai(client, model: str, text: str, voice: str, instructions: str |
     return response.content
 
 
-async def _gemini(client, model: str, text: str, voice: str, instructions: str | None) -> bytes:
+async def _google(client, model: str, text: str, voice: str, instructions: str | None) -> bytes:
     from google.genai import types
 
     response = await client.aio.models.generate_content(
@@ -66,7 +66,7 @@ async def _gemini(client, model: str, text: str, voice: str, instructions: str |
 async def aspeak(text: str, *, voice: str, model: str | None = None, instructions: str | None = None,
                  response_format: str = "wav", speed: float = 1.0) -> bytes:
     """The audio of `text` by `model` (else `models.speech`) in `voice`. `instructions`
-    set the style, `speed` the pace (OpenAI-style kinds only). Gemini returns WAV whatever
+    set the style, `speed` the pace (OpenAI-style kinds only). Google returns WAV whatever
     `response_format` says."""
     model_id = config.resolve(model, "speech")
     name, bare = config.split_id(model_id)
@@ -78,7 +78,7 @@ async def aspeak(text: str, *, voice: str, model: str | None = None, instruction
         if kind in OPENAI_KINDS:
             audio = await _openai(p.client, bare, text, voice, instructions, response_format, speed)
         elif kind == "google":
-            audio = await _gemini(p.client, bare, text, voice, instructions)
+            audio = await _google(p.client, bare, text, voice, instructions)
         else:
             raise ConfigError(f"provider {name!r} of kind {kind!r} has no speech models")
     if not audio:

@@ -132,6 +132,51 @@ class TestBackgroundVideo(unittest.TestCase):
             self.assertEqual((second / scenes.BACKGROUND_VIDEO).read_bytes(), b"clip")
 
 
+def _project(tmp: str) -> tuple[Path, Path]:
+    """A project with one voice version of scene `s` and a GSAP stub; returns (project, node_dir)."""
+    project, node_dir = Path(tmp, "p"), Path(tmp, "node")
+    voice = project / "voice" / "s" / "v1"
+    voice.mkdir(parents=True)
+    (voice / "timing.json").write_text(json.dumps(TIMING), encoding="utf-8")
+    (voice / "meta.json").write_text("{}", encoding="utf-8")
+    (node_dir / scenes.GSAP_REL).parent.mkdir(parents=True)
+    (node_dir / scenes.GSAP_REL).write_text("x", encoding="utf-8")
+    return project, node_dir
+
+
+class TestWithoutImage(unittest.TestCase):
+
+    def test_scaffold_without_image(self) -> None:
+        """scenes.scaffold of an HTML scene without an image starts from assets/scene-drawn.html: a page with
+        #bg-fill and #anchored, no #bg-image and no background.png, and brief.md says Image: none; with an
+        image it starts from scene.html. Guards scenes drawn in the page with no picture."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project, node_dir = _project(tmp)
+            out = scenes.scaffold(project, {"id": "s", "brief": "A bar chart grows.", "beats": ["bar"]}, node_dir)
+            html = (out / "index.html").read_text(encoding="utf-8")
+            self.assertIn('id="bg-fill"', html)
+            self.assertIn('id="anchored"', html)
+            self.assertNotIn("bg-image", html)
+            self.assertNotIn(scenes.BACKGROUND, html)
+            self.assertFalse((out / scenes.BACKGROUND).exists())
+            self.assertIn("- Image: none", (out / "brief.md").read_text(encoding="utf-8"))
+            self.assertEqual(scenes.check_background(out, html, {"id": "s"}), [])
+            self.assertEqual(scenes.page_kind({"id": "s", "image": "a.png"}), "scene")
+            self.assertEqual(scenes.page_kind({"id": "s", "template": "end"}), "end")
+
+    def test_page_using_a_missing_background(self) -> None:
+        """scenes.check_background reports a scene page that uses background.png when the version has none (an
+        image removed from the storyboard), and accepts it with the file or on a template page. Guards render
+        showing a broken picture."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sdir = Path(tmp)
+            page = scenes.render_template("s", 6.2, "scene")
+            self.assertIn("no image", scenes.check_background(sdir, page, {"id": "s"})[0])
+            self.assertEqual(scenes.check_background(sdir, page, {"id": "t", "template": "title"}), [])
+            (sdir / scenes.BACKGROUND).write_bytes(b"png")
+            self.assertEqual(scenes.check_background(sdir, page, {"id": "s"}), [])
+
+
 class TestNodeReady(unittest.TestCase):
 
     def _install(self, node_dir: Path) -> None:

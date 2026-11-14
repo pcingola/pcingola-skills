@@ -22,7 +22,7 @@ class TestNarration(unittest.TestCase):
         self._tmp.cleanup()
 
     def voiced(self, t: dict) -> Path:
-        [(script, _)] = narration.write_script(self.project, SCENE)
+        [(script, _, _)] = narration.write_script(self.project, {}, SCENE)
         d = script.parent
         (d / "narration.wav").write_bytes(b"RIFF")
         (d / "timing.json").write_text(json.dumps(t))
@@ -32,7 +32,7 @@ class TestNarration(unittest.TestCase):
         """narration.write_script writes a one-speaker scene's narration to
         sources/narration/<scene>/script.txt, one sentence per line, with the default voice. Guards the script
         layout the voiceover skill reads."""
-        [(p, speaker)] = narration.write_script(self.project, SCENE)
+        [(p, speaker, _)] = narration.write_script(self.project, {}, SCENE)
         self.assertIsNone(speaker)
         self.assertEqual(p, self.project / "sources" / "narration" / "intro" / "script.txt")
         self.assertEqual(p.read_text(), "Count to five.\nThen  stop.\n")
@@ -70,7 +70,7 @@ class TestNarration(unittest.TestCase):
     def test_missing_files(self) -> None:
         """narration.import_voice on a directory with only script.txt names the missing narration.wav and
         timing.json. Guards import before voicing."""
-        d = narration.write_script(self.project, SCENE)[0][0].parent
+        d = narration.write_script(self.project, {}, SCENE)[0][0].parent
         with self.assertRaisesRegex(narration.NarrationError, "narration.wav, timing.json"):
             narration.import_voice(self.project, {}, SCENE, d)
 
@@ -99,7 +99,7 @@ class TestPronounce(unittest.TestCase):
         """narration.write_script writes the spoken form and import_voice stores the written text with the words
         voicing one written word merged into one timed word. Guards word timings of pronounced words matching
         the storyboard text."""
-        [(script, _)] = narration.write_script(self.project, self.SCENE)
+        [(script, _, _)] = narration.write_script(self.project, {}, self.SCENE)
         said = "Visit Acme A.I. dot com, from Acme A.I.."
         self.assertEqual(script.read_text(), said + "\n")
         words = [{"text": w, "start": float(i), "end": i + 0.5} for i, w in enumerate(said.split())]

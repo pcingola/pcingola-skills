@@ -9,7 +9,7 @@ A Claude Code marketplace, `pcingola-skills`, of Agent Skills grouped into the p
 | dev | plan, skill-author | setup |
 | brand | brand, style | setup |
 | ai | classify, second-opinion | setup |
-| studio | images | brand, media, setup |
+| studio | images, videos | brand, media, setup |
 | setup | settings | |
 
 ## Install and update

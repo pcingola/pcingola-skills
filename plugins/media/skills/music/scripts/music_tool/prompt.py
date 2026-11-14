@@ -1,12 +1,15 @@
 """The prompt sent to a music model.
 
-Lyria has no request fields for tempo or vocals; `compose` writes them into
-the prompt text in a fixed order: tempo, then instrumental. `ai_models.music`
-adds the length and the lyrics block for Lyria 3.
+A remote (Google) music model has no request fields for tempo or vocals;
+`compose` writes them into the prompt text in a fixed order: tempo, then
+instrumental. `ai_models.music` adds the length and the lyrics block.
 
-A local `diffusers` model (ACE-Step) takes the prompt as style tags; the
+A local `diffusers` model takes the prompt as style tags; the
 tempo is a tag (`tags`), and no vocals is the lyrics `[instrumental]`
 (`local_lyrics`).
+
+`request` picks the prompt and the lyrics sent for the model's kind; sung
+lyrics reach both kinds.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ INSTRUMENTAL = "[instrumental]"
 
 
 def tags(prompt: str, bpm: int | None = None) -> str:
-    """The ACE-Step prompt: `prompt` with the tempo appended as a tag (`, 90 bpm`)."""
+    """The local model prompt: `prompt` with the tempo appended as a tag (`, 90 bpm`)."""
     text = prompt.strip()
     if bpm:
         text = f"{text.rstrip('.,')}, {bpm} bpm" if text else f"{bpm} bpm"
@@ -35,9 +38,19 @@ def tags(prompt: str, bpm: int | None = None) -> str:
 
 
 def local_lyrics(lyrics: str | None, instrumental: bool = False) -> str | None:
-    """The ACE-Step lyrics: `[instrumental]`, the lyrics, or None (the pipeline's default)."""
+    """The local model lyrics: `[instrumental]`, the lyrics, or None (the pipeline's default)."""
     if lyrics and instrumental:
         raise ValueError("lyrics and instrumental are mutually exclusive")
     if instrumental:
         return INSTRUMENTAL
     return lyrics.strip() if lyrics and lyrics.strip() else None
+
+
+def request(prompt: str, lyrics: str | None, instrumental: bool, bpm: int | None, local: bool) -> tuple[str, str | None]:
+    """(prompt, lyrics) sent to `ai_models.music.compose`: a local model gets
+    `tags` and `local_lyrics`, a remote model gets `compose` and the lyrics as given."""
+    if local:
+        return tags(prompt, bpm), local_lyrics(lyrics, instrumental)
+    if lyrics and instrumental:
+        raise ValueError("lyrics and instrumental are mutually exclusive")
+    return compose(prompt, instrumental, bpm), lyrics or None

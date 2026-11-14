@@ -96,8 +96,8 @@ class TestStoryboard(unittest.TestCase):
         self.assertIn("missing the `| Narration | On screen |` table", msg)
         empty = "# T\n\nTopic: x.\n\n## c\nEngine: clip\n\n| Narration | On screen |\n|---|---|\n"
         self.assertIn("scene 'c': the table has no rows", _error(empty))
-        self.assertIn("`Engine:` must be one of html, manim, clip",
-                      _error("# T\n\nTopic: x.\n\n## c\nEngine: video\n"))
+        self.assertIn("`Engine:` must be one of html, manim, clip, video",
+                      _error("# T\n\nTopic: x.\n\n## c\nEngine: film\n"))
 
 
 def _meta(project: Path, sid: str, **meta) -> Path:

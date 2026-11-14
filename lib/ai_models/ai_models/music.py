@@ -1,13 +1,14 @@
 """Music (Pydantic-AI has no music call).
 
-    google      Lyria. `lyria-002`: `POST <base_url>/v1/publishers/google/models/<model>:predict`
-                with the key as `x-goog-api-key`; one 30 s WAV per sample (`sample_count` goes in
-                the instance). Other models (Lyria 3): a `generate_content_stream` with AUDIO and
+    google      A model listed in the provider's `predict_models`:
+                `POST <base_url>/v1/publishers/google/models/<model>:predict` with the key as
+                `x-goog-api-key`; one WAV per sample (`sample_count` goes in the instance).
+                Other models: a `generate_content_stream` with AUDIO and
                 TEXT parts; length and lyrics go in the prompt, images go as parts after it, and
                 the text parts (lyrics or song structure) come back with the MP3. A server may
                 end the stream with a `[DONE]` line the SDK cannot parse: it is ignored once audio
                 arrived, and a stream with no audio is tried again.
-    diffusers   `local.DiffusersMusicModel` (ACE-Step); a WAV file
+    diffusers   `local.DiffusersMusicModel`; a WAV file
 
 An option the model does not take (`TAKES`) is an `AIModelsError` before any request.
 """
@@ -23,7 +24,6 @@ from . import config
 from .errors import AIModelsError, ConfigError, explained
 from .models import http_client, provider
 
-PREDICT_PREFIX = "lyria-002"
 VERTEX_URL = "https://aiplatform.googleapis.com"
 STREAM_ATTEMPTS = 3
 MAX_IMAGES = 10
@@ -35,7 +35,7 @@ TAKES = {"diffusers": {"seconds", "lyrics", "seed"}, "predict": {"seed", "negati
 @dataclass
 class Track:
     """One generated track: the audio file, the text the model returned with it and the stream's
-    finish reason (Lyria 3)."""
+    finish reason (stream models)."""
 
     audio: bytes
     text: str = ""
@@ -113,8 +113,8 @@ async def _stream(client, model: str, prompt: str, images: Sequence[tuple[bytes,
     raise AIModelsError(f"{model} returned no audio in {STREAM_ATTEMPTS} attempts")
 
 
-def lyria_prompt(prompt: str, seconds: float | None, lyrics: str | None) -> str:
-    """The Lyria 3 prompt: `prompt`, then the length and the lyrics when given."""
+def stream_prompt(prompt: str, seconds: float | None, lyrics: str | None) -> str:
+    """The stream prompt: `prompt`, then the length and the lyrics when given."""
     parts = [prompt]
     if seconds:
         parts.append(f"Length: about {round(seconds)} seconds.")
@@ -127,9 +127,9 @@ async def acompose(prompt: str, *, seconds: float | None = None, lyrics: str | N
                    seed: int | None = None, negative: str | None = None,
                    images: Sequence[tuple[bytes, str]] = (), samples: int | None = None,
                    model: str | None = None) -> list[Track]:
-    """The tracks for `prompt` by `model` (else `models.music`): WAV, or MP3 from Lyria 3. One track,
-    or `samples` tracks from lyria-002. `images` are (bytes, MIME type) pairs for Lyria 3; `negative`
-    (what to leave out) and `samples` are lyria-002's."""
+    """The tracks for `prompt` by `model` (else `models.music`): WAV, or MP3 from a stream model. One
+    track, or `samples` tracks from a predict model. `images` are (bytes, MIME type) pairs for stream
+    models; `negative` (what to leave out) and `samples` are predict models'."""
     if not prompt.strip():
         raise AIModelsError("the music prompt is empty")
     model_id = config.resolve(model, "music")
@@ -137,7 +137,7 @@ async def acompose(prompt: str, *, seconds: float | None = None, lyrics: str | N
     spec = config.provider(name)
     if spec["kind"] not in ("diffusers", "google"):
         raise ConfigError(f"provider {name!r} of kind {spec['kind']!r} has no music models")
-    api = spec["kind"] if spec["kind"] == "diffusers" else "predict" if bare.startswith(PREDICT_PREFIX) else "stream"
+    api = spec["kind"] if spec["kind"] == "diffusers" else "predict" if bare in (spec.get("predict_models") or ()) else "stream"
     check_options(api, model_id, seconds=seconds, lyrics=lyrics, seed=seed, negative=negative, images=images,
                   samples=samples)
     if api == "diffusers":
@@ -148,7 +148,7 @@ async def acompose(prompt: str, *, seconds: float | None = None, lyrics: str | N
     with explained(model_id):
         if api == "predict":
             return await _predict(spec, bare, prompt, negative, seed, samples)
-        return [await _stream(provider(name).client, bare, lyria_prompt(prompt, seconds, lyrics), images)]
+        return [await _stream(provider(name).client, bare, stream_prompt(prompt, seconds, lyrics), images)]
 
 
 def compose(prompt: str, **kwargs) -> list[Track]:

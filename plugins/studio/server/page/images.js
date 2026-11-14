@@ -9,28 +9,27 @@
 "use strict";
 
 (() => {
-  const { h, seg, plural, baseName, markLines, when, api, fileUrl, download, request, pending, startProject, closeDetail, error } = Studio;
+  const { h, seg, plural, when, api, fileUrl, download, request, pending, closeDetail, error, nice, versionStyle, foldable,
+    brandSelect, stylePicker, dropZone, upload, IMAGE_TYPES: REF_TYPES, refThumb, versionRows, editActions, describeEdit, runStatus } = Studio;
 
   const SHAPES = [["1:1", "Square (1:1)"], ["4:3", "Photo (4:3)"], ["16:9", "Slide (16:9)"], ["9:16", "Phone (9:16)"]];
   const shapeLabel = ratio => (SHAPES.find(s => s[0] === ratio) || [ratio, ratio])[1];
   // image-gen tiers (`--tier`), each a model of image-gen's config: image_best, image_multi_ref, image (image_edit with references).
   const MODELS = [["best", "Best"], ["multi-ref", "Multi-reference"], ["fast", "Fast draft"]];
-  // Model names of earlier versions of this page, as stored in project settings and sidecars.
-  const LEGACY_MODELS = { "gpt-image-2": "best", "nano-banana-pro": "multi-ref", "nano-banana-2": "fast" };
   const COUNTS = [1, 2, 3, 4].map(n => [n, String(n)]);
   const AUTO_STYLES = 3;
   /** The picker cards that leave the style to Claude, by `style` value. */
   const CLAUDE_STYLES = {
-    auto: { title: "✨ Let Claude choose", line: `Claude picks ${AUTO_STYLES} styles from the catalogue that suit the brief`,
+    auto: { icon: "auto", title: "Let Claude choose", line: `Claude picks ${AUTO_STYLES} styles from the catalogue that suit the brief`,
       summary: `${AUTO_STYLES} styles chosen by Claude`, label: "style chosen by Claude", asked: "catalogue styles you choose" },
-    invent: { title: "🧪 Invent new styles", line: `Claude makes up ${AUTO_STYLES} new styles that are in no catalogue`,
+    invent: { icon: "invent", title: "Invent new styles", line: `Claude makes up ${AUTO_STYLES} new styles that are in no catalogue`,
       summary: `${AUTO_STYLES} new styles invented by Claude`, label: "new style by Claude", asked: "new styles you invent" },
   };
   /** The same cards for a deck: one style for every slide. */
   const DECK_STYLES = {
     auto: { ...CLAUDE_STYLES.auto, line: "Claude picks one style from the catalogue that suits the deck",
       summary: "style chosen by Claude" },
-    invent: { ...CLAUDE_STYLES.invent, title: "🧪 Invent a new style", line: "Claude makes up a new style for the deck, one that is in no catalogue",
+    invent: { ...CLAUDE_STYLES.invent, title: "Invent a new style", line: "Claude makes up a new style for the deck, one that is in no catalogue",
       summary: "new style invented by Claude", asked: "a new style you invent" },
   };
   const styleCards = () => (kind.deck ? DECK_STYLES : CLAUDE_STYLES);
@@ -39,33 +38,30 @@
   const assemblyLabel = id => (ASSEMBLY.find(a => a[0] === id) || [id, id])[1];
   /** Number of slides of a deck: null leaves it to Claude. */
   const SLIDE_COUNTS = [["", "Let Claude decide"], ...Array.from({ length: 20 }, (_, i) => [String(i + 1), String(i + 1)])];
-  /** Shown style name of a version: the invented style's name, else the catalogue name. */
-  const styleName = v => (v.invented ? v.invented.name : nice(v.style));
-  const REF_TYPES = ["image/png", "image/jpeg", "image/webp"];
   /**
    * What depends on the kind of project: the tag, step 1's title, hint and placeholder, the reference drop text, the
-   * message for an empty brief, the catalogue styles listed (those whose `suits` holds `suits`; null: every style)
-   * and the default shape; `deck` for the kind whose project is a deck of slides, with its shape fixed.
+   * message for an empty brief and the default shape; `deck` for the kind whose project is a deck of slides, with its
+   * shape fixed.
    */
   const KINDS = {
     image: {
       tag: "Image", title: "What should the image show?", hint: "plain words are fine",
       placeholder: "For example: a cyclist repairing a flat tyre at the side of a country road in morning light",
       drop: "Drop reference images here (a photo to edit, a logo, a sketch), or click to choose files",
-      empty: "Describe the image in step 1 first.", suits: null, shape: "4:3",
+      empty: "Describe the image in step 1 first.", shape: "4:3",
     },
     infographic: {
       tag: "Infographic", title: "What should the infographic explain, and from which facts?",
       hint: "one concept; plain words are fine",
       placeholder: "For example: how a heat pump moves heat from cold outdoor air into a house, using the facts in the summary I pasted below",
       drop: "Drop reference images here (a chart, a diagram, a photo, a logo, a sketch), or click to choose files",
-      empty: "Write in step 1 what the infographic should explain first.", suits: "infographic", shape: "4:3",
+      empty: "Write in step 1 what the infographic should explain first.", shape: "4:3",
     },
     slide: {
       tag: "Deck", title: "What is the deck about?", hint: "who it is for, its message and the facts; plain words are fine",
       placeholder: "For example: a five-minute talk for a neighbourhood meeting on the new community garden: what we did, what we learned and what we need next, from the notes I pasted below",
       drop: "Drop reference images here (a chart, a photo, a logo, a sketch), or click to choose files",
-      empty: "Write in step 1 what the deck is about first.", suits: "slide", shape: "16:9", deck: true,
+      empty: "Write in step 1 what the deck is about first.", shape: "16:9", deck: true,
     },
   };
 
@@ -77,45 +73,35 @@
   const slideOf = k => slides().find(s => s.k === k) || null;
   /** The versions the results step shows: the project's, or the selected slide's. */
   const versions = () => (!project ? [] : kind.deck ? (slideOf(slide) || { versions: [] }).versions : project.versions);
-  let catalogue = { styles: [], brands: [] };  // answer of /api/catalogue; empty lists while the server loads it
   let form = null;        // the generate fields being edited
-  let filter = "all";
   const ui = {};          // containers redrawn on their own
 
-  /** "clay-miniature" -> "Clay miniature". */
-  /** A style's display name: its catalogue `title`, else the name with a capital and spaces for hyphens. */
-  const nice = name => {
-    const s = name && catalogue.styles.find(x => x.name === name);
-    if (s && s.title) return s.title;
-    return name ? name.charAt(0).toUpperCase() + name.slice(1).replace(/-/g, " ") : "";
-  };
-  const modelLabel = id => (MODELS.find(m => m[0] === (LEGACY_MODELS[id] || id)) || [id, id])[1];
-
-  /* ---------- catalogue ---------- */
-
-  async function loadCatalogue() {
-    try { catalogue = { styles: [], brands: [], ...(await api.get("/api/catalogue")) }; }
-    catch (e) { catalogue = { styles: [], brands: [], error: e.message }; }
-    if (ui.styles) { renderBrands(); renderStyles(); }
+  const modelLabel = id => (MODELS.find(m => m[0] === id) || [id, id])[1];
+  /** The model id of config.yaml that tier `id` takes, with reference images (`refs`) or without; null when none. */
+  function tierModel(id, refs) {
+    const t = Studio.models().tiers.find(x => x.id === id);
+    return t ? (refs ? t.ref_model : t.model) : null;
+  }
+  /** The Quality options, each labelled with its model and disabled without one; a tier with no model gives way to
+   *  the first tier that has one. */
+  function modelOptions(select) {
+    const refs = form.refs.length > 0;
+    select.replaceChildren(...MODELS.map(([v, label]) =>
+      h("option", { value: v, disabled: !tierModel(v, refs) }, Studio.withModel(label, tierModel(v, refs)))));
+    const first = MODELS.find(([v]) => tierModel(v, refs));
+    if (!tierModel(form.model, refs) && first) form.model = first[0];
+    select.value = form.model;
   }
 
   /* ---------- step 1: brief, references, settings ---------- */
 
   function stepBrief() {
     const brief = ui.brief = h("textarea", { id: "brief", value: form.brief, placeholder: kind.placeholder,
-      oninput: e => { form.brief = e.target.value; summary(); } });
-    const files = h("input", { type: "file", accept: REF_TYPES.join(","), multiple: true, hidden: true,
-      onchange: e => { addFiles(e.target.files); e.target.value = ""; } });
-    const drop = h("div", { class: "drop", onclick: () => files.click() },
-      kind.drop);
-    drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
-    drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-    drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); addFiles(e.dataTransfer.files); });
-    ui.refs = h("div", { class: "refs" }, drop, files);
-    ui.brand = h("select", { onchange: e => { form.brand = e.target.value || null; summary(); } });
-    const model = h("select", { onchange: e => { form.model = e.target.value; summary(); } },
-      MODELS.map(([v, label]) => h("option", { value: v }, label)));
-    model.value = form.model;
+      oninput: e => { form.brief = e.target.value; ui.step1?.foldSummary?.(form.brief); summary(); } });
+    ui.refs = h("div", { class: "refs" }, dropZone(kind.drop, REF_TYPES.join(","), addFiles));
+    const brand = brandSelect(form.brand, v => { form.brand = v; summary(); });
+    const model = ui.model = h("select", { onchange: e => { form.model = e.target.value; summary(); } });
+    modelOptions(model);
     const shape = h("select", { disabled: kind.deck, title: kind.deck ? "Every slide is 16:9" : null,
       onchange: e => { form.shape = e.target.value; summary(); } },
       SHAPES.map(([v, label]) => h("option", { value: v }, label)));
@@ -130,95 +116,68 @@
       h("h2", {}, h("span", { class: "num" }, "1"), kind.title, h("span", { class: "hint" }, kind.hint)),
       brief, ui.refs,
       h("div", { class: "row" },
-        field("Brand", ui.brand),
+        field("Brand", brand),
         field("Shape", shape),
         field("Quality", model),
         field(kind.deck ? "Slides" : "How many", count)));
     renderRefs();
-    renderBrands();
-    return ui.step1;
+    return stepFold(ui.step1, "brief", form.brief);
   }
 
   function renderRefs() {
     ui.refs.querySelectorAll(".ref").forEach(el => el.remove());
-    ui.refs.append(...form.refs.map(path => h("div", { class: "ref", title: baseName(path) },
-      h("img", { src: fileUrl(path), alt: "" }),
-      h("button", { type: "button", title: "Remove", onclick: () => { form.refs = form.refs.filter(p => p !== path); renderRefs(); } }, "×"))));
+    ui.refs.append(...form.refs.map(path => refThumb(path, () => { form.refs = form.refs.filter(p => p !== path); renderRefs(); })));
+    if (ui.model) { modelOptions(ui.model); summary(); }
   }
-
-  const readDataUrl = file => new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(file);
-  });
 
   async function addFiles(files) {
-    const images = [...files].filter(file => REF_TYPES.includes(file.type) || (error(`${file.name} is not a PNG, JPEG or WebP image.`), false));
-    if (!images.length) return;
-    const dir = await startProject();
-    if (!dir) return;
-    for (const file of images) {
-      try {
-        const { path } = await api.post("/api/refs", { project: dir, name: file.name, data: await readDataUrl(file) });
-        if (!form.refs.includes(path)) form.refs.push(path);
-        renderRefs();
-      } catch (e) { error(`Could not add ${file.name}: ${e.message}`); }
-    }
-  }
-
-  function renderBrands() {
-    const names = [...catalogue.brands];
-    if (form.brand && !names.includes(form.brand)) names.push(form.brand);
-    ui.brand.replaceChildren(h("option", { value: "" }, "None"), ...names.map(b => h("option", { value: b }, b)));
-    ui.brand.value = form.brand || "";
+    const images = files.filter(file => REF_TYPES.includes(file.type) || (error(`${file.name} is not a PNG, JPEG or WebP image.`), false));
+    for (const path of await upload("/api/refs", images)) if (!form.refs.includes(path)) form.refs.push(path);
+    renderRefs();
   }
 
   /* ---------- step 2: style ---------- */
 
   function stepStyle() {
-    ui.count = h("span", { class: "hint" });
-    ui.chips = h("div", { class: "chips" });
-    ui.styles = h("div");
-    renderStyles();
-    return h("section", { class: "card" },
-      h("h2", {}, h("span", { class: "num" }, "2"), "Pick a style", ui.count), ui.chips, ui.styles);
+    const picker = stylePicker({ cards: styleCards(), value: form.style,
+      onPick: name => { form.style = name; card.foldSummary(styleName()); summary(); } });
+    const card = ui.style = h("section", { class: "card" },
+      h("h2", {}, h("span", { class: "num" }, "2"), "Pick a style", picker.count), picker.el);
+    return stepFold(card, "style", styleName());
   }
+  /** The chosen style in words: a card's summary or the style's name. */
+  const styleName = () => { const c = styleCards()[form.style]; return c ? c.summary : nice(form.style); };
+  /** The key of a step's fold state: per project (blank workspaces share one) and kind. */
+  const foldKey = step => `${project ? project.dir : `blank:${kind.id}`}:${step}`;
+  /** A step that folds by its title, open when it is a step being worked on. */
+  const stepFold = (card, step, summary = "") => foldable(card, { key: foldKey(step), open: openSteps().has(step), summary });
 
-  /** The catalogue styles of the kind: those that suit it, or every style. */
-  const kindStyles = () => catalogue.styles.filter(s => !kind.suits || (s.suits || []).includes(kind.suits));
-
-  /** Tags of the kind's styles, the most used first. */
-  function tags() {
-    const n = {};
-    for (const s of kindStyles()) for (const t of s.tags || []) n[t] = (n[t] || 0) + 1;
-    return Object.keys(n).sort((a, b) => n[b] - n[a] || a.localeCompare(b));
+  /**
+   * The steps being worked on, the cards open by default. An image or infographic: the brief until there is a
+   * version or a request, then the results. A deck: the brief until it has slides or a request, then the slides,
+   * with the selected slide's versions, and the PowerPoint step while one is made or once every slide has a chosen
+   * version and none is made yet.
+   */
+  function openSteps() {
+    const busy = project ? pending(project.dir) : [];
+    if (!kind.deck) return new Set([versions().length || busy.length ? "results" : "brief"]);
+    if (!slides().length && !busy.length) return new Set(["brief"]);
+    const open = new Set(["deck"]);
+    if (slide != null) open.add("results");
+    const decks = (project && project.deck && project.deck.decks) || [];
+    if (busy.some(p => p.request.action === "assemble") || (!decks.length && slides().every(s => s.chosen != null))) open.add("assembly");
+    return open;
   }
-
-  /** "More information: Project · Site" for a style with `links`, each opening in a new tab without picking the style. */
-  function styleLinks(s) {
-    const links = Object.entries(s.links || {});
-    if (!links.length) return null;
-    return h("span", { class: "links" }, "More information: ", ...links.flatMap(([label, url], i) => [i ? " · " : "",
-      h("a", { href: url, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, label)]));
-  }
-
-  function renderStyles() {
-    const all = kindStyles();
-    const list = all.filter(s => filter === "all" || (s.tags || []).includes(filter));
-    ui.count.textContent = all.length ? `${list.length} of ${all.length} shown · from the shared style catalogue` : "";
-    ui.chips.replaceChildren(...(catalogue.error ? [h("div", { class: "err" }, `The style catalogue could not be read: ${catalogue.error}`)] : []),
-      ...(all.length ? ["all", ...tags()] : []).map(t =>
-        h("button", { class: "chip" + (t === filter ? " on" : ""), onclick: () => { filter = t; renderStyles(); } }, t)));
-    const pick = name => () => { form.style = name; renderStyles(); };
-    ui.styles.replaceChildren(h("div", { class: "styles" },
-      Object.entries(styleCards()).map(([id, c]) => h("div", { class: "style auto" + (form.style === id ? " on" : ""), onclick: pick(id) },
-        c.title, h("span", {}, c.line))),
-      list.map(s => h("div", { class: "style" + (s.name === form.style ? " on" : ""), onclick: pick(s.name),
-        title: [(s.tags || []).join(", "), s.suits && s.suits.length ? `suits: ${s.suits.join(", ")}` : ""].filter(Boolean).join("\n") },
-        s.sample ? h("img", { src: fileUrl(s.sample), alt: "", loading: "lazy" }) : h("div", { class: "nosample" }, "No sample yet"),
-        h("div", { class: "t" }, h("b", {}, nice(s.name)), h("span", {}, s.description), styleLinks(s))))));
-    summary();
+  /** Gives every step card its current default fold and the busy mark of the work running in it. */
+  function refold() {
+    const open = openSteps(), busy = project ? pending(project.dir) : [];
+    const cards = { brief: ui.step1, style: ui.style, results: ui.results, deck: kind.deck && ui.deck, assembly: kind.deck && ui.assembly };
+    const working = {
+      results: busy.some(p => p.request.action !== "assemble" && (!kind.deck || (slide != null && p.request.slide === slide))),
+      deck: busy.some(p => p.request.action === "generate"),
+      assembly: busy.some(p => p.request.action === "assemble"),
+    };
+    for (const [step, card] of Object.entries(cards)) if (card && card.foldDefault) { card.foldDefault(open.has(step)); card.foldBusy(working[step]); }
   }
 
   /* ---------- generate ---------- */
@@ -229,18 +188,20 @@
     const c = styleCards()[form.style];
     const amount = kind.deck ? (form.count ? plural(form.count, "slide") : "slides: Claude decides") : plural(form.count, "image");
     const what = c ? (kind.deck ? [amount, c.summary] : [c.summary]) : [amount, nice(form.style)];
-    ui.bar.summary([what[0], shapeLabel(form.shape), ...what.slice(1), form.model, form.brand].filter(Boolean).join(" · "));
+    ui.bar.summary([what[0], shapeLabel(form.shape), ...what.slice(1), Studio.withModel(modelLabel(form.model), tierModel(form.model, form.refs.length > 0)), form.brand].filter(Boolean).join(" · "));
   }
 
   async function generate() {
     const brief = form.brief.trim();
-    if (!brief) { ui.bar.error(kind.empty); ui.brief.focus(); return; }
+    if (!brief) { ui.bar.error(kind.empty); Studio.reveal(ui.brief, { focus: true }); return; }
     const { refs, brand, shape, model, count, style } = form;
-    if (kind.deck && slides().length && !confirm("Rewrite the whole deck from this brief? Claude writes the slides again and makes a new version of every slide; every version made so far is kept.")) return;
+    if (!tierModel(model, refs.length > 0)) { ui.bar.error(`config.yaml names no model for ${modelLabel(model)}.`); return; }
+    if (kind.deck && slides().length && !confirm("Rewrite the whole deck from this brief? The slides are written again, with a new version of every slide; every version made so far is kept.")) return;
     const fields = { action: "generate", brief, refs: [...refs], brand, shape, model, count, style };
     if (kind.deck) fields.slide = null;
     if (await request(fields)) {
-      (kind.deck ? ui.deck : ui.results).scrollIntoView({ behavior: "smooth", block: "start" });
+      refold();
+      Studio.reveal(kind.deck ? ui.deck : ui.results);
     }
   }
 
@@ -252,7 +213,7 @@
     ui.slideAsk = kind.deck ? h("div", { class: "slide-ask" }) : null;
     ui.results = h("section", { class: "card" }, ui.resultsHead, ui.slideAsk, ui.versions);
     renderResults();
-    return ui.results;
+    return stepFold(ui.results, "results", plural(versions().length, "version"));
   }
 
   /** Images a request makes (in a deck: of one slide). */
@@ -284,10 +245,11 @@
     for (const p of pending(project.dir).filter(p => !kind.deck || p.request.slide === slide)) {
       const made = p.current && p.request.time ? versions().filter(v => new Date(v.created) >= new Date(p.request.time)).length : 0;
       for (let i = made; i < expected(p.request); i++) {
-        const label = p.current ? `Generating v${next++}…` : "Waiting for Claude";
+        const label = p.current ? `Generating v${next++}…` : "Waiting";
         cards.push(h("div", { class: "ver pending" },
           h("div", { class: "ph" }, p.current ? h("div", { class: "spin" }) : null, label),
-          h("div", { class: "t" }, h("b", {}, p.current ? `v${next - 1}` : "queued"), h("span", {}, what(p.request)))));
+          h("div", { class: "t" }, h("b", {}, p.current ? `v${next - 1}` : "queued"), h("span", {}, what(p.request))),
+          i === made ? h("div", { class: "t" }, runStatus(p.request.id)) : null));
       }
     }
     return cards;
@@ -300,8 +262,9 @@
       h("div", { class: "ver" + (v.n === chosen ? " chosen" : ""), onclick: () => Studio.openDetail(v) },
         h("img", { src: fileUrl(v.image), alt: "", loading: "lazy" }),
         v.n === chosen ? h("span", { class: "badge" }, "In the PowerPoint") : null,
-        h("div", { class: "t" }, h("b", {}, `v${v.n}`), h("span", {}, styleName(v)), h("span", {}, when(v.created)))))];
+        h("div", { class: "t" }, h("b", {}, `v${v.n}`), h("span", {}, versionStyle(v)), h("span", {}, when(v.created)))))];
     ui.versions.replaceChildren(...cards);
+    ui.results.foldSummary?.(plural(versions().length, "version"));
     if (!kind.deck) {
       ui.resultsHead.replaceChildren(h("span", { class: "num" }, "3"), "Results",
         h("span", { class: "hint" }, "every version is kept; click one to open it and mark what to change"));
@@ -316,40 +279,20 @@
   /* ---------- detail view ---------- */
 
   function versionInfo(v) {
-    const style = v.invented
-      ? h("div", {}, v.invented.name, " ", h("span", { class: "tag" }, "new"),
-        v.invented.description ? h("div", { class: "hint" }, v.invented.description) : null)
-      : nice(v.style) || "none";
-    const rows = [["Style", style], ["Shape", shapeLabel(v.shape)], ["Brand", v.brand || "None"],
-      ["Model", v.model], ["Made", when(v.created)]];
+    const rows = versionRows(v, shapeLabel);
     if (v.slide != null) rows.unshift(["Slide", slideName(slideOf(v.slide)) + (slideOf(v.slide)?.chosen === v.n ? " · in the PowerPoint" : "")]);
-    if (v.source != null) rows.push(["From", `v${v.source} (${v.action})`]);
-    if (v.change) {
-      const lines = markLines(v.change.marks);
-      if (v.change.note) lines.push(v.change.note);
-      if (lines.length) rows.push(["Change", lines.join("\n")]);
-    }
-    if (v.scene) rows.push(["Scene", v.scene]);
-    if (v.refs && v.refs.length) rows.push(["References", h("div", { class: "drefs" },
-      v.refs.map(path => h("img", { src: fileUrl(path), alt: "", title: baseName(path) })))]);
-    if (v.prompt) rows.push(["Prompt", v.prompt, true]);
-    return rows.filter(r => r[1]);
+    return rows;
   }
 
   function detailActions(v) {
-    const send = fields => async () => { if (await request({ ...fields, ...changeFields(v), version: v.n })) closeDetail(); };
     const s = v.slide != null ? slideOf(v.slide) : null;
     return [
       ...(s && s.chosen !== v.n ? [{ label: "Use this version", run: () => choose(s, v.n) }] : []),
-      { label: "3 variations", run: send({ action: "variations", count: 3 }) },
-      { label: "Try other styles", run: send({ action: "other-styles", styles: [] }) },
-      { label: "Use as reference", run: () => {
+      ...editActions(v, () => {
         if (!form.refs.includes(v.image)) form.refs.push(v.image);
         renderRefs();
-        closeDetail();
-        ui.step1.scrollIntoView({ behavior: "smooth", block: "start" });
-      } },
-      { label: "Download", run: () => download(v.image) },
+        Studio.reveal(ui.step1);
+      }),
     ];
   }
 
@@ -368,13 +311,7 @@
         if (deck) return { text: `New version of slide ${req.slide} in the deck's style${req.brief ? "\n" + req.brief : ""}` };
         return { text: `Generate ${plural(expected(req), "image")} · ${shapeLabel(req.shape)} · ${style}\n${req.brief}` };
       }
-      case "change": {
-        const lines = markLines(req.marks);
-        if (req.note) lines.push(req.marks && req.marks.length ? `Also: ${req.note}` : req.note);
-        return { text: `Change ${on}v${req.version}:\n${lines.join("\n")}`, images: req.marked ? [req.marked] : [] };
-      }
-      case "variations": return { text: `${req.count || 3} variations of ${on}v${req.version}` };
-      case "other-styles": return { text: `${on}v${req.version} in other styles${req.styles && req.styles.length ? ": " + req.styles.map(nice).join(", ") : ""}` };
+      case "change": case "variations": case "other-styles": return describeEdit(req, on);
       case "assemble": {
         const used = Object.entries(req.versions || {}).map(([k, n]) => `${k}: v${n}`).join(", ");
         return { text: `Make the PowerPoint · ${assemblyLabel(req.assembly)}${used ? "\nSlides " + used : ""}` };
@@ -397,7 +334,7 @@
       h("h2", {}, h("span", { class: "num" }, "3"), "Slides",
         h("span", { class: "hint" }, "click a slide to see its versions, mark changes and choose the one that goes into the PowerPoint")),
       ui.slides);
-    return ui.deck;
+    return stepFold(ui.deck, "deck", plural(slides().length, "slide"));
   }
 
   function stepAssembly() {
@@ -409,7 +346,7 @@
     ui.assembly = h("section", { class: "card" },
       h("h2", {}, ui.assemblyNum, "Make the PowerPoint", h("span", { class: "hint" }, "from the chosen version of each slide")),
       h("div", { class: "assemble" }, ui.assemblyChoice, ui.assembleButton, ui.assemblyNote), ui.decks);
-    return ui.assembly;
+    return stepFold(ui.assembly, "assembly");
   }
 
   /** The list of slides, with a card for the deck's pending generate and one to add a slide. */
@@ -430,8 +367,9 @@
     if (making) {
       cards.unshift(h("div", { class: "ver sl pending" },
         h("div", { class: "ph" }, making.current ? h("div", { class: "spin" }) : null,
-          making.current ? (list.length ? "Claude is rewriting the deck…" : "Claude is writing the deck…") : "Waiting for Claude"),
-        h("div", { class: "t" }, h("b", {}, list.length ? "Rewrite" : "New deck"), h("span", {}, what(making.request)))));
+          making.current ? (list.length ? "Rewriting the deck…" : "Writing the deck…") : "Waiting"),
+        h("div", { class: "t" }, h("b", {}, list.length ? "Rewrite" : "New deck"), h("span", {}, what(making.request))),
+        h("div", { class: "t" }, runStatus(making.request.id))));
     }
     if (list.length) {
       const k = list.length + 1;
@@ -439,6 +377,7 @@
         h("div", { class: "ph" }, "+ Add a slide")));
     }
     ui.slides.replaceChildren(...cards);
+    ui.deck.foldSummary?.(plural(list.length, "slide"));
     ui.deck.hidden = !cards.length;
   }
 
@@ -447,7 +386,7 @@
     const k = slide;
     const adding = k != null && !s;
     ui.resultsHead.replaceChildren(h("span", { class: "num" }, "4"), adding ? `New slide ${k}` : slideName(s),
-      h("span", { class: "hint" }, adding ? "say what it should show; Claude adds it to the deck"
+      h("span", { class: "hint" }, adding ? "say what it should show; it is added to the deck"
         : "every version is kept; click one to open it, mark what to change or use it in the PowerPoint"));
     const key = `${k}:${adding}`;
     if (ui.slideAsk.dataset.key === key) return; // keep what the user is typing
@@ -479,20 +418,22 @@
     ui.assemblyNote.textContent = missing.length ? `Slide ${missing.join(", ")} has no image yet.` : "";
     const rows = deckPending().filter(p => p.request.action === "assemble").map(p =>
       h("div", { class: "deckrow pending" }, p.current ? h("div", { class: "spin" }) : null,
-        h("b", {}, p.current ? "Making the PowerPoint…" : "Waiting for Claude"), h("span", {}, assemblyLabel(p.request.assembly))));
+        h("b", {}, p.current ? "Making the PowerPoint…" : "Waiting"), h("span", {}, assemblyLabel(p.request.assembly)), runStatus(p.request.id)));
     rows.push(...decks.map(d => h("div", { class: "deckrow" },
-      h("span", { class: "icon" }, "📑"), h("b", {}, `deck-${d.n}.pptx`), h("span", {}, assemblyLabel(d.assembly)),
+      h("span", { class: "icon" }, Studio.icon("slide")), h("b", {}, `deck-${d.n}.pptx`), h("span", {}, assemblyLabel(d.assembly)),
       h("span", {}, d.versions ? Object.entries(d.versions).map(([k, n]) => `${k}: v${n}`).join(" · ") : ""),
       h("span", { class: "grow" }), h("span", {}, when(d.created)),
       h("button", { class: "secondary", onclick: () => download(d.path) }, "Download"))));
     ui.decks.replaceChildren(...rows);
+    ui.assembly.foldSummary?.(decks.length ? plural(decks.length, "PowerPoint") : "none made yet");
   }
 
   function select(k) {
     slide = k;
     renderDeck();
     renderResults();
-    ui.results.scrollIntoView({ behavior: "smooth", block: "start" });
+    refold();
+    Studio.reveal(ui.results);
   }
 
   async function choose(s, n) {
@@ -533,21 +474,19 @@
     const p = (data && data.project) || {}, s = p.settings || {};
     form = {
       brief: s.brief || p.brief || "", refs: [...(s.refs || [])], brand: s.brand || null,
-      shape: kind.deck ? kind.shape : s.shape || kind.shape, model: LEGACY_MODELS[s.model] || s.model || "best",
+      shape: kind.deck ? kind.shape : s.shape || kind.shape, model: MODELS.some(m => m[0] === s.model) ? s.model : "best",
       count: kind.deck ? s.count ?? null : s.count || 1, style: s.style || "auto",
     };
-    filter = "all";
     ui.bar = Studio.actionBar({ label: kind.deck ? "Generate the deck" : "Generate", run: generate });
     if (kind.deck) {
       el.append(stepBrief(), stepStyle(), stepDeck(), stepResults(), stepAssembly());
       renderDeck();
       renderAssembly();
       // An open deck starts at its slides, below the long style picker.
-      if (slides().length) requestAnimationFrame(() => ui.deck.scrollIntoView({ block: "start" }));
     } else el.append(stepBrief(), stepStyle(), stepResults());
+    refold();
     summary();
     if (!data) ui.brief.focus();
-    loadCatalogue();
   }
 
   function update(data) {
@@ -555,17 +494,17 @@
     if (kind.deck && slide != null && !slideOf(slide) && slide !== slides().length + 1) slide = null;
     renderDeck();
     renderResults();
+    refold();
   }
 
   function onEvent(ev) {
     if (!form) return;
-    if (ev.kind === "catalogue" || ev.kind === "reconnected") loadCatalogue();
-    if (["state", "request", "pending", "turn"].includes(ev.kind)) { renderDeck(); renderResults(); }
+    if (["state", "request", "pending", "turn", "stopped"].includes(ev.kind)) { renderDeck(); renderResults(); refold(); }
   }
 
   const detailTitle = v => (v.slide != null ? `${(project.project || {}).name || ""} · slide ${v.slide} · v${v.n}` : null);
 
-  const askPlaceholder = "Tell Claude what you want, in as much detail as you like. For example: the technician should look more relaxed, and the lab should have more natural light.";
+  const askPlaceholder = "Say what you want, in as much detail as you like. For example: the technician should look more relaxed, and the lab should have more natural light.";
 
   const tag = kindId => (KINDS[kindId] || KINDS.image).tag;
 

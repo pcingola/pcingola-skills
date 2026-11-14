@@ -8,11 +8,12 @@ with and without reference images. `settings` maps the CLI options to the Pydant
 model's provider kind:
 
 - OpenAI kinds (`openai`, `azure`, `openrouter`, `ollama`): one request with
-  `openai_n`; `--size` gives `dimensions` within the gpt-image-2 limits, else
-  `--aspect` goes as `aspect_ratio`; `--quality`, `--background` and a
-  non-PNG format go when given. A gpt-image model always gets `dimensions`
-  (default 1:1, 1K) and quality `high` unless `--quality` is given. A mask
-  goes with the edit.
+  `openai_n`; `--size` gives `dimensions` within the size limits of the
+  settings (`models.SizeLimits`), else `--aspect` goes as `aspect_ratio`;
+  `--quality`, `--background` and a non-PNG format go when given. A model of
+  the setting IMAGE_GEN_SIZED_MODELS always gets `dimensions` (default 1:1, 1K)
+  and quality IMAGE_GEN_SIZED_QUALITY unless `--quality` is given. A mask goes
+  with the edit.
 - `google`: `google_image_config` with `--aspect` and `--size` when given,
   else the model's default (an edit keeps the reference's aspect); one
   request per image; PNG only, no transparent background.
@@ -46,8 +47,6 @@ RATE_LIMIT_MESSAGE = (
 )
 HTTP_TOO_MANY_REQUESTS = 429
 OPENAI_KINDS = ("openai", "azure", "openrouter", "ollama")
-GPT_IMAGE = "gpt-image"
-DEFAULT_GPT_IMAGE_QUALITY = "high"
 # Leading bytes of the reference image formats.
 _MAGIC = ((b"\x89PNG", "image/png"), (b"\xff\xd8\xff", "image/jpeg"), (b"GIF8", "image/gif"))
 
@@ -83,25 +82,31 @@ def _model_id(model: str | None, tier: str, task: str) -> str:
 
 def _png_only(model_id: str, background: str | None, output_format: str) -> None:
     if background == "transparent":
-        raise ImageError(f"{model_id} has no transparent background; use a gpt-image model")
+        raise ImageError(f"{model_id} has no transparent background; use an OpenAI-style image model that has one")
     if output_format != "png":
         raise ImageError(f"{model_id} returns PNG only; use a .png output path")
 
 
+def needs_limits(kind: str) -> bool:
+    """Whether `settings` reads the size limits for a model of provider `kind`."""
+    return kind in OPENAI_KINDS or kind == "diffusers"
+
+
 def settings(kind: str, model_id: str, *, aspect_ratio: str | None, image_size: str | None, n: int,
              quality: str | None, background: str | None, output_format: str,
-             edit: bool) -> tuple[dict[str, Any], int]:
+             edit: bool, limits: models.SizeLimits | None) -> tuple[dict[str, Any], int]:
     """(Pydantic-AI image settings, number of requests) for a model of provider `kind`; `ImageError` for an
     option the kind does not take. `aspect_ratio`, `image_size`, `quality` and `background` are None when
-    not given."""
+    not given. `limits` is needed for the OpenAI kinds and `diffusers` (`needs_limits`)."""
     aspect = aspect_ratio or models.DEFAULT_ASPECT
     size = image_size or models.DEFAULT_SIZE
     if kind in OPENAI_KINDS:
         s: dict[str, Any] = {"openai_n": n}
-        if GPT_IMAGE in model_id:
-            image_size, quality = size, quality or DEFAULT_GPT_IMAGE_QUALITY
+        assert limits is not None
+        if model_id in limits.sized_models:
+            image_size, quality = size, quality or limits.sized_quality
         if image_size:
-            s["dimensions"] = models.openai_size(aspect, image_size)
+            s["dimensions"] = models.openai_size(aspect, image_size, limits)
         elif aspect_ratio:
             s["aspect_ratio"] = aspect_ratio
         if quality:
@@ -118,7 +123,8 @@ def settings(kind: str, model_id: str, *, aspect_ratio: str | None, image_size: 
     if kind == "diffusers":
         if edit and aspect_ratio is None and image_size is None:
             return {}, n
-        return {"dimensions": models.local_size(aspect, size)}, n
+        assert limits is not None
+        return {"dimensions": models.local_size(aspect, size, limits)}, n
     return {}, n
 
 
@@ -149,7 +155,8 @@ def generate(
         kind = provider_kind(model_id)
         opts, calls = settings(kind, model_id, aspect_ratio=aspect_ratio, image_size=image_size, n=num_images,
                                quality=quality, background=background, output_format=output_format,
-                               edit=bool(refs))
+                               edit=bool(refs),
+                               limits=models.SizeLimits.from_settings() if needs_limits(kind) else None)
         generator = images.image_generator(model_id, task=task, mask=mask)
     except AIModelsError as e:
         raise ImageError(str(e)) from None

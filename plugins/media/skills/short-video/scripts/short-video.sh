@@ -13,4 +13,8 @@ done
 # uv environment outside the plugin directory (lib/uv_env.sh)
 source "$PLUGIN_ROOT/lib/uv_env.sh"
 plugin_env "$SCRIPT_DIR"
-exec uv run --project "$SCRIPT_DIR" python -m short_video_tool "$@"
+# The `local` extra (torch, diffusers) when the settings file config.yaml has a provider of kind diffusers
+CONFIG="${SKILLS_CONFIG:-$(_config_dir)/plugins/data/config.yaml}"
+EXTRA=""
+if grep -qsE '^[^#]*kind:[[:space:]]*.?diffusers' "${CONFIG/#\~/$HOME}"; then EXTRA="--extra local"; fi
+exec uv run --project "$SCRIPT_DIR" $EXTRA python -m short_video_tool "$@"

@@ -1,37 +1,42 @@
-"""Scenes with several speakers.
+"""Scenes with several voices.
 
-A scene whose table has a Speaker column is split into runs of consecutive
-sentences with the same speaker. A scene with one run is voiced as one script
+A scene is split into runs of consecutive sentences with the same speaker and
+the same resolved voice (`storyboard.sentence_voices`: the speaker's voice,
+or the film's, with the sentence's own settings over it), so a change of
+own settings starts a new run. A scene with one run is voiced as one script
 (`sources/narration/<scene>/script.txt`); a scene with several runs gets one
 part directory per run (`sources/narration/<scene>/p1/`, `p2/`, ...), each
-voiced with the voiceover skill in its speaker's voice. `join` puts the parts
+voiced with the voiceover skill in its run's voice. `join` puts the parts
 together into the one `narration.wav` and `timing.json` the rest of the
 pipeline reads: each part is cut to its speech (first sentence start to last
 sentence end), the first part keeps its lead silence, the last its tail, and
-`voice.speaker_gap` seconds of silence go at each speaker change.
+`voice.speaker_gap` seconds of silence go at each change of part.
 """
 
 from __future__ import annotations
 
+import itertools
 import wave
 from pathlib import Path
 
 import numpy as np
 
-from . import narration
+from . import narration, storyboard
 
 
-def runs(scene: dict) -> list[tuple[str | None, int, list[str]]]:
-    """`(speaker, first_index, sentences)` for each run of consecutive
-    sentences with the same speaker (index 0-based; speaker None = the
-    default voice). A scene without a Speaker column is one run of None."""
+def runs(data: dict, scene: dict) -> list[tuple[str | None, dict, int, list[str]]]:
+    """`(speaker, voice, first_index, sentences)` for each run of consecutive
+    sentences with the same speaker and resolved voice (index 0-based; speaker
+    None = no speaker, the film's voice). A scene without speakers or own
+    voice settings is one run."""
     names = scene.get("speakers") or [None] * len(scene["narration"])
-    out: list[tuple[str | None, int, list[str]]] = []
-    for i, (name, text) in enumerate(zip(names, scene["narration"])):
-        if out and out[-1][0] == name:
-            out[-1][2].append(text)
+    voices = storyboard.sentence_voices(data, scene)
+    out: list[tuple[str | None, dict, int, list[str]]] = []
+    for i, (name, voice, text) in enumerate(zip(names, voices, scene["narration"])):
+        if out and out[-1][:2] == (name, voice):
+            out[-1][3].append(text)
         else:
-            out.append((name, i, [text]))
+            out.append((name, voice, i, [text]))
     return out
 
 
@@ -51,6 +56,14 @@ def _label(speaker: str | None) -> str:
     return f"speaker {speaker!r}" if speaker else "the default voice (`voice:` in settings)"
 
 
+def run_label(scene: dict, speaker: str | None, first: int) -> str:
+    """How messages name a run: by its first sentence's own voice settings
+    when it has them, else by its speaker."""
+    if ((scene.get("voices") or [None] * (first + 1))[first]):
+        return (f"speaker {speaker!r} with " if speaker else "") + f"sentence {first + 1}'s own voice settings"
+    return _label(speaker)
+
+
 def _style(v) -> str | None:
     """A style with whitespace collapsed; empty or missing is None."""
     return " ".join(str(v or "").split()) or None
@@ -65,28 +78,46 @@ def _voice_name(backend: str | None, name):
     return name
 
 
-def check_voice(timing: dict, voice: dict, speaker: str | None) -> None:
+def check_voice(timing: dict, voice: dict, speaker: str | None, label: str | None = None) -> None:
     """Raise NarrationError unless `timing.json` was voiced with `voice`, the
-    resolved voice of `speaker` (`backend`, `name`, `speed`, `style`). A null
-    `name` is the backend's default as voiceover resolved it (the `speech`
-    default depends on the configured provider), so any recorded voice
-    matches it; `join` checks that one speaker keeps one voice."""
+    resolved voice (`backend`, `name`, `speed`, `style`) of `speaker`; the
+    message starts with `label`, by default the speaker's. A null `name` is
+    the backend's default as voiceover resolved it (the `speech` default
+    depends on the configured provider), so any recorded voice matches it;
+    `join` checks that parts with the same speaker and voice settings keep
+    one voice."""
+    label = label or _label(speaker)
     got = {"backend": timing.get("backend"), "voice": _voice_name(timing.get("backend"), timing.get("voice")),
            "speed": timing.get("speed"), "style": _style(timing.get("style"))}
     want = {"backend": voice.get("backend"), "voice": _voice_name(voice.get("backend"), voice.get("name")),
             "speed": voice.get("speed"), "style": _style(voice.get("style"))}
     if want["voice"] is None:
         if not got["voice"]:
-            raise narration.NarrationError(f"{_label(speaker)}: timing.json records no voice; voice it again")
+            raise narration.NarrationError(f"{label}: timing.json records no voice; voice it again")
         want["voice"] = got["voice"]
     for key in ("backend", "voice", "style"):
         if got[key] != want[key]:
-            raise narration.NarrationError(f"{_label(speaker)}: voiced with {key} {got[key]!r}, "
+            raise narration.NarrationError(f"{label}: voiced with {key} {got[key]!r}, "
                                  f"the storyboard gives {want[key]!r}; voice it again")
     if not isinstance(got["speed"], (int, float)) or abs(float(got["speed"]) - float(want["speed"])) > 1e-6:
-        raise narration.NarrationError(f"{_label(speaker)}: voiced with speed {got['speed']!r}, "
+        raise narration.NarrationError(f"{label}: voiced with speed {got['speed']!r}, "
                              f"the storyboard gives {want['speed']!r}; voice it again")
 
+
+def recorded_voices(timing: dict) -> list[dict]:
+    """The voice each sentence of a stored `timing.json` was voiced with, as
+    `check_voice` reads it: a joined recording's part voices (`speakers`),
+    each repeated for its sentences, else the recording's own fields. A joined
+    recording without the part sizes (made before they were recorded) has one
+    part per run of `speaker` values."""
+    sentences = timing.get("sentences") or []
+    parts = timing.get("speakers")
+    if not parts:
+        return [timing] * len(sentences)
+    sizes = [p.get("sentences") for p in parts]
+    if None in sizes:
+        sizes = [len(list(g)) for _, g in itertools.groupby(s.get("speaker") for s in sentences)]
+    return [p for p, n in zip(parts, sizes) for _ in range(n)]
 
 
 def read_wav(path: Path) -> tuple[np.ndarray, int]:
@@ -111,22 +142,33 @@ def _ms(t: float) -> float:
     return round(float(t), 3)
 
 
-def join(parts: list[tuple[str | None, np.ndarray, int, dict]], gap: float) -> tuple[np.ndarray, dict]:
+def join(parts: list[tuple[str | None, np.ndarray, int, dict]], gap: float,
+         names: list[str | None] | None = None) -> tuple[np.ndarray, dict]:
     """Join voiced parts `(speaker, samples, sample_rate, timing)` into one
     recording and its `timing.json` dict (the voiceover format). Each part is
     cut from its first sentence start to its last sentence end, except the
     first part's lead and the last part's tail, which are kept; `gap` seconds
     of silence separate the parts. Sentence and word times are shifted,
-    sentence indexes renumbered from 1, and each sentence gets `speaker`."""
+    sentence indexes renumbered from 1, and each sentence gets `speaker`;
+    `speakers` lists each part's speaker, voice and number of sentences.
+
+    `names` is the voice name the storyboard gives each part (its resolved
+    voice's `name`; None for every part when not given). A part with a name
+    may use any voice name (`check_voice` compares it with the storyboard);
+    parts with a null name (the backend's default) and the same speaker,
+    backend, speed and style must share one voice."""
     if not parts:
         raise narration.NarrationError("no parts to join")
     rates = {sr for _, _, sr, _ in parts}
     if len(rates) != 1:
         raise narration.NarrationError(f"the parts have different sample rates: {', '.join(str(r) for r in sorted(rates))}")
     sr = rates.pop()
-    resolved: dict[str | None, object] = {}
-    for k, (speaker, _, _, timing) in enumerate(parts):
-        v = resolved.setdefault(speaker, timing.get("voice"))
+    resolved: dict[tuple, object] = {}
+    for k, ((speaker, _, _, timing), name) in enumerate(zip(parts, names or [None] * len(parts))):
+        if name is not None:
+            continue
+        key = (speaker, timing.get("backend"), timing.get("speed"), _style(timing.get("style")))
+        v = resolved.setdefault(key, timing.get("voice"))
         if v != timing.get("voice"):
             raise narration.NarrationError(f"part {k + 1} ({_label(speaker)}) is voiced with voice "
                                            f"{timing.get('voice')!r}, an earlier part with {v!r}; voice it again")
@@ -159,7 +201,7 @@ def join(parts: list[tuple[str | None, np.ndarray, int, dict]], gap: float) -> t
                 "speaker": speaker,
             })
         voices.append({"speaker": speaker, "backend": timing.get("backend"), "voice": timing.get("voice"),
-                       "speed": timing.get("speed"), "style": timing.get("style")})
+                       "speed": timing.get("speed"), "style": timing.get("style"), "sentences": len(sent)})
     audio = np.concatenate(chunks)
     first = parts[0][3]
     out = {"audio": "narration.wav", "sample_rate": sr, "duration": _ms(audio.size / sr)}

@@ -47,7 +47,7 @@ def test_masked_edit_runs_the_inpaint_pipeline():
     gen = ImageGenerator(local.DiffusersImageModel("tiny", mask=png(mask)))
     result = gen.generate_sync("a hat", images=[ref], settings={"dimensions": (SIZE, SIZE)})
     assert Image.open(io.BytesIO(result.image.data)).size == (SIZE, SIZE)
-    inpaint = local._pipes[f"{TINY}#StableDiffusionInpaintPipeline"]
+    inpaint = local.pipeline(TINY, "StableDiffusionInpaintPipeline")  # the cached pipeline
     assert type(inpaint).__name__ == "StableDiffusionInpaintPipeline"
     assert inpaint.unet.dtype == torch.bfloat16
 

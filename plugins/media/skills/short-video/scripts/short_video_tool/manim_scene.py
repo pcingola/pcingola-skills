@@ -28,9 +28,10 @@ import shutil
 from pathlib import Path
 
 from . import config, media, settings, state, storyboard, versions
+from .engine import Engine
 from .scenes import BACKGROUND, SceneError, _latest_timing, _scene_voice, brief_markdown, check_helpers, finish
 
-ENGINE = "manim"
+ENGINE = Engine.MANIM
 SCENE_PY = "scene.py"
 TIMING_PY = "sv_timing.py"
 MEDIA_DIR = "media"
@@ -87,16 +88,14 @@ def scene_class() -> str:
 
 def render_starting_page(scene: dict) -> str:
     """The starting page `assets/manim_scene.py` with the scene id, class,
-    beats and the starting page's settings filled in."""
+    beats and background colour filled in."""
     m = _m()
     return (settings.asset(STARTING_PAGE)
             .replace("__SCENE_ID__", scene["id"])
             .replace("__SCENE_CLASS__", scene_class())
             .replace("__BACKGROUND_COLOR__", repr(str(m["background_color"])))
             .replace("__BACKGROUND__", BACKGROUND)
-            .replace("__BEATS__", repr([str(b) for b in scene.get("beats") or []]))
-            .replace("__FONT_SIZE__", repr(m["font_size"]))
-            .replace("__FADE__", repr(float(m["fade_seconds"]))))
+            .replace("__BEATS__", repr([str(b) for b in scene.get("beats") or []])))
 
 
 def check_scene_py(text: str, timing: dict) -> tuple[list[str], int]:

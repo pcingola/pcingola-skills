@@ -6,16 +6,17 @@
 <link rel="stylesheet" href="/static/studio.css">
 <script src="/static/shell.js"></script>
 <script src="/static/images.js"></script>
+<script src="/static/videos.js"></script>
 </head>
 <body>
 <div class="app">
   <aside class="side">
-    <div class="logo">Studio</div>
+    <div class="logo"><span class="label">Studio</span><button class="fold" id="left-fold" type="button" title="Fold this column">«</button></div>
     <div class="nav" id="kinds"><h3>Make</h3></div>
     <div>
       <h3 id="projects-title">Projects</h3>
       <div id="projects"></div>
-      <button class="project new" id="new-open">+ New project</button>
+      <button class="project new" id="new-open" title="New project">+<span class="label">&nbsp;New project</span></button>
     </div>
     <div class="grow"></div>
     <div class="settings">
@@ -24,42 +25,51 @@
         <label class="f">Appearance</label>
         <div id="theme"></div>
       </div>
-      <button class="gear" id="gear">⚙️ Settings</button>
+      <button class="gear" id="gear" data-icon="settings" title="Settings"><span class="label">Settings</span></button>
     </div>
   </aside>
 
   <main class="main">
     <div class="top" id="top" hidden>
       <h1 id="title"></h1><span class="tag" id="tag"></span>
-      <div class="mode" id="mode" title="Step by step: Claude shows each result and waits. Automatic: Claude picks the style, generates, reviews and keeps the best one.">
+      <div class="mode" id="mode" title="Step by step: each result is shown and waits for you. Automatic: the style is picked and everything made without waiting.">
         <button data-v="step">Step by step</button>
         <button data-v="auto">Automatic</button>
       </div>
+      <button class="secondary danger" id="delete" title="Move this project to the Trash" hidden>Delete</button>
     </div>
     <div id="workspace"></div>
     <div class="actbar" id="actbar" hidden></div>
   </main>
 
   <aside class="activity">
-    <header><span class="dot off" id="dot"></span><b>Claude</b><small id="state">connecting…</small></header>
+    <div class="rail" id="rail" title="Unfold the Claude column">
+      <span class="fold">«</span><span class="dot off" id="rail-dot"></span>
+      <span class="rail-mark" id="rail-unread" title="A new answer" hidden>●</span>
+      <span class="rail-mark ask" id="rail-ask" title="Waiting for your approval in Claude Code" hidden>!</span>
+    </div>
+    <header><span class="dot off" id="dot"></span><b>Claude</b><small id="state">connecting…</small><button class="fold" id="right-fold" type="button" title="Fold this column">»</button></header>
     <div class="feed" id="feed"></div>
+    <div class="running" id="running" hidden></div>
     <div class="notice" id="asking" hidden></div>
     <div class="notice" id="queue" hidden></div>
     <div class="ask">
-      <textarea id="ask" placeholder="Tell Claude what you want, in as much detail as you like."></textarea>
+      <textarea id="ask" placeholder="Say what you want, in as much detail as you like."></textarea>
       <div class="bar"><span id="send-key">⌘ Enter to send</span><button class="primary" id="send">Send</button></div>
     </div>
   </aside>
+  <div class="resize" id="left-resize" title="Drag to resize; double-click for the usual width"></div>
+  <div class="resize right" id="right-resize" title="Drag to resize; double-click for the usual width"></div>
 </div>
 
 <div class="shade" id="shade" hidden>
-  <div class="detail">
+  <div class="detail" id="detail">
     <div class="stage">
       <div class="tools">
-        <button data-tool="view">👁 View</button>
-        <button data-tool="box">▭ Box</button>
-        <button data-tool="point">● Point</button>
-        <button data-tool="loop">✎ Circle freehand</button>
+        <button data-tool="view" data-icon="view">View</button>
+        <button data-tool="box" data-icon="box">Box</button>
+        <button data-tool="point" data-icon="point">Point</button>
+        <button data-tool="loop" data-icon="loop">Circle freehand</button>
         <button id="d-clear">Clear marks</button>
         <span id="d-hint"></span>
       </div>

@@ -1,4 +1,4 @@
-"""Chatterbox-Turbo (Resemble AI, 350M, English, MIT): local TTS with zero-shot voice cloning.
+"""Chatterbox Turbo: local TTS with zero-shot voice cloning; the weights are settings (`config.py`).
 
 A voice is a reference recording: `<name>.wav` in `config.voices_dir()`, or a
 path to an audio file. `default` is the model's built-in voice. The model uses
@@ -19,7 +19,7 @@ import numpy as np
 
 from . import config, download
 
-DEFAULT_VOICE = "default"
+BUILTIN_VOICE = "default"  # the name of the model's built-in voice (no reference recording)
 MIN_REFERENCE_SECONDS = 5.0
 AUDIO_SUFFIXES = (".wav", ".flac", ".mp3", ".m4a")
 
@@ -28,12 +28,12 @@ def voice_names() -> list[str]:
     """`default` plus the name of every recording in the voices directory."""
     d = config.voices_dir()
     names = sorted(p.stem for p in d.iterdir() if p.suffix.lower() in AUDIO_SUFFIXES) if d.is_dir() else []
-    return [DEFAULT_VOICE] + names
+    return [BUILTIN_VOICE] + names
 
 
 def reference_path(voice: str) -> Path | None:
     """The recording for `voice` (None for the built-in voice)."""
-    if voice == DEFAULT_VOICE:
+    if voice == BUILTIN_VOICE:
         return None
     p = Path(voice).expanduser()
     if p.suffix.lower() in AUDIO_SUFFIXES and p.is_file():
@@ -52,8 +52,14 @@ def reference_path(voice: str) -> Path | None:
 class ChatterboxBackend:
     name = "chatterbox"
     sample_rate = 24_000
-    default_voice = DEFAULT_VOICE
-    model = "chatterbox-turbo"
+
+    @property
+    def default_voice(self) -> str:
+        return config.require("VOICEOVER_CHATTERBOX_VOICE")
+
+    @property
+    def model(self) -> str:
+        return config.chatterbox_model()
 
     def __init__(self, style: str | None = None) -> None:
         if style:
@@ -69,9 +75,9 @@ class ChatterboxBackend:
             os.environ.setdefault("HF_HUB_OFFLINE", "1")
             from chatterbox.tts_turbo import ChatterboxTurboTTS
 
-            for w in download.CHATTERBOX_WEIGHTS:
+            for w in download.chatterbox_weights():
                 download.ensure_weight(w)
-            tts = ChatterboxTurboTTS.from_local(config.model_dir() / download.CHATTERBOX_DIR, "cpu")
+            tts = ChatterboxTurboTTS.from_local(config.model_dir() / config.chatterbox_model(), "cpu")
             # Under numpy 2 the loudness gain (a float64 scalar) promotes the
             # float32 reference to float64, which the mel filter matmul rejects.
             norm = tts.norm_loudness

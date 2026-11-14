@@ -25,7 +25,9 @@ that joins the scenes:
   (`CARD.byline` null).
 - The MP4 tags `artist` and `copyright` (`credit.copyright`).
 
-The name is `author:`, one or more names joined with ", ".
+The name is `author:`, one or more names joined with ", ". With an empty `author:` the film has no
+caption, byline, end-scene credit line or MP4 tags; with a brand, the logo alone
+is drawn.
 
 For any other MP4, `short-video.sh credit FILE [-o OUT] --author NAME
 [--author NAME ...] [--brand DIR]` writes `<name>.credit.mp4` next to the
@@ -40,7 +42,8 @@ the audio copied. `--brand` is the brand folder the brand skill reports.
   content in the scene.
 - The title scene shows the byline and the end scene ends on the credit line,
   unless `credit.byline` or `credit.text` is null.
-- With a brand, on a 3x crop of the caption corner of a film frame
+- With a brand, once, at the first assembly with that brand (not at every
+  later hand-over), on a 3x crop of the caption corner of a film frame
   (`ffmpeg -ss T -i film/v<N>/film.mp4 -frames:v 1 "$TMPDIR/frame.png"`), the
   logo is right of the text, unchanged in shape and colour, centred on the
   capital letters. With `raster_on_dark`, a dark scene shows that PNG and a

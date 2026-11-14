@@ -28,6 +28,3 @@ node_modules/
 # Vendored reveal.js and KaTeX builds ship with the revealjs-slideshow skill
 !plugins/docs/skills/revealjs-slideshow/assets/reveal.js/dist/
 !plugins/docs/skills/revealjs-slideshow/assets/reveal.js/plugin/math/katex/dist/
-
-# Local implementation plans
-plans/

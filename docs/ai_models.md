@@ -6,9 +6,9 @@ per concern). It has three parts:
 1. Pydantic-AI: chat, vision, audio input, embeddings, image generation, image edits with reference images and
    System-1 models. The package reads the config and builds the Pydantic-AI object (`Agent`, `Embedder`,
    `ImageGenerator`, `SystemOneModel`); the call itself is Pydantic-AI's.
-2. Adapters for what Pydantic-AI lacks: speech, music and image masks. One function per task, one branch per
+2. Adapters for what Pydantic-AI lacks: speech, music, video and image masks. One function per task, one branch per
    provider kind.
-3. Local models with `diffusers`, in the caller's process: an image model and a music model. The extra
+3. Local models with `diffusers`, in the caller's process: image, music and image-to-video models. The extra
    `ai-models[diffusers]` installs torch and diffusers, so only the skills that need it carry them.
 
 | Module | Contents |
@@ -19,7 +19,8 @@ per concern). It has three parts:
 | `system1` | `system1_model`, `decide` |
 | `speech` | `speak` |
 | `music` | `compose` |
-| `local` | `DiffusersImageModel`, `DiffusersMusicModel` |
+| `video` | `animate`, `aanimate`; `frame_count`, `frame_size` |
+| `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` (video), the pipeline cache |
 | `tls` | the TLS context of remote clients |
 | `errors` | `AIModelsError`, `ConfigError`, `explained` |
 
@@ -40,12 +41,12 @@ The package reads three sections; the fourth, `settings`, belongs to `plugin_set
 - `models`: task to model id. A model id is `<provider name>:<model>`; the first colon splits it, so
   `ollama:d3:4b` is the Ollama tag `d3:4b`. A caller passes its own id (a `--model` flag) or asks for a task and gets
   `models.<task>` (`config.resolve`). The tasks the skills use: `chat`, `vision`, `system1`, `image`,
-  `image_edit`, `speech`, `music`, `audio`. The package has no model defaults.
+  `image_edit`, `image_best`, `image_multi_ref`, `speech`, `music`, `audio`, `video`. The package has no model defaults.
 - `diffusers`: name to local model: `repo` (a Hugging Face repository), `steps`, `guidance`, and `inpaint` (the
   diffusers pipeline class for an edit with a mask, built over the loaded modules with `from_pipe`). A model id
-  `<diffusers provider>:<name>` names it.
+  `<diffusers provider>:<name>` names it. A video model adds the keys of the Video section.
 
-The image-gen and music wrappers install the extra when the config has a provider of kind `diffusers`
+The image-gen, music and short-video wrappers install the extra when the config has a provider of kind `diffusers`
 (`docs/architecture.md`, CLI wrappers).
 
 ## Provider kinds
@@ -68,8 +69,9 @@ What each kind serves:
 | system1 | Pydantic-AI `SystemOneModel` on the provider's `base_url` (Ollama: `/v1/systemone`) | any with a `base_url` |
 | image, image_edit | Pydantic-AI `OpenAIImageGenerationModel`, `GoogleImageGenerationModel`; `local.DiffusersImageModel` | `ollama`, `openrouter`, `openai`, `azure`, `google`, `diffusers` |
 | image mask | `images.MaskedOpenAIImageModel`; the `inpaint` pipeline of a `diffusers` model | OpenAI kinds, `diffusers` |
-| speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, or Gemini TTS | OpenAI kinds, `google` |
-| music | `music.compose`: Lyria, or `local.DiffusersMusicModel` (ACE-Step) | `google`, `diffusers` |
+| speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, or Google `generate_content` | OpenAI kinds, `google` |
+| music | `music.compose`: Google predict or stream, or `local.DiffusersMusicModel` | `google`, `diffusers` |
+| video | `video.animate`: `local.animate` (image to video) | `diffusers` |
 
 Remote clients are one `httpx2.AsyncClient` per provider object, with the provider's timeout and the context of
 `tls`.
@@ -90,17 +92,45 @@ The adapters cover what Pydantic-AI has no call for:
 - Speech. The OpenAI kinds call `audio.speech.create` on the Pydantic-AI provider's OpenAI client, with the style as
   `instructions` and a speed other than 1 (a server may refuse it; Ollama does). `google` calls `generate_content`
   with an AUDIO response and a prebuilt voice, with the style as a text prefix the model does not speak; raw PCM comes
-  back as a WAV file at the rate of its MIME type. Gemini TTS has no speed setting.
-- Music. `lyria-002` is a plain `:predict` POST on the provider's `base_url` (default Vertex), with `sample_count`
-  inside the instance, where the API honours it; one 30 s WAV per sample. Other Lyria models (Lyria 3) stream with
+  back as a WAV file at the rate of its MIME type. The `google` kind has no speed setting.
+- Music. A model listed in the provider's `predict_models` gets a plain `:predict` POST on the provider's `base_url`
+  (default Vertex), with `sample_count` inside the instance, where the API honours it; one WAV per sample. Other
+  models of the `google` kind stream with
   AUDIO and TEXT parts; length and lyrics go in the prompt, images as parts after it, and the text parts come back
   with the MP3. A server may end the stream with a `[DONE]` line the SDK cannot parse: it is ignored once audio
   arrived, and a stream without audio is tried again, up to 3 times. `music.TAKES` lists the options of each model
   kind (`diffusers`, `predict`, `stream`); another option is refused before any request.
 - Local models (`local`). `DiffusersImageModel` is a Pydantic-AI `ImageGenerationModel`; `DiffusersMusicModel` gives
-  a WAV file. Pipelines load in bfloat16 with `DiffusionPipeline.from_pretrained`, on CUDA, else MPS, else an error,
+  a WAV file; `animate` gives an MP4 (Video). Pipelines load in bfloat16 with `DiffusionPipeline.from_pretrained`,
+  or with the class a model's `pipeline` names, on CUDA, else MPS, else an error,
   and stay loaded for the life of the process. Weights go to the Hugging Face cache. torch and diffusers are imported
   only in this module.
+
+## Video
+
+`video.animate(image, prompt, *, seconds, model=None, width=None, height=None, seed=None)` returns an MP4 of the
+image animated as the prompt says; `aanimate` runs it in a worker thread. The model is `model`, else `models.video`.
+Only the `diffusers` kind serves video. A video model is a `diffusers.<name>` entry with these keys besides `repo`,
+`steps` and `guidance`, all required (`video.video_spec` raises a `ConfigError` that names each missing key):
+
+| Key | Meaning |
+|---|---|
+| `pipeline` | the diffusers class to load; needed because `DiffusionPipeline.from_pretrained` returns the class of the repository's `model_index.json`, which can be text to video |
+| `fps` | frames per second of the clip, passed to the encoder |
+| `size_multiple` | width and height are rounded to the nearest multiple of it, at least the multiple |
+| `frame_step` | the frame count is the smallest `frame_step * k + 1` (k >= 1) that covers `seconds * fps` |
+| `width`, `height` | size when the caller gives none |
+| `max_frames` | the longest clip; a longer request is cut to it |
+
+The frame count is cut to `max_frames`, rounded down to the `frame_step * k + 1` form.
+
+The image is cropped to the clip's aspect ratio and scaled to its size (`ImageOps.fit`). The frames are encoded with
+diffusers' `export_to_video` (imageio-ffmpeg, H.264). An audio track the pipeline also generates is dropped, because the caller
+(media:short-video) adds the narration. Some image-to-video pipelines need PyAV to re-encode their conditioning image,
+so the `diffusers` extra installs `av`, `imageio` and `imageio-ffmpeg`.
+
+The models, their repositories and these keys are in `config.yaml`; `config.example.yaml` has a real model and a
+minimal test model.
 
 ## TLS
 

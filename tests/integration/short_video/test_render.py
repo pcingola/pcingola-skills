@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from short_video_tool import config, media, scenes, settings, state, storyboard, versions
+from short_video_tool import config, media, scenes, settings, state, status, storyboard, versions
 from tests.prereq import requires
 from tests.integration.short_video.wrapper_env import NODE_DIR
 
@@ -206,6 +206,75 @@ class TestRenderEndTemplate(unittest.TestCase):
         """scenes.render of an end scene lasts the narration plus the template's hold_seconds. Guards the credit
         being held past the narration."""
         self.assertAlmostEqual(media.duration(self.scene_mp4), DURATION + scenes.hold_seconds(self.scene), delta=0.05)
+
+
+BAR = """<div id="bar" style="position:absolute;left:200px;top:400px;width:1200px;height:200px;
+    background:#fff;transform-origin:0 50%;transform:scaleX(0)"></div>
+    <!-- drawn elements here -->"""
+GROW = """const tl = gsap.timeline({ paused: true });
+  tl.to("#bar", { scaleX: 1, duration: 0.3 }, W(1, "world"));
+  tl.fromTo("#anchored", { scale: 1 }, { scale: 1.1, transformOrigin: "50% 50%", duration: SE(1) - S(1) }, S(1));"""
+
+
+@requires(scenes.node_ready(NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run plugins/media/skills/short-video/scripts/short-video.sh setup")
+class TestRenderWithoutImage(unittest.TestCase):
+    """An HTML scene with a Brief and no Image: everything on screen is drawn in the page."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.project = p = Path(cls._tmp.name) / "drawn_project"
+        for d in ("images", "sources", "voice", "scenes", "music", "film"):
+            (p / d).mkdir(parents=True)
+        (p / "storyboard.md").write_text(
+            "# Drawn test\n\nTopic: Rendering.\n\n## chart\n\nBrief: A bar grows on its word.\n\n"
+            "| Narration | On screen |\n|---|---|\n| Hello world. | bar grows on 'world' |\n",
+            encoding="utf-8",
+        )
+        cls.scene = storyboard.load(p)["scenes"][0]
+        assert "image" not in cls.scene
+        vdir = versions.next_version(state.voice_root(p, "chart"))
+        _ffmpeg("-f", "lavfi", "-i", f"sine=frequency=330:sample_rate=24000:duration={DURATION}",
+                str(vdir / "narration.wav"))
+        (vdir / "timing.json").write_text(json.dumps(TIMING))
+        state.write_meta(vdir, {"duration": DURATION})
+        cls.sdir = scenes.scaffold(p, cls.scene, NODE_DIR)
+        html = (cls.sdir / "index.html").read_text()
+        html = html.replace("<!-- drawn elements here -->", BAR)
+        html = html.replace("const tl = gsap.timeline({ paused: true });", GROW)
+        (cls.sdir / "index.html").write_text(html)
+        cls.scene_mp4 = scenes.render(p, cls.scene, NODE_DIR)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def test_rendered_without_background_png(self) -> None:
+        """scenes.scaffold and render of a scene without an image give a 2 s, 60-frame scene.mp4 with no
+        background.png, and status reports nothing to redo. Guards scenes drawn in the page with no picture."""
+        self.assertFalse((self.sdir / scenes.BACKGROUND).exists())
+        video = next(s for s in media.probe(self.scene_mp4)["streams"] if s["codec_type"] == "video")
+        self.assertEqual(int(video["nb_frames"]), 60)
+        self.assertEqual(status.render_reasons(self.project, self.scene), [])
+
+    def test_drawn_bar_on_its_word(self) -> None:
+        """The bar drawn in #anchored is absent before W(1, "world") and present after it, over the dark page
+        background. Guards the timeline and the camera layer of the drawn starting page."""
+        def white_pixels(t: float) -> int:
+            raw = subprocess.run(
+                ["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(self.scene_mp4), "-frames:v", "1",
+                 "-vf", "crop=400:100:600:450,format=gray", "-f", "rawvideo", "-"],
+                check=True, capture_output=True,
+            ).stdout
+            return sum(1 for b in raw if b > 240)
+
+        self.assertLess(white_pixels(0.5), 100)
+        self.assertGreater(white_pixels(1.6), 30000)
+
+    def test_frames(self) -> None:
+        """scenes.frames extracts frames from the scene without an image. Guards the `frames` command."""
+        img = media.probe(scenes.frames(self.project, "chart", [1.0])[0])["streams"][0]
+        self.assertEqual((img["width"], img["height"]), (1920, 1080))
 
 
 if __name__ == "__main__":

@@ -181,6 +181,30 @@ class TestManimRender(unittest.TestCase):
         self.assertLess(white_pixels(0.5), 100)
         self.assertGreater(white_pixels(1.2), 10000)
 
+    def test_starting_page_moves(self) -> None:
+        """The starting scene.py renders with the real Manim to the narration length, and its frames change
+        while the sentence plays and stay still in the last 0.5 s. Guards the moving starting page."""
+        sdir = manim_scene.scaffold(self.project, self.scene)
+        try:
+            (sdir / "scene.py").write_text(manim_scene.render_starting_page(self.scene), encoding="utf-8")
+            mp4 = _render(self.project, self.scene["id"])
+            self.assertAlmostEqual(media.duration(mp4), DURATION, delta=0.05)
+
+            def frame(t: float) -> bytes:
+                return subprocess.run(
+                    ["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(mp4), "-frames:v", "1",
+                     "-vf", "scale=192:108,format=gray", "-f", "rawvideo", "-"],
+                    check=True, capture_output=True,
+                ).stdout
+
+            def changed(a: float, b: float) -> int:
+                return sum(1 for x, y in zip(frame(a), frame(b)) if abs(x - y) > 24)
+
+            self.assertGreater(changed(0.4, 1.0), 200)
+            self.assertLess(changed(1.6, 1.9), 20)
+        finally:
+            shutil.rmtree(sdir)
+
     def test_unknown_word_blocks_render(self) -> None:
         """manim_scene.scaffold copies scene.py from the latest version, and render refuses a helper call naming
         a word not in the narration. Guards the static check before running Manim."""

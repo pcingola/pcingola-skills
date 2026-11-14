@@ -1,15 +1,19 @@
 """Unit tests of the studio server's HTTP endpoints, path checks and events, on a temporary projects root."""
 from __future__ import annotations
 
+import collections
 import json
 import os
 import re
+import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
 from studio_server.projects import KINDS
+from studio_server.server import HISTORY_MAX
+from studio_server.video import default_film
 
 from .conftest import PNG, data_url, make_project, png
 
@@ -30,13 +34,14 @@ def test_config(client, studio):
     assert status == 200
     assert cfg["root"] == str(studio.root)
     assert cfg["kinds"] == [
+        {"id": "short-video", "label": "Short videos", "directory": "short-video", "skill": "videos",
+         "ready": True},
+        {"id": "slide", "label": "Slide decks", "directory": "slides", "skill": "images", "ready": True},
         {"id": "image", "label": "Images", "directory": "images", "skill": "images", "ready": True},
         {"id": "infographic", "label": "Infographics", "directory": "infographics", "skill": "images", "ready": True},
-        {"id": "slide", "label": "Slides", "directory": "slides", "skill": "images", "ready": True},
-        {"id": "short-video", "label": "Short videos", "directory": "short-video", "skill": "short-video",
-         "ready": False},
     ]
     assert [k["id"] for k in cfg["kinds"]] == [k.id for k in KINDS]
+    assert cfg["film"] == default_film()
 
 
 def test_index_and_static(client):
@@ -247,14 +252,13 @@ def test_request_rejected(client, studio, tmp_path, emitted):
 
 
 def test_request_models(client, studio, emitted):
-    """A generate takes the image-gen tiers best, fast and multi-ref and the older names gpt-image-2,
-    nano-banana-pro and nano-banana-2, passed on unchanged, and refuses any other name. Guards the tiers the
-    agent passes to image-gen as --tier, and projects saved by earlier pages."""
+    """A generate takes the image-gen tiers best, fast and multi-ref, passed on unchanged, and refuses any other
+    name. Guards the tiers the agent passes to image-gen as --tier."""
     p = make_project(studio.root)
-    for model in ("best", "fast", "multi-ref", "gpt-image-2", "nano-banana-pro", "nano-banana-2"):
+    for model in ("best", "fast", "multi-ref"):
         assert client.post("/api/request", gen(p, model=model))[0] == 202, model
         assert emitted[-1]["request"]["model"] == model
-    assert client.post("/api/request", gen(p, model="gemini-x"))[0] == 400
+    assert client.post("/api/request", gen(p, model="some-model"))[0] == 400
 
 
 def test_request_refs_resolved(client, studio, emitted):
@@ -267,21 +271,29 @@ def test_request_refs_resolved(client, studio, emitted):
 
 
 def test_generate_new_project(client, studio, emitted):
-    """A generate with project null creates <root>/images/<slug of the brief's first words> with its project.json,
-    fills project in the request and answers it; a taken slug gets -2. Guards starting a project with its first
-    generate."""
+    """A generate with project null creates <root>/images/<creation time> with its project.json named from the
+    brief, fills project in the request and answers it; a folder taken in the same second gets -2. Guards starting
+    a project with its first generate."""
+    from studio_server.projects import folder_name
     brief = "A ginger cat on a windowsill at dusk, watercolour"
     status, body = client.post("/api/request", gen(None, project=None, brief=brief))
     assert status == 202
-    p = studio.root / "images" / "a-ginger-cat-on-a-windowsill"
+    p = studio.root / "images" / folder_name(emitted[-1]["request"]["time"])
     assert body["project"] == str(p) and emitted[-1]["request"]["project"] == str(p)
     meta = json.loads((p / "project.json").read_text())
     assert meta == {"name": "A ginger cat on a windowsill", "brief": brief, "kind": "image",
                     "created": emitted[-1]["request"]["time"], "autonomy": "step", "settings": {}}
-    _, body = client.post("/api/request", gen(None, project=None, brief=brief))
-    assert body["project"] == str(p) + "-2"
+    (p.parent / "20000101-000000").mkdir()
+    import studio_server.projects as projects
+    folder = projects.folder_name
+    projects.folder_name = lambda created: "20000101-000000"
+    try:
+        _, body = client.post("/api/request", gen(None, project=None, brief=brief))
+    finally:
+        projects.folder_name = folder
+    assert body["project"] == str(p.parent / "20000101-000000-2")
     _, body = client.post("/api/request", gen(None, project=None, brief="?!"))
-    assert body["project"] == str(studio.root / "images" / "untitled")
+    assert json.loads((Path(body["project"]) / "project.json").read_text())["name"] == "Untitled"
 
 
 def test_kinds_of_skill_images(client, studio, emitted):
@@ -292,8 +304,8 @@ def test_kinds_of_skill_images(client, studio, emitted):
                                                brief="How a vaccine works"))
     req = emitted[-1]["request"]
     assert req["skill"] == "images" and req["kind"] == "infographic"
-    p = studio.root / "infographics" / "how-a-vaccine-works"
-    assert body["project"] == str(p)
+    p = Path(body["project"])
+    assert p.parent == studio.root / "infographics"
     assert json.loads((p / "project.json").read_text())["kind"] == "infographic"
     _, projects = client.get("/api/projects?kind=infographic")
     assert [x["dir"] for x in projects] == [str(p)]
@@ -617,30 +629,41 @@ def test_foreign_host_and_origin(client, studio):
 
 
 def test_state_and_ask_sent_on_connect(client, events):
-    """A page connecting gets the kept history, then the last state and the open ask; ask-done clears the ask.
-    Guards a page opened or reconnected while the session is busy or waiting for approval."""
+    """A page connecting gets the kept history (asks included), then the last state and the open ask; ask-done
+    clears the open ask. Guards a page opened or reconnected while the session is busy or waiting for approval."""
     old = {"kind": "state", "busy": True, "current": "r1", "queued": ["r2"]}
     state = {"kind": "state", "busy": True, "current": "r2", "queued": []}
-    ask = {"kind": "ask", "tool": "Bash", "text": "run image-gen"}
+    ask = {"kind": "ask", "request": "r2", "agent": None, "time": 1, "use": "u1", "tool": "Bash",
+           "text": "run image-gen"}
     note = {"kind": "note", "text": "working"}
     for e in (old, state, ask, note):
         assert client.post("/event", e)[0] == 204
     a = events()
-    assert [a.next() for _ in range(3)] == [note, state, ask]
+    assert [a.next() for _ in range(4)] == [ask, note, state, ask]
     client.post("/event", {"kind": "ask-done"})
     assert a.next() == {"kind": "ask-done"}
     b = events()
     client.post("/event", {"kind": "note", "text": "next"})
-    assert [b.next() for _ in range(3)] == [note, state, {"kind": "note", "text": "next"}]
+    assert [b.next() for _ in range(4)] == [ask, note, state, {"kind": "note", "text": "next"}]
 
 
 def test_history_replayed_in_order(client, studio, events):
-    """request, agent, note, turn and ended events are replayed in their order, before state and ask; other kinds
-    are not kept. Guards a reloaded page showing the conversation."""
-    sent = [{"kind": "agent", "text": "hello", "images": []}, {"kind": "note", "text": "step 1"},
-            {"kind": "turn", "reason": "done"}]
+    """The log's kinds (request, agent, note, text, turn and agent starts and ends, tool calls, asks and answers)
+    are replayed in their order, before state and ask; other kinds are not kept. Guards a reloaded page showing the
+    conversation and each request's log."""
+    head = {"request": "r1", "agent": None, "time": 5}
+    sent = [{"kind": "turn-start", **head}, {"kind": "agent", **head, "text": "hello", "images": []},
+            {"kind": "note", **head, "text": "step 1"}, {"kind": "text", **head, "text": "I will look."},
+            {"kind": "agent-start", **head, "agent": "a1", "parent": None, "type": "Explore", "description": "d",
+             "background": False, "prompt": "p"},
+            {"kind": "tool", **head, "use": "u1", "tool": "Bash", "input": {"command": "ls"}},
+            {"kind": "ask", **head, "use": "u1", "tool": "Bash", "text": "ls"},
+            {"kind": "answer", **head, "use": "u1", "tool": "Bash", "ok": True},
+            {"kind": "tool-end", **head, "use": "u1", "tool": "Bash", "ms": 12, "ok": True},
+            {"kind": "turn-end", **head, "reason": "answer", "ms": 40}]
     for e in sent:
         client.post("/event", e)
+    client.post("/event", {"kind": "ask-done"})
     client.post("/event", {"kind": "catalogue"})
     client.post("/api/request", {"action": "message", "kind": "image", "text": "hi"})
     client.post("/event", {"kind": "state", "busy": True, "current": None, "queued": []})
@@ -648,12 +671,31 @@ def test_history_replayed_in_order(client, studio, events):
     make_project(studio.root, "cat")
     studio.poll()
     ev = events()
-    got = [ev.next() for _ in range(5)]
-    assert got[:3] == sent
-    assert got[3]["kind"] == "request" and got[3]["request"]["text"] == "hi"
-    assert got[4]["kind"] == "state"
+    n = len(sent)
+    got = [ev.next() for _ in range(n + 2)]
+    assert got[:n] == sent
+    assert got[n]["kind"] == "request" and got[n]["request"]["text"] == "hi"
+    assert got[n + 1]["kind"] == "state"
     client.post("/event", {"kind": "note", "text": "live"})
     assert ev.next() == {"kind": "note", "text": "live"}
+
+
+def test_pending_requests_replayed_past_the_history(client, studio, events):
+    """A request the kept state names whose `request` event left the bounded history is sent first on connect; one
+    still in the history is not sent twice. Guards the group header and Stop of a long-running request."""
+    studio.history = collections.deque(maxlen=3)
+    for text in ("old", "new"):
+        assert client.post("/api/request", {"action": "message", "kind": "image", "text": text})[0] == 202
+    ids = [e["request"]["id"] for e in studio.history]
+    client.post("/event", {"kind": "state", "busy": True, "current": ids[0], "queued": [ids[1]]})
+    for i in range(2):
+        client.post("/event", {"kind": "note", "text": str(i)})
+    assert [e.get("kind") for e in studio.history] == ["request", "note", "note"]
+    ev = events()
+    got = [ev.next() for _ in range(5)]
+    assert got[0] == {"kind": "request", "request": studio.pending[ids[0]]}
+    assert [e["kind"] for e in got[1:]] == ["request", "note", "note", "state"]
+    assert got[1]["request"]["id"] == ids[1]
 
 
 def test_ended_clears_ask_and_busy(client, events):
@@ -663,6 +705,7 @@ def test_ended_clears_ask_and_busy(client, events):
     client.post("/event", {"kind": "ask", "tool": "Bash", "text": "x"})
     client.post("/event", {"kind": "ended"})
     ev = events()
+    assert ev.next() == {"kind": "ask", "tool": "Bash", "text": "x"}
     assert ev.next() == {"kind": "ended"}
     assert ev.next() == {"kind": "state", "busy": False, "current": "r1", "queued": ["r2"]}
     client.post("/event", {"kind": "note", "text": "live"})
@@ -682,9 +725,100 @@ def test_replay_ends_with_marker(client, events):
 
 
 def test_history_bounded(studio):
-    """At most the last 1000 session events are kept. Guards memory over a long session."""
-    for i in range(1005):
-        studio.broadcast({"kind": "note", "text": str(i)})
-    assert len(studio.history) == 1000
-    assert studio.history[0]["text"] == "5" and studio.history[-1]["text"] == "1004"
+    """At most the last 20000 session events are kept. Guards memory over a long session."""
+    assert HISTORY_MAX == 20000
+    for i in range(HISTORY_MAX + 5):
+        studio.broadcast({"kind": "tool", "text": str(i)})
+    assert len(studio.history) == HISTORY_MAX
+    assert studio.history[0]["text"] == "5" and studio.history[-1]["text"] == str(HISTORY_MAX + 4)
 
+
+def test_nothing_kept_before_events(events, client):
+    """Before any state or ask, a connecting page gets only live events. Guards against replaying empty state."""
+    a = events()
+    client.post("/event", {"kind": "note", "text": "first"})
+    assert a.next() == {"kind": "note", "text": "first"}
+
+
+def test_name(client, studio):
+    """/api/name sets the user's name (spaces collapsed) and `named`, keeping the other keys; a blank, long or
+    non-string name is 400. Guards renaming a project from the page."""
+    p = make_project(studio.root)
+    assert client.post("/api/name", {"project": str(p), "name": "  Meet   Vogon "}) == (200, {"name": "Meet Vogon"})
+    meta = json.loads((p / "project.json").read_text())
+    assert meta["name"] == "Meet Vogon" and meta["named"] is True and "brief" in meta
+    for bad in (" ", "x" * 121, 3, None):
+        assert client.post("/api/name", {"project": str(p), "name": bad})[0] == 400
+
+
+def test_delete(client, studio, tmp_path):
+    """/api/delete moves the project into the Trash under a readable label (on Linux into `files/` with its
+    `info/<name>.trashinfo`), refuses with 409 while a request works on it, and 404s a missing project. Guards
+    deleting a project from the page."""
+    studio.trash_root = tmp_path / "Trash"
+    linux = sys.platform.startswith("linux")
+    p = make_project(studio.root)
+    _, a = client.post("/api/request", gen(p))
+    assert client.post("/api/delete", {"project": str(p)})[0] == 409
+    client.post("/event", {"kind": "ended"})
+    status, body = client.post("/api/delete", {"project": str(p)})
+    assert status == 200 and not p.exists()
+    moved = Path(body["trash"])
+    assert moved.parent == (tmp_path / "Trash" / "files" if linux else tmp_path / "Trash")
+    assert (moved / "project.json").is_file() and moved.name == "Studio images - cat (cat)"
+    if linux:
+        info = (tmp_path / "Trash" / "info" / f"{moved.name}.trashinfo").read_text()
+        assert info.startswith("[Trash Info]\nPath=") and "DeletionDate=" in info
+    q = make_project(studio.root)
+    assert Path(client.post("/api/delete", {"project": str(q)})[1]["trash"]).name == "Studio images - cat (cat) 2"
+    assert client.post("/api/delete", {"project": str(p)})[0] == 404
+
+
+def test_stop(client, studio, events, emitted):
+    """/api/stop of a current or queued request writes a stop line for the mod; one that is neither is a 409, a bad
+    id a 400. A `stopped` event drops the request from the pending ones and is kept for the replay. Guards Stop."""
+    _, body = client.post("/api/request", {"action": "message", "kind": "image", "text": "hi"})
+    rid = body["id"]
+    emitted.clear()
+    assert client.post("/api/stop", {"id": rid}) == (202, {"id": rid})
+    assert emitted == [{"type": "stop", "id": rid}]
+    assert client.post("/api/stop", {"id": "nope"})[0] == 409
+    assert client.post("/api/stop", {"id": 3})[0] == 400
+    assert client.post("/api/stop", {})[0] == 400
+    client.post("/event", {"kind": "stopped", "id": rid})
+    assert studio.pending_requests() == []
+    assert client.post("/api/stop", {"id": rid})[0] == 409
+    ev = events()
+    assert [ev.next()["kind"] for _ in range(2)] == ["request", "stopped"]
+
+
+def test_stop_stdout_failure_is_503(client, studio):
+    """A stop that cannot be written to stdout is a 503. Guards a Stop that silently does nothing."""
+    _, body = client.post("/api/request", {"action": "message", "kind": "image", "text": "hi"})
+
+    def broken(message):
+        raise OSError("closed")
+    studio.emit = broken
+    assert client.post("/api/stop", {"id": body["id"]})[0] == 503
+
+
+def test_pending_kept_until_a_state_names_it(client, studio):
+    """A request accepted just before a `state` that does not name it yet stays pending until a `state` named it and
+    a later one no longer does. Guards Stop and /api/delete on a request the mod had not read when it sent `state`."""
+    _, body = client.post("/api/request", {"action": "message", "kind": "image", "text": "hi"})
+    rid = body["id"]
+    client.post("/event", {"kind": "state", "busy": False, "current": None, "queued": []})
+    assert [r["id"] for r in studio.pending_requests()] == [rid]
+    client.post("/event", {"kind": "state", "busy": True, "current": rid, "queued": []})
+    client.post("/event", {"kind": "state", "busy": False, "current": None, "queued": []})
+    assert studio.pending_requests() == []
+
+
+def test_unnamed_request_expires(client, studio):
+    """A request no `state` named stops counting as pending at the first `state` after UNNAMED_GRACE seconds.
+    Guards a project left undeletable when the mod could not send the `state` events of a short request."""
+    from studio_server import server
+    _, body = client.post("/api/request", {"action": "message", "kind": "image", "text": "hi"})
+    studio.accepted[body["id"]] -= server.UNNAMED_GRACE + 1
+    client.post("/event", {"kind": "state", "busy": False, "current": None, "queued": []})
+    assert studio.pending_requests() == []

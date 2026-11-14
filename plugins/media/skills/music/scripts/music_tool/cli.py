@@ -4,7 +4,7 @@ Commands:
     generate   Prompt (plus the inputs the model takes) -> audio file(s) of the
                `music` model (or --model) of the `ai_models` config, with
                `<out>.json` (model, exact prompt sent, options, MIME type,
-               finish reason, duration) and `<out>.txt` (the text Lyria 3 returns).
+               finish reason, duration) and `<out>.txt` (the text the model returns, when it returns any).
     fit        Loop or trim a track to an exact length, with fades.
     analyze    Per-clip reports on how clips fit their briefs: a model
                description, signal measurements and images (`analyze.py`).
@@ -70,7 +70,7 @@ def _check(args: argparse.Namespace) -> None:
 
 
 def audio_ext(audio: bytes) -> str:
-    """`.wav` for a RIFF file, else `.mp3` (Lyria 3)."""
+    """`.wav` for a RIFF file, else `.mp3`."""
     return ".wav" if audio[:4] == b"RIFF" else ".mp3"
 
 
@@ -121,10 +121,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         local = kind(model_id) == "diffusers"
     except AIModelsError as e:
         config.error(str(e))
-    if local:
-        sent, sent_lyrics = prompt.tags(text, args.bpm), prompt.local_lyrics(lyrics, args.instrumental)
-    else:
-        sent, sent_lyrics = prompt.compose(text, args.instrumental, args.bpm), lyrics
+    sent, sent_lyrics = prompt.request(text, lyrics, args.instrumental, args.bpm, local)
     try:
         tracks = music.compose(sent, seconds=args.seconds, lyrics=sent_lyrics, seed=args.seed,
                                negative=args.negative, images=images, samples=args.samples, model=model_id)
@@ -190,7 +187,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="music", description="Music generation with the music model of the "
-                                                          "ai_models config (Lyria or a local diffusers model).")
+                                                          "ai_models config (a Google music model or a local diffusers model).")
     sub = p.add_subparsers(dest="command", required=True)
 
     c = sub.add_parser("generate", help="Generate music from a prompt")
@@ -198,18 +195,18 @@ def _build_parser() -> argparse.ArgumentParser:
     c.add_argument("--prompt-file", help="Read the prompt from a file")
     c.add_argument("-o", "--out", required=True,
                    help="Output audio, .mp3 or .wav; the suffix follows the format the model returns "
-                        "(Lyria 3: MP3; lyria-002: WAV; local models: WAV, or MP3 through FFmpeg)")
+                        "(remote models return MP3 or WAV; local models: WAV, or MP3 through FFmpeg)")
     c.add_argument("--model", help="Model id <provider>:<model> of the ai_models config (default: its music model)")
     c.add_argument("--image", action="append", metavar="PATH",
-                   help="Reference image, PNG, JPEG or WebP, repeatable up to 10 (Lyria 3)")
-    c.add_argument("--lyrics", metavar="FILE", help="Sung lyrics with [Verse]/[Chorus] tags (Lyria 3, local)")
-    c.add_argument("--instrumental", action="store_true", help="No vocals (Lyria 3, local)")
+                   help="Reference image, PNG, JPEG or WebP, repeatable up to 10 (models that take images)")
+    c.add_argument("--lyrics", metavar="FILE", help="Sung lyrics with [Verse]/[Chorus] tags (models that sing)")
+    c.add_argument("--instrumental", action="store_true", help="No vocals (models that sing)")
     c.add_argument("--bpm", type=int, help="Tempo in beats per minute (written into the prompt)")
-    c.add_argument("--seconds", type=int, help="Requested length (Lyria 3 Pro; exact for local models)")
-    c.add_argument("--negative", help="What to leave out (lyria-002)")
-    c.add_argument("--seed", type=int, help="Seed for repeatable output (lyria-002, local models)")
+    c.add_argument("--seconds", type=int, help="Requested length (models that take a length; exact for local models)")
+    c.add_argument("--negative", help="What to leave out (models with a negative prompt)")
+    c.add_argument("--seed", type=int, help="Seed for repeatable output (models that take a seed, local models)")
     c.add_argument("--samples", type=int,
-                   help="Number of tracks, files <stem>_1 ... <stem>_N (lyria-002; not with --seed)")
+                   help="Number of tracks, files <stem>_1 ... <stem>_N (models that return several samples; not with --seed)")
     c.add_argument("--force", action="store_true", help="Overwrite existing output")
     c.set_defaults(func=_cmd_generate)
 

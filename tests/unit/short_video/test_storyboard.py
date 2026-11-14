@@ -64,6 +64,17 @@ class TestParse(unittest.TestCase):
         of the storyboard format in references/storyboard.md."""
         self.assertEqual(storyboard.parse_markdown(MD), PARSED)
 
+    def test_parse_without_image(self) -> None:
+        """storyboard.parse_markdown reads an HTML scene with a Brief and no Image into a scene without `image`,
+        with and without `Engine: html`. Guards scenes drawn in the page with no picture."""
+        md = MD.replace("Image: a.png\n", "").replace(
+            '<a href="images/a.png"><img src="images/a.png" width="30%"></a>\n', "")
+        scene = storyboard.parse_markdown(md)["scenes"][1]
+        self.assertEqual(scene, {"id": "injection", "brief": "Start wide.", "narration": ["A cell | a virus."],
+                                 "beats": ['Label "cell" on "cell".']})
+        scene = storyboard.parse_markdown(md.replace("## injection\n", "## injection\nEngine: html\n"))["scenes"][1]
+        self.assertEqual((scene["engine"], "image" in scene), ("html", False))
+
     def test_errors_name_their_line(self) -> None:
         """storyboard.parse_markdown reports a missing brief, wrong cell count, empty narration, duplicate or
         invalid scene id, unknown template, Brief on a template, settings keys in the storyboard, unknown keys
@@ -155,15 +166,15 @@ class TestSpeakers(unittest.TestCase):
                 prefix = f"storyboard.md line {line}: "
                 self.assertTrue(any(m.startswith(prefix) and fragment in m for m in msg.splitlines()), msg)
 
-    def test_speaker_voice(self) -> None:
-        """storyboard.speaker_voice fills a speaker's empty cells with the backend's defaults and gives the
+    def test_resolve_voice(self) -> None:
+        """storyboard.resolve_voice fills a speaker's empty cells with the backend's defaults and gives the
         settings voice for no speaker. Guards the voice each part is checked against."""
         settings.use_project(None)
         data = storyboard.parse_markdown(SPEAKERS_MD)
-        self.assertEqual(storyboard.speaker_voice(data, "guest"),
+        self.assertEqual(storyboard.resolve_voice(data, "guest"),
                          {"backend": "speech", "name": None, "speed": 1.0, "style": "warm, curious"})
-        self.assertEqual(storyboard.speaker_voice(data, None),
-                         {"backend": "kokoro", "name": "af_heart", "speed": 1.0, "style": None})
+        self.assertEqual(storyboard.resolve_voice(data),
+                         {"backend": "kokoro", "name": None, "speed": 1.0, "style": None})
 
 
 class TestValidate(unittest.TestCase):
@@ -213,6 +224,10 @@ class TestValidate(unittest.TestCase):
             ("voice: {speaker_gap: -1}", MD, "`voice.speaker_gap` must be"),
             ("critic: {claude: yes please}", MD, "`critic.claude` must be"),
             ("critic: {model: 4}", MD, "`critic.model` must be"),
+            ("critic: {rounds: 0}", MD, "`critic.rounds` must be"),
+            ("critic: {rounds: 1.5}", MD, "`critic.rounds` must be"),
+            ("critic: {max_findings: -2}", MD, "`critic.max_findings` must be"),
+            ("critic: {max_findings: true}", MD, "`critic.max_findings` must be"),
             ("", SPEAKERS_MD.replace("| speech |", "| elevenlabs |"), "speaker 'guest': backend must be"),
             ("", SPEAKERS_MD.replace("| 1.1 |", "| 9 |"), "speaker 'host': speed must be"),
             ("", SPEAKERS_MD.replace("| kokoro | bm_george | 1.1 | |", "| kokoro | bm_george | 1.1 | calm |"),
@@ -246,6 +261,15 @@ class TestValidate(unittest.TestCase):
         self.assertTrue(any("author" in w for w in self.check().warnings))
         self.assertTrue(any("estimated length" in w for w in self.check().warnings))
 
+    def test_clean_without_image(self) -> None:
+        """storyboard.validate gives no error or preview warning for an HTML scene with a Brief and no Image.
+        Guards scenes drawn in the page with no picture."""
+        md = MD.replace("Image: a.png\n", "").replace(
+            '<a href="images/a.png"><img src="images/a.png" width="30%"></a>\n', "")
+        r = self.check(md)
+        self.assertEqual(r.errors, [])
+        self.assertFalse(any("injection" in w for w in r.warnings), r.warnings)
+
     def test_author_reaches_template_scenes_only(self) -> None:
         """storyboard.load adds the normalised author names to template scenes only, none without `author:`.
         Guards the byline on cards."""
@@ -265,14 +289,14 @@ class TestValidate(unittest.TestCase):
         self.assertFalse(any("preview" in w for w in r.warnings))
 
     def test_init_storyboard_without_images(self) -> None:
-        """storyboard.template without images leaves no placeholder or blank-line run and gives the title,
-        summary and end scenes. Guards init without --images."""
+        """storyboard.template without images leaves no placeholder or blank-line run and gives the title and
+        end scenes. Guards init without --images."""
         text = storyboard.template("Demo", [])
         self.assertNotIn("__IMAGE_SCENES__", text)
         self.assertNotIn("\n\n\n", text)
         r = self.check(text)
         self.assertEqual(r.errors, [])
-        self.assertEqual([s["id"] for s in storyboard.load(self.project)["scenes"]], ["title", "summary", "end"])
+        self.assertEqual([s["id"] for s in storyboard.load(self.project)["scenes"]], ["title", "end"])
 
 
 if __name__ == "__main__":

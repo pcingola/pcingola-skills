@@ -1,4 +1,9 @@
-"""Parse and validate `storyboard.md`.
+"""Parse and validate the storyboard: `storyboard.md` or `storyboard.json`.
+
+A project has one of the two files (`source_file`; both is an error).
+`storyboard.json` stores the parsed dict described below as JSON;
+`parse_markdown` and `parse_json` both end in `check`, which holds every
+structural rule, so the two files obey the same rules.
 
 `storyboard.md` is the file people edit:
 
@@ -31,7 +36,9 @@ in settings), in one table before the first scene:
 
 A scene table may then start with a Speaker column,
 `| Speaker | Narration | On screen |`, whose cells name a speaker of that
-table; an empty cell is the default voice.
+table; an empty cell is the default voice. After On screen it may have any of
+the columns Backend, Voice, Speed, Style, in any order: a sentence's own voice
+settings over its speaker's voice; an empty cell is unset.
 
 `<!-- ... -->` comments (lines starting with `<!--` up to the line holding
 `-->`) are ignored. `Source` is optional. Author, voice and music are set in
@@ -48,19 +55,26 @@ The parsed dict has the shape the rest of the code uses. Top level: `title`,
 `topic`, optional `source` (path under `sources/`), `speakers` when the
 header has a speakers table (name to `backend`, `name`, `speed`, `style`,
 an empty cell as None) and `scenes`. Each scene:
-`id` (`[a-z0-9_]+`, unique), `image` (path under `images/`), `brief`,
+`id` (`[a-z0-9_]+`, unique), `image` (path under `images/`, only when
+given), `brief`,
 `narration` (list of sentences) and `beats` (same length as `narration`). A
 scene whose table has the Speaker column also has `speakers`, the Speaker
-cell of each sentence (None when empty). A
-template scene has `template` instead of `brief` and `image` only when given;
-`load` adds a copy of the film's author (from settings) when one is set, for
-the scene's `card.js`.
+cell of each sentence (None when empty); one with voice columns has `voices`,
+per sentence None or a dict of the set fields among `backend`, `name`,
+`speed`, `style`; one with an image preview line has `preview`, its path. A
+template scene has `template` instead of `brief` and `image` only when given.
+The author is not part of the dict (`read`, storyboard.json): `load` adds a
+copy of the film's author (from settings), when one is set, to each template
+scene for its `card.js`.
 
-A scene may name its engine with `Engine: html` (the default, HyperFrames) or
-`Engine: manim` (a Manim Community Edition `scene.py`, see `manim_scene`). A
-manim scene needs `Brief:`, its `Image:` is optional, and it cannot be a
-template scene. The parsed scene has `engine` only when `Engine:` is given,
-and a manim scene has `image` only when given.
+A scene may name its engine (`engine.Engine`) with `Engine: html` (the
+default, HyperFrames), `Engine: manim` (a Manim Community Edition `scene.py`,
+see `manim_scene`) or `Engine: video` (a video model animates the scene's
+image from a prompt, see `video_scene`). An HTML or manim scene needs `Brief:`
+and its `Image:` is optional: an HTML scene without one draws everything on
+screen in its page. A video scene needs both: `Image:` is the still the model
+animates, `Brief:` the motion. A manim or video scene cannot be a template
+scene. The parsed scene has `engine` only when `Engine:` is given.
 
 `Engine: clip` marks a scene whose video is a clip made outside short-video and
 imported with `clip` (see `clip`). Its `Brief:` and
@@ -72,28 +86,38 @@ and lasts its clip.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import brand, settings, state
+from .engine import Engine
 
 MD_FILE = "storyboard.md"
+JSON_FILE = "storyboard.json"
 SCENE_ID_RE = re.compile(r"^[a-z0-9_]+$")
 
 HEADER_KEYS = ("Topic", "Source")
 # Header keys of older storyboards and where their values live now.
 MOVED_KEYS = {"Voice": "voice", "Music": "music", "Author": "author"}
-SCENE_KEYS = ("Image", "Brief", "Template")
-SCENE_KEYS = SCENE_KEYS + ("Engine",)
+SCENE_KEYS = ("Image", "Brief", "Template", "Engine")
 # Values of a scene's `Engine:` key; a scene without one uses the first.
-ENGINES = ("html", "manim", "clip")
-CLIP = "clip"
+ENGINES = tuple(e.value for e in Engine)
+CLIP = Engine.CLIP
+VIDEO = Engine.VIDEO
 TABLE_HEADER = ["narration", "on screen"]
-# A scene table with the optional Speaker column.
-SPEAKER_TABLE_HEADER = ["speaker"] + TABLE_HEADER
+# The fields of a voice: a speaker's, or a sentence's own settings.
+VOICE_KEYS = ("backend", "name", "speed", "style")
+# Optional scene table columns after On screen: header name to voice field.
+VOICE_COLUMNS = {"backend": "backend", "voice": "name", "speed": "speed", "style": "style"}
+COLUMN_TITLES = {"speaker": "Speaker", "narration": "Narration", "on screen": "On screen",
+                 "backend": "Backend", "voice": "Voice", "speed": "Speed", "style": "Style"}
 # The header's speakers table.
 SPEAKERS_HEADER = ["speaker", "backend", "voice", "speed", "style"]
+# Keys of the storyboard structure (storyboard.json) and of each scene.
+TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
+SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "preview", "narration", "beats", "speakers", "voices")
 KEY_RE = re.compile(r"^([A-Z][A-Za-z]*):(?:\s+(.*))?$")
 UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
 SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
@@ -158,6 +182,186 @@ def normalize(obj):
     return obj
 
 
+# --- The storyboard structure: one check for both files ---------------------
+
+
+# How a field is named in the messages of each file.
+JSON_NAMES = {"scenes": "an entry to `scenes`", "no_speaker": "use null for the default voice",
+              "narration": "sentences in `narration`", "clip_scene": "a scene with `engine` clip",
+              "video_scene": "a scene with `engine` video"}
+MD_NAMES = {
+    "title": "`# <title>`", "topic": "`Topic:` paragraph", "source": "`Source:`",
+    "scenes": "a `## <scene id>` section", "image": "`Image:`", "brief": "`Brief:`",
+    "template": "`Template:`", "engine": "`Engine:`", "narration": "the `| Narration | On screen |` table",
+    "beats": "On screen", "speakers": "the speakers table in the header (`| Speaker | Backend | Voice | Speed | "
+    "Style |`)", "no_speaker": "leave the cell empty for the default voice",
+    "clip_scene": "an `Engine: clip` scene", "video_scene": "an `Engine: video` scene",
+}
+
+
+def _text(v) -> bool:
+    return isinstance(v, str) and bool(v)
+
+
+def _number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _voice_fields(v, path: tuple, label: str, err) -> None:
+    """Types of one voice object (`backend`, `name`, `speed`, `style`, each optional)."""
+    if not isinstance(v, dict):
+        err(path, f"{label}: must be an object with any of {', '.join(VOICE_KEYS)}")
+        return
+    for k, x in v.items():
+        if k not in VOICE_KEYS:
+            err(path + (k,), f"{label}: unknown key `{k}`; allowed: {', '.join(VOICE_KEYS)}")
+        elif x is not None and not (_number(x) if k == "speed" else isinstance(x, str)):
+            err(path + (k,), f"{label}: `{k}` must be {'a number' if k == 'speed' else 'a string'} or null")
+
+
+def check(data, names: dict | None = None) -> list[tuple[tuple, str]]:
+    """Every structural problem of a storyboard dict, as `(path, message)`.
+
+    `path` locates the problem in the structure (`("scenes", 2, "voices", 0,
+    "speed")`); `names` maps a field to how the file names it (default: the
+    JSON key). Checked: the keys and their types, required keys per scene kind,
+    engines, templates, speaker names, and that `beats`, `speakers` and
+    `voices` are as long as `narration`."""
+    names = names or JSON_NAMES
+    out: list[tuple[tuple, str]] = []
+
+    def err(path: tuple, msg: str) -> None:
+        out.append((path, msg))
+
+    def name(key: str) -> str:
+        return names.get(key, f"`{key}`")
+
+    if not isinstance(data, dict):
+        return [((), "the storyboard must be an object")]
+    for k in data:
+        if k not in TOP_KEYS:
+            err((k,), f"unknown key `{k}`; " + (f"it is set in the project's settings.yaml (`{k}:`)"
+                                                 if k in MOVED_KEYS.values() else f"allowed: {', '.join(TOP_KEYS)}"))
+    for k in ("title", "topic"):
+        if k in data and not isinstance(data[k], str):
+            err((k,), f"`{k}` must be a string")
+        elif not data.get(k):
+            err((k,), f"missing {name(k)}")
+    if "source" in data and not _text(data["source"]):
+        err(("source",), f"{name('source')} must be a path under sources/")
+    speakers = data.get("speakers", {})
+    if not isinstance(speakers, dict):
+        err(("speakers",), "`speakers` must be an object of speaker name to voice")
+        speakers = {}
+    for sp, v in speakers.items():
+        if not SCENE_ID_RE.match(sp):
+            err(("speakers", sp), f"invalid speaker name {sp!r}: use lowercase letters, digits and _ only")
+        _voice_fields(v, ("speakers", sp), f"speaker {sp!r}", err)
+    scenes_ = data.get("scenes")
+    if not isinstance(scenes_, list) or not scenes_:
+        err(("scenes",), f"no scenes; add {name('scenes')}")
+        scenes_ = scenes_ if isinstance(scenes_, list) else []
+    seen: set[str] = set()
+    templates = _templates()
+    for i, s in enumerate(scenes_):
+        _check_scene(s, ("scenes", i), seen, speakers, templates, name, err)
+    return out
+
+
+def _check_scene(s, p: tuple, seen: set, speakers: dict, templates: dict, name, err) -> None:
+    if not isinstance(s, dict):
+        err(p, f"scene {p[1] + 1}: must be an object")
+        return
+    sid = s.get("id")
+    if not isinstance(sid, str) or not SCENE_ID_RE.match(sid):
+        err(p + ("id",), f"invalid scene id {sid!r}: use lowercase letters, digits and _ only")
+        label = f"scene {p[1] + 1}"
+    else:
+        label = f"scene {sid!r}"
+        if sid in seen:
+            err(p + ("id",), f"duplicate scene id {sid!r}")
+        seen.add(sid)
+    for k in s:
+        if k not in SCENE_FIELDS:
+            err(p + (k,), f"{label}: unknown key `{k}`; allowed: {', '.join(SCENE_FIELDS)}")
+    for k in ("template", "image", "brief", "engine", "preview"):
+        if k in s and not isinstance(s[k], str):
+            err(p + (k,), f"{label}: {name(k)} must be a string")
+    engine, template = s.get("engine"), s.get("template")
+    if engine is not None and engine not in ENGINES:
+        err(p + ("engine",), f"{label}: {name('engine')} must be one of {', '.join(ENGINES)}")
+    if template is not None:
+        if template not in templates:
+            err(p + ("template",), f"{label}: {name('template')} must be one of {', '.join(templates)}")
+        if engine is not None:
+            err(p + ("engine",), f"{label}: a template scene takes no {name('engine')}")
+        if "brief" in s:
+            err(p + ("brief",), f"{label}: a template scene takes no {name('brief')}")
+    elif engine != CLIP and not s.get("brief"):
+        err(p + ("brief",), f"{label}: missing {name('brief')}")
+    if s.get("image") == "":
+        err(p + ("image",), f"{label}: {name('image')} is empty; name a file under images/ or leave it out")
+    elif engine == VIDEO and template is None and "image" not in s:
+        err(p + ("image",), f"{label}: missing {name('image')}; {name('video_scene')} animates that image")
+
+    silent = engine == CLIP and template is None
+    narration = s.get("narration", [] if silent else None)
+    if narration is None:
+        err(p + ("narration",), f"{label}: missing {name('narration')} (only {name('clip_scene')} may have none)")
+        return
+    if not isinstance(narration, list) or not all(_text(x) for x in narration):
+        err(p + ("narration",), f"{label}: `narration` must be a list of non-empty sentences")
+        return
+    if not narration and not silent:
+        err(p + ("narration",), f"{label}: missing {name('narration')} (only {name('clip_scene')} may have none)")
+    n = len(narration)
+    beats = s.get("beats", [] if silent else None)
+    if not isinstance(beats, list) or len(beats) != n or not all(_text(x) for x in beats):
+        err(p + ("beats",), f"{label}: `beats` must be a list of {n} non-empty strings, one per sentence")
+    if "speakers" in s:
+        names_ = s["speakers"]
+        if not isinstance(names_, list) or len(names_) != n:
+            err(p + ("speakers",), f"{label}: `speakers` must be a list of {n} speaker names or nulls, one per "
+                                   "sentence")
+        else:
+            for j, sp in enumerate(names_):
+                if sp is not None and not (isinstance(sp, str) and sp in speakers):
+                    err(p + ("speakers", j), f"{label} sentence {j + 1}: speaker {sp!r} is not defined; add it "
+                                             f"to {name('speakers')} or {name('no_speaker')}")
+    if "voices" in s:
+        voices = s["voices"]
+        if not isinstance(voices, list) or len(voices) != n:
+            err(p + ("voices",), f"{label}: `voices` must be a list of {n} voice objects or nulls, one per "
+                                 "sentence")
+        else:
+            for j, v in enumerate(voices):
+                if v is not None:
+                    _voice_fields(v, p + ("voices", j), f"{label} sentence {j + 1}", err)
+
+
+def parse_json(text: str) -> dict:
+    """Read storyboard.json into the storyboard dict, whitespace in every
+    string collapsed as in storyboard.md. Raises StoryboardError listing every
+    problem."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise StoryboardError(f"{JSON_FILE} line {e.lineno}: not valid JSON: {e.msg}") from None
+    data = normalize(data)
+    problems = check(data)
+    if problems:
+        raise StoryboardError("\n".join(f"{JSON_FILE}: {msg}" for _, msg in problems))
+    for scene in data["scenes"]:  # a silent clip scene may leave both out
+        scene.setdefault("narration", [])
+        scene.setdefault("beats", [])
+    return data
+
+
+def to_json(data: dict) -> str:
+    """The storyboard dict as storyboard.json text."""
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
 # --- Markdown -> dict --------------------------------------------------------
 
 
@@ -166,6 +370,26 @@ def _cells(line: str) -> list[str]:
     if s.endswith("|") and not s.endswith("\\|"):
         s = s[:-1]
     return [normalize(c.replace("\\|", "|")) for c in UNESCAPED_PIPE_RE.split(s)]
+
+
+def _columns(cells: list[str]) -> tuple[list[str] | None, str | None]:
+    """The scene table's columns, lowercase: optional Speaker, Narration, On
+    screen, then any of Backend, Voice, Speed, Style once each; or None and
+    what is wrong with the header."""
+    head = [c.lower() for c in cells]
+    lead = 1 if head[:1] == ["speaker"] else 0
+    extra = head[lead + 2:]
+    if head[lead:lead + 2] != TABLE_HEADER:
+        return None, ("the table header must be `| Narration | On screen |`, optionally with a Speaker column "
+                      "first and any of Backend, Voice, Speed, Style after On screen")
+    unknown = [c for c in extra if c not in VOICE_COLUMNS]
+    if unknown:
+        return None, (f"unknown table column {cells[lead + 2 + extra.index(unknown[0])]!r}; after On screen "
+                      "only Backend, Voice, Speed, Style")
+    repeated = [c for i, c in enumerate(extra) if c in extra[:i]]
+    if repeated:
+        return None, f"table column {COLUMN_TITLES[repeated[0]]!r} given twice"
+    return head, None
 
 
 @dataclass
@@ -183,16 +407,28 @@ class _Scene:
     line: int
     id: str
     fields: dict[str, _Field] = field(default_factory=dict)
-    table: str | None = None  # None, "header", "rows", "done"
-    columns: int = 2  # 3 with the Speaker column
-    rows: list[tuple[str, str, str | None, int]] = field(default_factory=list)  # narration, on screen, speaker, line
+    table: str | None = None  # None, "header", "rows", "rejected" (bad header), "done"
+    columns: list[str] = field(default_factory=lambda: list(TABLE_HEADER))
+    rows: list[tuple[dict[str, str], int]] = field(default_factory=list)  # cells by column, line
     bad_rows: bool = False
     preview: str | None = None
 
 
+def _speed(cell: str, n: int, label: str, err) -> float | None:
+    """A Speed cell as a number; empty is None."""
+    if not cell:
+        return None
+    try:
+        return float(cell)
+    except ValueError:
+        err(n, f"{label}: Speed {cell!r} is not a number")
+        return None
+
+
 def parse_markdown(text: str) -> dict:
     """Parse storyboard Markdown into the storyboard dict. Raises StoryboardError
-    listing every problem with its line number."""
+    listing every problem with its line number: the Markdown syntax here, the
+    structure by `check`."""
     errors: list[str] = []
 
     def err(line: int, msg: str) -> None:
@@ -202,7 +438,6 @@ def parse_markdown(text: str) -> dict:
     title_line = 1
     header: dict[str, _Field] = {}
     scenes_: list[_Scene] = []
-    seen_ids: dict[str, int] = {}
     cur: _Scene | None = None
     open_field: _Field | None = None
     speakers_table: str | None = None  # the header's speakers table: None, "header", "rows", "done"
@@ -240,12 +475,6 @@ def parse_markdown(text: str) -> dict:
                     err(n, "the file must start with `# <title>`")
                 cur = _Scene(n, rest)
                 scenes_.append(cur)
-                if not SCENE_ID_RE.match(rest):
-                    err(n, f"invalid scene id {rest!r}: use lowercase letters, digits and _ only")
-                elif rest in seen_ids:
-                    err(n, f"duplicate scene id {rest!r} (first at line {seen_ids[rest]})")
-                else:
-                    seen_ids[rest] = n
             else:
                 err(n, "only `# <title>` and `## <scene id>` headings are allowed")
             continue
@@ -274,29 +503,33 @@ def parse_markdown(text: str) -> dict:
                            "with no blank lines inside it")
                 continue
             if cur.table is None:
-                head = [c.lower() for c in cells]
-                if head == SPEAKER_TABLE_HEADER:
-                    cur.columns = 3
-                elif head != TABLE_HEADER:
-                    err(n, "the table header must be `| Narration | On screen |` "
-                           "or `| Speaker | Narration | On screen |`")
-                cur.table = "header"
+                columns, problem = _columns(cells)
+                if problem:
+                    err(n, problem)
+                    cur.table, cur.bad_rows = "rejected", True
+                else:
+                    cur.columns, cur.table = columns, "header"
+            elif cur.table == "rejected":
+                pass  # the rest of a table whose header is reported
             elif cur.table == "header":
-                if not all(SEPARATOR_CELL_RE.match(c) for c in cells) or len(cells) != cur.columns:
-                    err(n, f"the second table line must be `|{'---|' * cur.columns}`")
+                width = len(cur.columns)
+                if not all(SEPARATOR_CELL_RE.match(c) for c in cells) or len(cells) != width:
+                    err(n, f"the second table line must be `|{'---|' * width}`")
                 cur.table = "rows"
             elif cur.table == "rows":
-                names = "Speaker, Narration, On screen" if cur.columns == 3 else "Narration, On screen"
-                cur.bad_rows = cur.bad_rows or len(cells) != cur.columns or not all(cells[-2:])
-                if len(cells) != cur.columns:
-                    err(n, f"table row has {len(cells)} cells, needs {cur.columns} ({names}); "
-                           "write a literal | as \\|")
-                elif not cells[-2]:
+                width = len(cur.columns)
+                row = dict(zip(cur.columns, cells))
+                bad = len(cells) != width or not row["narration"] or not row["on screen"]
+                cur.bad_rows = cur.bad_rows or bad
+                if len(cells) != width:
+                    err(n, f"table row has {len(cells)} cells, needs {width} "
+                           f"({', '.join(COLUMN_TITLES[c] for c in cur.columns)}); write a literal | as \\|")
+                elif not row["narration"]:
                     err(n, "empty Narration cell")
-                elif not cells[-1]:
+                elif not row["on screen"]:
                     err(n, "empty On screen cell")
                 else:
-                    cur.rows.append((cells[-2], cells[-1], cells[0] if cur.columns == 3 else None, n))
+                    cur.rows.append((row, n))
             else:
                 err(n, f"scene {cur.id!r} already has its table; one table per scene, no blank lines inside it")
             continue
@@ -344,81 +577,63 @@ def parse_markdown(text: str) -> dict:
 
     if title is None and not errors:
         err(1, "the file must start with `# <title>`")
-    if "Topic" not in header or not header["Topic"].value:
-        err(header["Topic"].line if "Topic" in header else title_line, "missing `Topic:` paragraph")
-    if not scenes_:
-        err(title_line, "no scenes; add a `## <scene id>` section")
 
+    # The dict, and the line of each part of it for the messages of `check`.
+    lines: dict[tuple, int] = {("title",): title_line}
     data: dict = {"title": title or "", "topic": header["Topic"].value if "Topic" in header else ""}
+    for key in HEADER_KEYS:
+        if key in header:
+            lines[(key.lower(),)] = header[key].line
     if "Source" in header:
         data["source"] = header["Source"].value
     if speakers:
         data["speakers"] = speakers
-
-    templates = _templates()
+        lines.update({("speakers", sp): line for sp, line in speaker_lines.items()})
     data["scenes"] = []
-    for s in scenes_:
-        value = {k: f.value for k, f in s.fields.items()}
-        engine = value.get("Engine")
-        if engine is not None and engine not in ENGINES:
-            err(s.fields["Engine"].line, f"`Engine:` must be one of {', '.join(ENGINES)}")
-        if engine is not None and "Template" in s.fields:
-            err(s.fields["Engine"].line, f"scene {s.id!r}: a template scene takes no `Engine:`")
-        template = value.get("Template")
-        if template is not None:
-            if template not in templates:
-                err(s.fields["Template"].line, f"`Template:` must be one of {', '.join(templates)}")
-            if "Brief" in s.fields:
-                err(s.fields["Brief"].line, f"scene {s.id!r}: a template scene takes no `Brief:`")
-        elif engine == "manim":
-            if not value.get("Brief"):
-                err(s.line, f"scene {s.id!r}: missing `Brief:` line")
-        elif engine == CLIP:
-            pass
-        else:
-            for key in ("Image", "Brief"):
-                if not value.get(key):
-                    err(s.line, f"scene {s.id!r}: missing `{key}:` line")
-        if s.table is None:
-            if engine != CLIP or template is not None:
-                err(s.line, f"scene {s.id!r}: missing the `| Narration | On screen |` table "
-                            "(only an `Engine: clip` scene may have none)")
-        elif not s.rows and not s.bad_rows:
-            err(s.line, f"scene {s.id!r}: the table has no rows")
+    skip: set[tuple] = set() if title is not None else {("title",)}
+    for i, s in enumerate(scenes_):
+        p = ("scenes", i)
+        lines[p] = s.line
         scene: dict = {"id": s.id}
-        if template is not None:
-            scene["template"] = template
-            if value.get("Image"):
-                scene["image"] = value["Image"]
-        elif engine == "manim":
-            if value.get("Image"):
-                scene["image"] = value["Image"]
-            scene["brief"] = value.get("Brief", "")
-        elif engine == CLIP:
-            for key in ("Image", "Brief"):
-                if value.get(key):
-                    scene[key.lower()] = value[key]
-        else:
-            scene["image"] = value.get("Image", "")
-            scene["brief"] = value.get("Brief", "")
-        if engine is not None and template is None:
-            scene["engine"] = engine
+        for key in ("Template", "Image", "Brief", "Engine"):
+            if key in s.fields:
+                scene[key.lower()] = s.fields[key].value
+                lines[p + (key.lower(),)] = s.fields[key].line
         if s.preview is not None:
             scene["preview"] = s.preview
-        scene["narration"] = [r[0] for r in s.rows]
-        scene["beats"] = [r[1] for r in s.rows]
-        if s.columns == 3:
-            scene["speakers"] = [r[2] or None for r in s.rows]
-            for _, _, name, line in s.rows:
-                if name and name not in speakers:
-                    err(line, f"speaker {name!r} is not defined; add it to the speakers table in the header "
-                              "(`| Speaker | Backend | Voice | Speed | Style |`) or leave the cell empty "
-                              "for the default voice")
+        scene["narration"] = [r["narration"] for r, _ in s.rows]
+        scene["beats"] = [r["on screen"] for r, _ in s.rows]
+        if "speaker" in s.columns:
+            scene["speakers"] = [r["speaker"] or None for r, _ in s.rows]
+        extra = [c for c in s.columns if c in VOICE_COLUMNS]
+        if extra:
+            scene["voices"] = []
+            for j, (r, line) in enumerate(s.rows, 1):
+                v = {VOICE_COLUMNS[c]: r[c] for c in extra if r[c]}
+                if "speed" in v:
+                    v["speed"] = _speed(v["speed"], line, f"scene {s.id!r} sentence {j}", err)
+                scene["voices"].append(v or None)
+        for j, (_, line) in enumerate(s.rows):
+            for key in ("narration", "beats", "speakers", "voices"):
+                lines[p + (key, j)] = line
+        if s.table is not None and not s.rows:
+            skip.add(p + ("narration",))
+            if not s.bad_rows:
+                err(s.line, f"scene {s.id!r}: the table has no rows")
         data["scenes"].append(scene)
 
+    for path, msg in check(data, MD_NAMES):
+        if path not in skip:
+            at = next((lines[path[:k]] for k in range(len(path), 0, -1) if path[:k] in lines), title_line)
+            err(at, msg)
     if errors:
-        raise StoryboardError("\n".join(errors))
+        raise StoryboardError("\n".join(sorted(errors, key=_line_of)))
     return data
+
+
+def _line_of(message: str) -> int:
+    m = re.match(rf"{re.escape(MD_FILE)} line (\d+):", message)
+    return int(m.group(1)) if m else 0
 
 
 def _speaker_row(cells: list[str], n: int, speakers: dict, lines: dict, err) -> None:
@@ -427,32 +642,47 @@ def _speaker_row(cells: list[str], n: int, speakers: dict, lines: dict, err) -> 
         err(n, f"speakers table row has {len(cells)} cells, needs 5 (Speaker, Backend, Voice, Speed, Style)")
         return
     name, backend, voice, speed, style = cells
-    if not SCENE_ID_RE.match(name):
-        err(n, f"invalid speaker name {name!r}: use lowercase letters, digits and _ only")
-        return
     if name in lines:
         err(n, f"duplicate speaker {name!r} (first at line {lines[name]})")
         return
     lines[name] = n
-    value: float | None = None
-    if speed:
-        try:
-            value = float(speed)
-        except ValueError:
-            err(n, f"speaker {name!r}: Speed {speed!r} is not a number")
-    speakers[name] = {"backend": backend or None, "name": voice or None, "speed": value, "style": style or None}
+    speakers[name] = {"backend": backend or None, "name": voice or None,
+                      "speed": _speed(speed, n, f"speaker {name!r}", err), "style": style or None}
 
 
-def speaker_voice(data: dict, name: str | None) -> dict:
-    """The voice of a speaker as `backend`, `name`, `speed`, `style`, with
-    defaults filled in: speaker None is `voice:` from the settings, a null
-    `name` the backend's default voice from `voice.names`, a null `speed` 1.0."""
+def resolve_voice(data: dict, speaker: str | None = None, own: dict | None = None) -> dict:
+    """A voice as `backend`, `name`, `speed`, `style`: the speaker's (speaker
+    None: `voice:` from the settings), with the set fields of `own` (a
+    sentence's settings) over it, then defaults filled in: a null `name` is
+    the backend's default voice from `voice.names`, a null `speed` 1.0. An
+    own `backend` that differs from the speaker's drops the speaker's `name`."""
     v = settings.get()["voice"]
-    src = v if name is None else (data.get("speakers") or {})[name]
-    backend = src.get("backend")
-    speed = src.get("speed")
-    return {"backend": backend, "name": src.get("name") or (v.get("names") or {}).get(backend),
-            "speed": 1.0 if speed is None else speed, "style": src.get("style") or None}
+    src = v if speaker is None else (data.get("speakers") or {})[speaker]
+    merged = {k: src.get(k) for k in VOICE_KEYS}
+    own = {k: x for k, x in (own or {}).items() if x not in (None, "")}
+    if own.get("backend", merged["backend"]) != merged["backend"]:
+        merged["name"] = None  # another backend: its default voice unless `own` names one
+    merged.update(own)
+    backend, speed = merged["backend"], merged["speed"]
+    return {"backend": backend, "name": merged["name"] or (v.get("names") or {}).get(backend),
+            "speed": 1.0 if speed is None else speed, "style": merged["style"] or None}
+
+
+def sentence_voices(data: dict, scene: dict) -> list[dict]:
+    """The resolved voice of each sentence of a scene: its speaker's voice
+    with the sentence's own settings (`voices`) over it."""
+    n = len(scene.get("narration") or [])
+    return [resolve_voice(data, sp, own) for sp, own in
+            zip(scene.get("speakers") or [None] * n, scene.get("voices") or [None] * n)]
+
+
+def json_template(title: str, images: list[str]) -> str:
+    """Starting storyboard.json written by `init --json`: the starting
+    storyboard.md as a dict, without its image previews."""
+    data = parse_markdown(template(title, images))
+    for scene in data["scenes"]:
+        scene.pop("preview", None)
+    return to_json(data)
 
 
 def template(title: str, images: list[str]) -> str:
@@ -479,12 +709,27 @@ def with_author(data: dict, author: str | None) -> dict:
     return data
 
 
+def source_file(project_dir: Path) -> Path:
+    """The project's storyboard file: storyboard.md or storyboard.json. Raises
+    StoryboardError when there is neither, or both."""
+    found = [project_dir / f for f in (MD_FILE, JSON_FILE) if (project_dir / f).is_file()]
+    if len(found) == 2:
+        raise StoryboardError(f"{project_dir} has both {MD_FILE} and {JSON_FILE}; keep one of them")
+    if not found:
+        raise StoryboardError(f"{project_dir / MD_FILE} not found (nor {JSON_FILE})")
+    return found[0]
+
+
+def read(project_dir: Path) -> dict:
+    """The storyboard dict from the project's storyboard file, as storyboard.json stores it."""
+    path = source_file(project_dir)
+    text = path.read_text(encoding="utf-8")
+    return parse_markdown(text) if path.name == MD_FILE else parse_json(text)
+
+
 def load(project_dir: Path) -> dict:
-    """Parse `storyboard.md`, with the author from the settings added."""
-    md = project_dir / MD_FILE
-    if not md.is_file():
-        raise StoryboardError(f"{md} not found")
-    return with_author(parse_markdown(md.read_text(encoding="utf-8")), settings.author())
+    """The storyboard dict, with the author from the settings added to template scenes."""
+    return with_author(read(project_dir), settings.author())
 
 
 def image_path(project_dir: Path, image: str) -> Path:
@@ -512,6 +757,10 @@ def scene_by_id(data: dict, scene_id: str) -> dict:
 
 def is_clip(scene: dict) -> bool:
     return scene.get("engine") == CLIP
+
+
+def is_video(scene: dict) -> bool:
+    return scene.get("engine") == VIDEO
 
 
 def narrated(scene: dict) -> bool:
@@ -557,10 +806,6 @@ def _same_file(project_dir: Path, preview: str, image: Path) -> bool:
     return p.is_file() and p.resolve() == image.resolve()
 
 
-def _number(v) -> bool:
-    return isinstance(v, (int, float)) and not isinstance(v, bool)
-
-
 def voice_errors(voice: dict, label) -> list[str]:
     """Problems of one voice (`backend`, `speed`, `style`) under the rules of
     `voice:` in the settings; `label(key)` names a field in the messages."""
@@ -591,7 +836,7 @@ def validate_settings(project_dir: Path, brand_dir: Path | None = None) -> Valid
     if a is not None and not isinstance(a, (str, list)):
         err("`author` must be a list of names")
     elif not settings.authors():
-        r.warnings.append(f"no `author:` in {settings.PROJECT_FILE}: `assemble` refuses to build the film without one")
+        r.warnings.append(f"no `author:` in {settings.PROJECT_FILE}: the film has no creator credit")
 
     r.errors.extend(voice_errors(s["voice"], lambda key: f"`voice.{key}`"))
     gap = s["voice"].get("speaker_gap")
@@ -608,11 +853,15 @@ def validate_settings(project_dir: Path, brand_dir: Path | None = None) -> Valid
         err("`critic.claude` must be true or false")
     if c.get("model") is not None and not (isinstance(c["model"], str) and c["model"].strip()):
         err("`critic.model` must be a model name or null")
+    for key, default in (("rounds", 1), ("max_findings", 5)):
+        v = c.get(key, default)
+        if not isinstance(v, int) or isinstance(v, bool) or v < 1:
+            err(f"`critic.{key}` must be a whole number, 1 or more")
     r.warnings.extend(brand.problems(s.get("brand"), brand_dir))
     return r
 
 
-def _clip_problem(project_dir: Path, scene: dict) -> str | None:
+def clip_problem(project_dir: Path, scene: dict) -> str | None:
     """Why a clip scene's latest version cannot be assembled as it stands, or None."""
     sdir = state.latest_render(project_dir, scene["id"])
     meta = state.read_meta(sdir) if sdir is not None else None
@@ -636,10 +885,10 @@ def _clip_problem(project_dir: Path, scene: dict) -> str | None:
 
 
 def validate(data: dict, project_dir: Path, brand_dir: Path | None = None) -> Validation:
-    """What `parse_markdown` cannot check: files exist, the settings' voice and
-    the speakers' voices,
-    music, author and brand (`brand_dir`, the `--brand` folder), image previews, template positions and row counts, and
-    the length estimate."""
+    """What `check` cannot check: files exist, the settings' voice, the
+    speakers' voices and each sentence's own voice settings, music, author and
+    brand (`brand_dir`, the `--brand` folder), image previews (storyboard.md
+    only), template positions and row counts, and the length estimate."""
     r = validate_settings(project_dir, brand_dir)
     err, warn = r.errors.append, r.warnings.append
 
@@ -650,7 +899,12 @@ def validate(data: dict, project_dir: Path, brand_dir: Path | None = None) -> Va
             err(f"source file sources/{rel} does not exist")
 
     for name in data.get("speakers") or {}:
-        r.errors.extend(voice_errors(speaker_voice(data, name), lambda key, name=name: f"speaker {name!r}: {key}"))
+        r.errors.extend(voice_errors(resolve_voice(data, name), lambda key, name=name: f"speaker {name!r}: {key}"))
+    for s in scenes(data):
+        for j, (own, voice) in enumerate(zip(s.get("voices") or [], sentence_voices(data, s)), 1):
+            if own:
+                r.errors.extend(voice_errors(voice, lambda key, sid=s["id"], j=j: f"scene {sid} sentence {j}: {key}"))
+    markdown = source_file(project_dir).name == MD_FILE
 
     templates = _templates()
     sc = scenes(data)
@@ -661,9 +915,9 @@ def validate(data: dict, project_dir: Path, brand_dir: Path | None = None) -> Va
             path = image_path(project_dir, image)
             if not path.is_file():
                 err(f"{label}: image {image!r} not found under images/")
-            elif s.get("preview") is None:
+            elif markdown and s.get("preview") is None:
                 warn(f"{label}: no image preview; add `{preview_line(image)}` above the table")
-            elif not _same_file(project_dir, s["preview"], path):
+            elif markdown and not _same_file(project_dir, s["preview"], path):
                 warn(f"{label}: the image preview {s['preview']!r} is not the scene's image {image!r}")
 
         template = s.get("template")
@@ -678,7 +932,7 @@ def validate(data: dict, project_dir: Path, brand_dir: Path | None = None) -> Va
                 warn(f"{label}: a {template} scene usually has at most {limit} rows; check that the text fits")
 
         if is_clip(s):
-            warn_clip = _clip_problem(project_dir, s)
+            warn_clip = clip_problem(project_dir, s)
             if warn_clip:
                 warn(f"{label}: {warn_clip}")
 

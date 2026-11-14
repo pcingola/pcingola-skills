@@ -1,0 +1,1465 @@
+{
+ "_about": "Storyboards with the verdict of media:short-video's storyboard structure check (storyboard.check on the normalized structure); the Studio server's check (studio_server.video.check_storyboard) gives the same verdicts. Used by tests/unit/short_video and tests/unit/studio.",
+ "cases": [
+  {
+   "case": "valid 1",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid 2",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "source": "sources/notes.md",
+    "speakers": {
+     "host": {
+      "backend": "kokoro",
+      "name": null,
+      "speed": 1,
+      "style": null
+     },
+     "guest": {}
+    }
+   }
+  },
+  {
+   "case": "valid 3",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "t",
+      "template": "end",
+      "image": "bg.png",
+      "narration": [
+       "Bye."
+      ],
+      "beats": [
+       "Bye"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid 4",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "m",
+      "engine": "manim",
+      "brief": "axes",
+      "narration": [
+       "Up."
+      ],
+      "beats": [
+       "curve"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid 5",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "c",
+      "engine": "clip"
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid 6",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "c",
+      "engine": "clip",
+      "narration": [],
+      "beats": []
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid 7",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "c",
+      "engine": "clip",
+      "brief": "b",
+      "narration": [
+       "Hi."
+      ],
+      "beats": [
+       "x"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid 8",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "engine": "html",
+      "preview": "images/a.png"
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid 9",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "speakers": [
+       "host"
+      ],
+      "voices": [
+       {
+        "speed": 1.2,
+        "backend": null
+       }
+      ]
+     }
+    ],
+    "speakers": {
+     "host": {
+      "backend": "speech"
+     }
+    }
+   }
+  },
+  {
+   "case": "valid 10",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One.",
+       "Two."
+      ],
+      "beats": [
+       "a",
+       "b"
+      ],
+      "speakers": [
+       null,
+       null
+      ],
+      "voices": [
+       null,
+       null
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 1",
+   "valid": false,
+   "storyboard": []
+  },
+  {
+   "case": "invalid 2",
+   "valid": false,
+   "storyboard": "x"
+  },
+  {
+   "case": "invalid 3",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t"
+   }
+  },
+  {
+   "case": "invalid 4",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "extra": 1
+   }
+  },
+  {
+   "case": "invalid 5",
+   "valid": false,
+   "storyboard": {
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 6",
+   "valid": false,
+   "storyboard": {
+    "title": " ",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 7",
+   "valid": false,
+   "storyboard": {
+    "title": 3,
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 8",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 9",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "source": ""
+   }
+  },
+  {
+   "case": "invalid 10",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "source": 3
+   }
+  },
+  {
+   "case": "invalid 11",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": []
+   }
+  },
+  {
+   "case": "invalid 12",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": {
+     "Host": {}
+    }
+   }
+  },
+  {
+   "case": "invalid 13",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": {
+     "h": "kokoro"
+    }
+   }
+  },
+  {
+   "case": "invalid 14",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": {
+     "h": {
+      "voice": "x"
+     }
+    }
+   }
+  },
+  {
+   "case": "invalid 15",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": {
+     "h": {
+      "speed": "1"
+     }
+    }
+   }
+  },
+  {
+   "case": "invalid 16",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": {
+     "h": {
+      "name": 3
+     }
+    }
+   }
+  },
+  {
+   "case": "invalid 17",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": {
+     "h": {
+      "backend": 1
+     }
+    }
+   }
+  },
+  {
+   "case": "invalid 18",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": {
+     "h": {
+      "style": true
+     }
+    }
+   }
+  },
+  {
+   "case": "invalid 19",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ],
+    "speakers": {
+     "h": {
+      "speed": true
+     }
+    }
+   }
+  },
+  {
+   "case": "invalid 20",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": []
+   }
+  },
+  {
+   "case": "invalid 21",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": {}
+   }
+  },
+  {
+   "case": "invalid 22",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     "scene"
+    ]
+   }
+  },
+  {
+   "case": "invalid 23",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "Bad",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 24",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": 3,
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 25",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     },
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 26",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "colour": "red"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 27",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": 3,
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 28",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": [
+       "b"
+      ],
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 29",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "preview": 1
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 30",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "engine": "flash"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 31",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "t",
+      "template": "intro",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 32",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "t",
+      "template": 3,
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 33",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "t",
+      "template": "title",
+      "engine": "html",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 34",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "t",
+      "template": "title",
+      "brief": "b",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 35",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "m",
+      "engine": "manim",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 36",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "m",
+      "engine": "manim",
+      "brief": " ",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 37",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 39",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 40",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 41",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 42",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "t",
+      "template": "title",
+      "engine": "clip"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 43",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": "One.",
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 44",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       " "
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 45",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       1
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 46",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": []
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 47",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       " "
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 48",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": "one"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 49",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "c",
+      "engine": "clip",
+      "narration": [
+       "A."
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 50",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "speakers": []
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 51",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "speakers": [
+       "guest"
+      ]
+     }
+    ],
+    "speakers": {
+     "host": {}
+    }
+   }
+  },
+  {
+   "case": "invalid 52",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "speakers": "host"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 53",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "voices": []
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 54",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "voices": [
+       "kokoro"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 55",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "voices": [
+       {
+        "pitch": 1
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid 56",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "voices": [
+       {
+        "speed": "fast"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid drawn 1",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "brief": "b",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid drawn 2",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "engine": "html",
+      "brief": "A bar chart grows.",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid drawn 1",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "brief": "  ",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid drawn 2",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid drawn 3",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "engine": "html",
+      "image": "",
+      "narration": [
+       "A."
+      ],
+      "beats": [
+       "a"
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

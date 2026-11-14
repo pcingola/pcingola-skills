@@ -174,15 +174,19 @@ class TestAssemble(unittest.TestCase):
         manifest = json.loads((self.film.parent / "manifest.json").read_text())
         self.assertEqual(manifest["author"], "Jane O'Doe")
 
-    def test_refuses_without_author(self) -> None:
-        """mix.assemble refuses a project without `author:`. Guards every film carrying the creator credit."""
-        settings.use_project(None)
+    def test_without_author(self) -> None:
+        """mix.assemble of a project with an empty `author:` writes a film with no artist tag and author null in
+        the manifest. Guards an empty "Made by" not stopping the film."""
+        settings_file = self.project / "settings.yaml"
+        settings_file.write_text("author: []\n", encoding="utf-8")
+        settings.use_project(self.project)
         try:
-            with self.assertRaises(mix.AssembleError) as cm:
-                mix.assemble(self.project, self.data)
+            film = mix.assemble(self.project, self.data)
         finally:
+            settings_file.write_text(SETTINGS, encoding="utf-8")
             settings.use_project(self.project)
-        self.assertIn("author", str(cm.exception))
+        self.assertNotIn("artist", media.probe(film)["format"].get("tags", {}))
+        self.assertIsNone(json.loads((film.parent / "manifest.json").read_text())["author"])
 
     def test_voice_only_without_music_settings(self) -> None:
         """mix.assemble without `music.file` writes a voice-only film with music null in the manifest and no

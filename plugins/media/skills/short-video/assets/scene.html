@@ -16,7 +16,9 @@
   #bg-fill { background: url("__BACKGROUND__") center / cover no-repeat;
              filter: blur(40px) brightness(0.45); transform: scale(1.1); }
   #bg-image { object-fit: contain; }
-  /* Overlays (labels, arrows, highlights) go below, driven by the timeline. */
+  /* Overlays (labels, arrows, highlights) go below, driven by the timeline.
+     Overlays fixed to the picture go inside #anchored, which the camera
+     moves with #bg-image. */
 </style>
 </head>
 <body>
@@ -27,12 +29,19 @@
   <img id="bg-image" class="clip bg" src="__BACKGROUND__" alt="" data-start="0" data-duration="__DURATION__"
        data-full-length data-track-index="1" />
   <!-- overlays here -->
+  <div id="anchored" class="bg"></div>
 </div>
 <script>
   // Times come from timing.js: S(n) / SE(n) = start / end of sentence n,
   // W(n, "word", k) / WE(n, "word", k) = start / end of the k-th "word" in sentence n.
+  // Something moves the whole time, in step with the sentences: one camera
+  // move per sentence on ["#bg-image", "#anchored"], plus what is drawn,
+  // flows or counts on each word (references/scenes.md, "Movement").
   const tl = gsap.timeline({ paused: true });
-  // Example: tl.fromTo("#label", { opacity: 0 }, { opacity: 1, duration: 0.4 }, W(sentence, "word"));
+  // Example, a camera move during sentence n onto a point of the picture:
+  // tl.fromTo(["#bg-image", "#anchored"], { scale: 1.05, xPercent: 0, yPercent: 0 },
+  //           { scale: 1.35, xPercent: 8, yPercent: -4, transformOrigin: "50% 50%",
+  //             duration: S(n + 1) - S(n), ease: "sine.inOut" }, S(n));
   window.__timelines = window.__timelines || {};
   window.__timelines["__SCENE_ID__"] = tl;
 </script>

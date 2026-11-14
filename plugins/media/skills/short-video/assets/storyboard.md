@@ -4,11 +4,22 @@
 
   Suggested structure (conclusion first, for a busy senior audience):
     title    the main result in one line, and what the film covers
-    summary  the two to four points to take away, one per sentence
-    scene_N  the evidence, one scene per image
+    scene_N  the evidence, each scene built on one movement that shows a point;
+             one draft scene per image given to init: merge, split or replace
+             them (an image may carry several shots; a diagram, chart or
+             text scene has a Brief and no Image and is drawn in its page)
     end      the one thing to do or remember
-  A teaching film may instead open with the question and recap the points
-  just before the end, with the summary template.
+  A film may add a recap before the end with the summary template, each
+  point arriving with a drawn element tied to it.
+
+  A scene picks its engine with `Engine:`: html (the default, a HyperFrames
+  page), manim (a Manim animation for mathematics and plots) or video (a
+  video model animates the scene's Image from its Brief; Image and Brief
+  are required).
+
+  Every scene moves the whole time: each On screen cell of a scene
+  says what moves or changes during its sentence, and its Brief says how
+  the scene moves. A template page gives each of its rows its own movement.
 
   Comments like this one are ignored.
 -->
@@ -24,16 +35,6 @@ Template: title
 |---|---|
 | A sentence that states the main result. | The main result, as a title |
 | A sentence that says what the film covers. | One line under the title |
-
-## summary
-
-Template: summary
-
-| Narration | On screen |
-|---|---|
-| A sentence for the first point. | First point |
-| A sentence for the second point. | Second point |
-| A sentence for the third point. | Third point |
 
 __IMAGE_SCENES__
 

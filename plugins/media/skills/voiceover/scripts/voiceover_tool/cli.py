@@ -87,11 +87,11 @@ def synthesize_to_dir(
 
 def setup(include_kokoro: bool = True, include_aligner: bool = True, include_chatterbox: bool = False) -> list[Path]:
     """Download the weights that are missing; return their paths."""
-    weights = [download.KOKORO_MODEL, download.KOKORO_VOICES] if include_kokoro else []
+    weights = list(download.kokoro_weights()) if include_kokoro else []
     if include_aligner:
-        weights.append(download.MMS_FA)
+        weights.append(download.aligner_weight())
     if include_chatterbox:
-        weights.extend(download.CHATTERBOX_WEIGHTS)
+        weights.extend(download.chatterbox_weights())
     return [download.ensure_weight(w) for w in weights]
 
 
@@ -119,7 +119,7 @@ def _cmd_synth(args: argparse.Namespace) -> int:
         config.error(str(e))
     aligner = None
     if not args.no_align:
-        aligner = MMSAligner(download.weight_path(download.MMS_FA).parent).for_clip
+        aligner = MMSAligner(config.aligner(), download.weight_path(download.aligner_weight()).parent).for_clip
     try:
         wav, timing = synthesize_to_dir(
             backend,
@@ -168,10 +168,10 @@ VOICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 def add_voice(name: str, src: str | Path, force: bool = False) -> Path:
     """Copy a reference recording to `<voices dir>/<name><suffix>`."""
-    from .chatterbox import AUDIO_SUFFIXES, DEFAULT_VOICE, MIN_REFERENCE_SECONDS
+    from .chatterbox import AUDIO_SUFFIXES, BUILTIN_VOICE, MIN_REFERENCE_SECONDS
 
-    if not VOICE_NAME_RE.match(name) or name == DEFAULT_VOICE:
-        raise ValueError(f"voice name {name!r}: use lowercase letters, digits, '-' and '_' (not {DEFAULT_VOICE!r})")
+    if not VOICE_NAME_RE.match(name) or name == BUILTIN_VOICE:
+        raise ValueError(f"voice name {name!r}: use lowercase letters, digits, '-' and '_' (not {BUILTIN_VOICE!r})")
     src = Path(src).expanduser()
     if src.suffix.lower() not in AUDIO_SUFFIXES:
         raise ValueError(f"{src}: expected one of {', '.join(AUDIO_SUFFIXES)}")
@@ -226,8 +226,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--voice",
         default=None,
-        help="Voice name (default: af_heart; default for chatterbox; for speech Kore with Gemini TTS, "
-        "default with Ollama, else marin); "
+        help="Voice name (default: the backend's voice setting, VOICEOVER_KOKORO_VOICE, "
+        "VOICEOVER_CHATTERBOX_VOICE or VOICEOVER_SPEECH_VOICE); "
         "for chatterbox also a path to a reference recording",
     )
     p.add_argument("--speed", type=float, default=1.0,
@@ -245,7 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_cmd_voices)
 
     p = sub.add_parser("setup", help="Download all model weights")
-    p.add_argument("--chatterbox", action="store_true", help="Also download Chatterbox-Turbo (3 GB)")
+    p.add_argument("--chatterbox", action="store_true", help="Also download the Chatterbox weights (about 3 GB)")
     p.set_defaults(func=_cmd_setup)
 
     p = sub.add_parser("add-voice", help="Store a reference recording as a chatterbox voice")

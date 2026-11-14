@@ -10,16 +10,20 @@ import pytest
 
 from image_gen_tool import cli
 from image_gen_tool.generate import ImageError, media_type, settings
-from image_gen_tool.models import task_for
+from image_gen_tool.models import SizeLimits, task_for
 from tests.settings_env import write_config
 from tests.subproc import child_env, run_python
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 24
+# Size limits as the settings give them (config.example.yaml), with one sized model.
+LIMITS = SizeLimits(openai_max_edge=3840, openai_min_pixels=655_360, openai_max_pixels=8_294_400,
+                    local_max_edge=2048, local_min_edge=256, sized_models=("azure:sized-model",),
+                    sized_quality="high")
 
 
 def opts(kind, **kw):
     args = dict(aspect_ratio=None, image_size=None, n=1, quality=None, background=None, output_format="png",
-                edit=False)
+                edit=False, limits=LIMITS)
     args.update(kw)
     return settings(kind, "p:m", **args)
 
@@ -34,13 +38,13 @@ def test_openai_kinds_one_request_with_n():
     assert opts("openai", aspect_ratio="3:2")[0] == {"openai_n": 1, "aspect_ratio": "3:2"}
 
 
-def test_gpt_image_defaults_square_1k_high():
-    """A gpt-image model gets 1:1 1K and quality high unless the options say otherwise, as before the
-    port to Pydantic-AI."""
+def test_sized_model_defaults_square_1k_and_sized_quality():
+    """A model of `sized_models` (setting IMAGE_GEN_SIZED_MODELS) gets 1:1 1K and `sized_quality` unless the
+    options say otherwise; the choice follows the setting, not the model name."""
     def gpt(**kw):
         args = dict(aspect_ratio=None, image_size=None, n=1, quality=None, background=None, output_format="png",
-                    edit=False)
-        return settings("azure", "azure:gpt-image-2", **{**args, **kw})[0]
+                    edit=False, limits=LIMITS)
+        return settings("azure", "azure:sized-model", **{**args, **kw})[0]
 
     assert gpt() == {"openai_n": 1, "dimensions": (1024, 1024), "openai_quality": "high"}
     assert gpt(aspect_ratio="16:9", quality="low")["openai_quality"] == "low"

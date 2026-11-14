@@ -140,7 +140,8 @@ def mix(scene_files: list[Path], music_file: Path | None, out: Path, music_db: f
     over the scenes marked in `captioned` (default: all), its colour chosen
     per scene from the corner's brightness, and write the metadata tags. With
     a brand `b` (see `brand.load`), its logo goes beside the caption, per
-    scene the PNG for the caption's colour (`credit.Logo.png`).
+    scene the PNG for the caption's colour (`credit.Logo.png`); without an
+    author the logo alone is drawn. With neither the film has no credit.
     Returns measurements for the manifest."""
     ffmpeg = media.which("ffmpeg")
     e = settings.encode()
@@ -159,7 +160,7 @@ def mix(scene_files: list[Path], music_file: Path | None, out: Path, music_db: f
 
     with tempfile.TemporaryDirectory() as d:
         caption, tags = None, []
-        if author:
+        if author or b:
             frame = media.video_size(scene_files[0])
             logo = credit.caption_logo(b, frame, Path(d))
             region = credit.measured_region(logo, frame)
@@ -167,9 +168,9 @@ def mix(scene_files: list[Path], music_file: Path | None, out: Path, music_db: f
                 credit.caption_color(credit.corner_luma(f, credit.sample_times(dur), region)) if on else None
                 for f, dur, on in zip(scene_files, durations, captioned or [True] * len(scene_files))
             ]
-            caption = credit.caption_filter(credit.write_caption(Path(d), author),
+            caption = credit.caption_filter(credit.write_caption(Path(d), author) if author else None,
                                             credit.caption_segments(durations, colors), logo)
-            tags = credit.metadata_args(author)
+            tags = credit.metadata_args(author) if author else []
         media.run([
             ffmpeg, "-y", "-hide_banner", "-nostats", "-v", "error", *inputs,
             "-filter_complex", build_filter_graph(durations, music_db, measured, caption=caption),
@@ -222,17 +223,12 @@ def assemble(project: Path, data: dict, music_version: str | None = None,
              brand_dir: Path | None = None) -> Path:
     """Assemble the latest rendered version of every scene plus a music
     version into `film/v<N>/film.mp4`. Music gain is `mix.music_db`; the
-    author is `author:`; the logo beside the caption comes from the brand
+    author is `author:` (none: no caption); the logo beside the caption comes from the brand
     folder `brand_dir`, which must be the folder of the brand named by
     `brand:`. With no `music.file` set, and no version named, the film has the
     voice only."""
     music_db = _m()["music_db"]
     author = settings.author()
-    if not author:
-        raise AssembleError(
-            f"no `author:` in {project / settings.PROJECT_FILE}; the film must carry the creator credit. "
-            "Add the creator's name there (a list for several authors)."
-        )
     name = settings.get().get("brand")
     if brand_dir is not None and not name:
         raise AssembleError(f"--brand {brand_dir} is given but no `brand:` is set in "
@@ -258,7 +254,7 @@ def assemble(project: Path, data: dict, music_version: str | None = None,
     out_dir = versions.next_version(project / "film")
     try:
         result = mix(files, mfile, out_dir / "film.mp4", music_db, author=author,
-                     captioned=credit.captioned([storyboard.shows_author(s) for s in storyboard.scenes(data)]),
+                     captioned=credit.captioned([storyboard.shows_author(s) for s in storyboard.scenes(data)]) if author else None,
                      b=b)
     except Exception:
         # Leave no half-written version behind; its number is still never reused.

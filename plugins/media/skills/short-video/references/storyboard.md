@@ -5,6 +5,10 @@ reviews and edits it in any text editor or in Obsidian, and may change it in
 any way. `validate` checks the format below; parse errors give their line.
 Author, voice, music and all other settings are in `settings.yaml`.
 
+A project may keep `storyboard.json` instead (see "storyboard.json"); every
+command reads whichever of the two files the project has, and refuses a
+project with both.
+
 ## Example
 
 ```markdown
@@ -28,16 +32,18 @@ Template: title
 ## injection
 
 Image: 1_vaccine.png
-Brief: Start wide on the arm and syringe. Label the spike proteins when
-named, then push in slowly on the dendritic cell on the right.
+Brief: The camera travels across the picture with the story and never rests:
+from the whole arm into the injection site, then along the path of the
+protein to the dendritic cell. Drawn particles stream out of the needle and
+drift through the tissue; labels ride with the camera.
 
 <a href="images/1_vaccine.png"><img src="images/1_vaccine.png" width="30%"></a>
 
 | Narration | On screen |
 |---|---|
-| A vaccine teaches your immune system to recognise a virus before you ever meet it. | Wide shot, still. Title fades in at the top. |
-| The injection delivers a harmless piece of the virus, its spike protein. | Highlight the syringe; label "spike protein" on "spike". |
-| Nearby, a dendritic cell picks it up and carries it away. | Slow push-in; label "dendritic cell" on "dendritic". |
+| A vaccine teaches your immune system to recognise a virus before you ever meet it. | The camera glides from the whole arm towards the needle; faint particles drift through the tissue. |
+| The injection delivers a harmless piece of the virus, its spike protein. | Particles stream out of the needle tip on "delivers" and spread; the label "spike protein" rides in with them on "spike". |
+| Nearby, a dendritic cell picks it up and carries it away. | The camera pans with the particles to the dendritic cell on "dendritic"; they flow into it, and a dotted path draws from the cell to the frame edge on "carries". |
 
 ## end
 
@@ -66,12 +72,19 @@ editing a scene; a new id starts again at version 1.
 
 The keys of a scene:
 
-- Image scene: `Image:` (a file under `images/`) and `Brief:` (the
-  animation idea), both required.
+- HTML scene: `Brief:` (how the scene moves: where the camera travels,
+  what is drawn, what moves across the picture), required, and an optional
+  `Image:` (a file under `images/`), the picture the scene moves over. A
+  scene without `Image:` draws everything on screen in its page: a diagram,
+  chart, map or text built with the speech on a plain or drawn background
+  (`references/scenes.md`, "Scenes without a picture").
 - Template scene: `Template:` and an optional `Image:` (see "Template
   scenes").
-- Manim scene: `Engine: manim`, `Brief:` and an optional `Image:` (see
+- Manim scene: `Engine: manim`, `Brief:` (what moves and transforms) and
+  an optional `Image:` (see
   "Manim scenes"). `Engine: html` is the same as no `Engine:` line.
+- Video scene: `Engine: video`, `Image:` (the picture a video model
+  animates) and `Brief:` (the motion), both required (see "Video scenes").
 - Clip scene: `Engine: clip`, an optional `Brief:` and an optional `Image:`
   (see "Clip scenes").
 
@@ -85,10 +98,15 @@ Then the table: the header `| Narration | On screen |`, the line `|---|---|`,
 and one row per sentence, spoken in row order. Every scene has a table
 except a clip scene, which may have none. No blank line inside the
 table, one table per scene, nothing after it in the section. Neither cell may
-be empty; a literal `|` in a cell is written `\|`. On screen is what the
-viewer sees while that sentence plays. Name the word an event lands on, in
-quotes (`label "spike protein" on "spike"`), so the scene author can key it
-with `W()`.
+be empty; a literal `|` in a cell is written `\|`. On screen says what
+moves or changes on screen while that sentence plays, as actions: the camera
+travels to a part of the picture, a curve grows, an arrow draws, particles
+flow, a number counts. A cell that only names a picture or a label describes
+a slide; every cell has movement. Name the word an event lands on, in quotes
+(`the label "spike protein" rides in on "spike"`), so the scene author can
+key it with `W()`. A template scene's cells are its text (see "Template
+scenes"), and its page gives each one its own movement, so every cell has
+movement there too.
 
 A field's value continues on the following lines up to a blank line. A line
 that starts with a capitalised word and a colon (`Note: ...`) starts a new
@@ -121,18 +139,74 @@ A scene table may then start with a Speaker column:
 ```markdown
 | Speaker | Narration | On screen |
 |---|---|---|
-| host | Welcome to the show. | Host on the left |
-| guest | Thank you for having me. | Guest on the right |
-| | Here is what they discussed. | Both fade out |
+| host | Welcome to the show. | The camera pans left onto the host as "show" is said |
+| guest | Thank you for having me. | The camera swings right to the guest on "Thank" |
+| | Here is what they discussed. | The camera pulls back to show both; the topics draw in between them on "discussed" |
 ```
 
 Each Speaker cell names a speaker of the header table; an empty cell is the
 default voice. When the speaker changes inside a scene, `script` writes one
 script per run of sentences with one speaker (`p1/script.txt`,
-`p2/script.txt`, ...) and prints each named speaker's voice under its path;
+`p2/script.txt`, ...) and prints each part's voice under its path;
 `voice` joins the voiced parts with `voice.speaker_gap` seconds at each
 change. Two speakers in one sentence and overlapping speech are not
 possible.
+
+## Voice settings per sentence
+
+After On screen, a scene table may have any of the columns Backend, Voice,
+Speed and Style, in any order:
+
+```markdown
+| Speaker | Narration | On screen | Speed | Style |
+|---|---|---|---|---|
+| host | Welcome to the show. | The camera pans left onto the host on "show" | | |
+| host | And now, the result. | The result counts up to its value on "result" | 0.9 | |
+```
+
+A set cell overrides that field of the sentence's voice: its speaker's, or
+`voice:` when it has no speaker. An empty cell keeps it. A Backend other
+than the speaker's, without a Voice, uses that backend's default voice
+(`voice.names`). The resolved voice follows the rules of `voice:`. `script`
+writes one part per run of consecutive sentences with the same speaker and
+resolved voice, so a change of settings starts a new part, and prints each
+part's voice when it is not `voice:`; `voice` checks every recording against
+its sentences' resolved voice.
+
+## storyboard.json
+
+`storyboard.json` holds the same storyboard as one JSON object, the structure
+`storyboard` prints for either file:
+
+```json
+{
+  "title": "Interview",
+  "topic": "Two people talk.",
+  "source": "sources/notes.md",
+  "speakers": {"host": {"backend": "kokoro", "name": "bm_george", "speed": null, "style": null}},
+  "scenes": [
+    {"id": "title", "template": "title", "narration": ["Welcome."], "beats": ["Interview"]},
+    {"id": "talk", "image": "a.png", "brief": "The camera swings between the two faces.",
+     "narration": ["Hello.", "Hi."], "beats": ["The camera pushes in on the host on \"Hello\"", "The camera swings to the guest on \"Hi\""],
+     "speakers": ["host", null], "voices": [null, {"speed": 1.2}]}
+  ]
+}
+```
+
+- Top level: `title`, `topic`, optional `source` and `speakers` (name to
+  `backend`, `name`, `speed`, `style`, each optional or null), and `scenes`.
+- A scene: `id`; `template`, `image`, `brief`, `engine` as the `Template:`,
+  `Image:`, `Brief:`, `Engine:` keys, under the same rules; `narration` and
+  `beats` (the On screen cells), lists of one string per sentence (a clip
+  scene may leave both out, which makes it silent); optional
+  `speakers` (a speaker name or null per sentence), `voices` (null or an
+  object with any of `backend`, `name`, `speed`, `style` per sentence) and
+  `preview` (the image preview path of a storyboard.md; unused otherwise).
+- No other keys. The author is not stored: it comes from `author:` in the
+  settings. Whitespace inside a string collapses to one space.
+
+`validate` names the scene and field of each problem, and gives no image
+preview warning. `init --json` writes a starting `storyboard.json`.
 
 ## Template scenes
 
@@ -146,12 +220,15 @@ limit.
 
 - `title`: row 1 is the title, further rows lines under it; the page adds
   the byline (`credit.byline`).
-- `summary`: each row is one point.
+- `summary`: each row is one point, arriving with an element drawn in the
+  page and tied to it (a shape, icon, counter or chart mark;
+  `references/scenes.md`).
 - `end`: row 1 is the closing line (a decision, an ask, a next step), an
   optional row 2 a line under it; the page adds the credit line
   (`credit.text`) after the last sentence.
 
-Each row appears with its sentence (`references/scenes.md`).
+Each row appears with its sentence, and each sentence, and a hold after the
+narration, gets its own movement with a new target (`references/scenes.md`).
 
 ## Manim scenes
 
@@ -162,14 +239,41 @@ Each row appears with its sentence (`references/scenes.md`).
 ## growth
 
 Engine: manim
-Brief: Axes with time and cell count. Draw the exponential curve as it is
-named, then mark the doubling time with a brace.
+Brief: Cells divide on screen, again and again, then shrink into the first
+point of a growth curve that climbs while a counter runs up with the
+narration.
 
 | Narration | On screen |
 |---|---|
-| A culture of bacteria doubles every twenty minutes. | Axes drawn; label "x2" on "doubles" |
-| After five hours, one cell has become thirty thousand. | Curve drawn on "five"; brace "20 min" on "thirty" |
+| A culture of bacteria doubles every twenty minutes. | One cell splits in two on "doubles", then each of those splits, the cells pushing apart |
+| After five hours, one cell has become thirty thousand. | The cells shrink onto axes that draw in; the curve grows from "five" and the counter runs to 30,000 on "thirty" |
 ```
+
+## Video scenes
+
+`Engine: video` makes the scene the scene's image animated by a video model
+from a motion prompt (`references/video-model.md`). `Image:` is the first
+frame, made with `media:image-gen`; `Brief:` is the motion and the first
+`prompt.txt`. The model sees no word times, so the On screen cells describe
+what moves during each sentence without keying an event to a word. A
+template scene takes no `Engine:`.
+
+```markdown
+## culture
+
+Engine: video
+Image: 3_culture.png
+Brief: The bacteria in the dish drift and divide slowly; the camera pushes
+in on the cluster at the centre.
+
+| Narration | On screen |
+|---|---|
+| In a warm dish, the bacteria never stop moving. | The cells drift across the dish while the camera pushes in on the central cluster |
+```
+
+The scene is narrated like any other. `render` asks the model for the
+narration's length; a shorter clip holds its last frame until the narration
+ends, a longer one is cut there.
 
 ## Clip scenes
 
@@ -180,8 +284,8 @@ reader; `Image:` names the image it starts from or shows. A template scene
 takes no `Engine:`.
 
 Without a table the scene is silent and lasts its clip. This is the
-transition between two image scenes, made from the previous scene's image to
-the next scene's image:
+transition between two scenes with an image, made from the previous scene's
+image to the next scene's image:
 
 ```markdown
 ## morph
@@ -217,14 +321,20 @@ without an imported clip counts as `length.clip_seconds`.
 `init` writes a conclusion-first film for a busy senior audience:
 
 1. `title`: the main result as the title, and what the film covers.
-2. `summary`: the two to four points to take away.
-3. The image scenes, the evidence: one per PNG given to `init`, or per image
-   made for the story.
-4. `end`: the one thing to do or remember.
+2. The evidence: scenes each built on one movement that shows a point (a
+   process running, a quantity growing, two things compared side by side as
+   they change). `init` writes one draft image scene per PNG it is given.
+   Images are material: one image may carry several shots or scenes. A
+   scene that a picture would not help (a diagram, chart, process or text
+   built with the speech) has no `Image:` and is drawn in its page, or is
+   a manim scene for mathematics and plots. A picture whose own content
+   moves (water, smoke, cells, a crowd) can be a video scene.
+3. `end`: the one thing to do or remember.
 
-A teaching film for a general audience may instead open with the question and
-put the `summary`, as a recap, just before `end`; a short film may drop the
-summary or the end scene. `validate` only warns about the structure.
+A film may add a `summary` scene, as a recap just before `end`, whose points
+each arrive with a drawn element tied to the point. A teaching film
+for a general audience may open with the question; a short film may drop the
+end scene. `validate` only warns about the structure.
 
 ## Writing the narration
 
@@ -241,20 +351,49 @@ summary or the end scene. `validate` only warns about the structure.
   without a table, and warns outside `length:` in the settings. The real
   length is known after `voice` and `clip`.
 
+## Scene status
+
+`status` prints, as JSON, `{"scenes": [...]}` with one object per scene in
+film order:
+
+- `id`: the scene id. `narrated`: false for a clip scene without a table.
+- `voice_version`: the latest voice version (`v3`), or null.
+- `needs_voice`: true when a narrated scene has no voice version, or the
+  latest one does not match the storyboard: a sentence differs, or a
+  sentence was voiced in another voice than its resolved voice (its
+  speaker's, or `voice:`, with its own settings over it). `voice_reasons`:
+  one line per mismatch.
+- `scene_version`: the latest rendered scene version, or null.
+- `needs_render`: true when the scene has no rendered version; a newer
+  version is scaffolded and not rendered; the render used another engine,
+  or another voice version than the latest; the image differs from the
+  rendered `background.png`, or the render has a `background.png` and the
+  scene no longer has an image; the rendered `brief.md` differs from what
+  `scaffold` writes now (brief, On screen text, image name, frame size); or,
+  for a template scene, `card.js` differs (On screen text, author). For a
+  clip scene: any of the `validate` warnings under "Clip scenes".
+  `render_reasons`: one line per cause.
+
+A scene that needs a voice needs a render only once the new voice version is
+imported; the two are reported separately.
+
 ## What an edit needs
 
-Compare each scene with its latest `voice/<scene>/v<N>/script.txt`,
+`status` reports the scenes that need a new voice or render. Compare each
+scene with its latest `voice/<scene>/v<N>/script.txt`,
 `voice/<scene>/v<N>/meta.json` (`speakers`: each sentence's speaker and voice)
-and `scenes/<scene>/v<N>/brief.md`.
+and `scenes/<scene>/v<N>/brief.md`. Every scene rendered or imported again
+gets the motion check of `references/scenes.md` (`references/manim.md` for a
+manim scene, `references/video-model.md` for a video scene).
 
-- Narration, a Speaker cell, a speaker's row or `voice:` changed: `script
+- Narration, a Speaker cell, a voice settings cell, a speaker's row or `voice:` changed: `script
   --scene ID`, voice it with `media:voiceover`, `voice --scene ID`, then
   `scaffold`, update the page and `render`.
 - `Brief:`, `Image:` or an On screen cell changed: `scaffold`, update the
   page, `render`; the voice is kept.
 - `Engine:` changed: `scaffold` starts from the other engine's starting
-  page; write the page and `render`. Changed to `clip`: make the clip and
-  run `clip`.
+  page (a video scene: `prompt.txt` from `Brief:`); write the page and
+  `render`. Changed to `clip`: make the clip and run `clip`.
 - A clip scene: a new clip, a changed `Image:` it is made from, a changed
   `Brief:`, or a narration change after `voice`: make the clip again if it
   no longer fits and run `clip --scene ID FILE`. An image change in a scene
@@ -265,5 +404,9 @@ and `scenes/<scene>/v<N>/brief.md`.
   scenes of that template.
 - `video:` changed: `scaffold` and `render` every scene; make every clip
   again at the new size and fps and run `clip`.
-- `manim:` starting-page keys changed: they apply only to a new `scene.py`.
+- `manim.background_color` changed: it applies only to a new `scene.py`.
+- A scene that fails the motion check: `scaffold`, add movement to the page,
+  `scene.py` or `prompt.txt` where it stands still, or change its method,
+  and `render`;
+  for a clip scene, make the clip again and run `clip`.
 - A preview line or whitespace only: nothing.

@@ -52,7 +52,7 @@ A skill installed as part of a plugin loads as `<plugin>:<skill>`. A skill that 
 | dev | implementation plans, Agent Skill authoring and review |
 | brand | brand folders (logos, colours, fonts, guidelines, PowerPoint templates) and a catalogue of visual styles |
 | ai | text classification with a System-1 model (class probabilities) or a chat model; file review by a second model |
-| studio | a page in the browser for making images, infographics and slide decks with Claude (`/studio`); projects under `STUDIO_DIR`, default `~/Documents/Studio` |
+| studio | a page in the browser for making images, infographics, slide decks and short videos with Claude (`/studio`); projects under `STUDIO_DIR`, default `~/Documents/Studio` |
 | setup | this skill: installation and settings |
 
 ## Python environments
@@ -67,7 +67,7 @@ Every skill reads its settings from one file: `<config dir>/plugins/data/config.
 |---|---|
 | `providers` | where models run: `kind`, `base_url`, the key as `api_key`, `timeout`, `api_version`, `vertex` |
 | `models` | the model of each task, as `<provider name>:<model>` |
-| `diffusers` | local image and music models (GPU) |
+| `diffusers` | local image, music and video models (GPU) |
 | `settings` | every other setting, `KEY: value` (for example `EXTRA_CA_CERT`, `HF_HOME`) |
 
 `assets/config.example.yaml` is the template. It lists every setting a skill reads, commented, with its meaning, default, accepted values and the skills that require it. Read it to find a setting's name and values.
@@ -102,9 +102,9 @@ Each level adds to the one before.
 |---|---|---|---|
 | 1. API only | a key of OpenRouter, of Azure OpenAI and Vertex AI, or of a company (enterprise) gateway that serves them; no GPU | `openrouter` (kind `openrouter`) or `azure` (kind `azure`) and `vertex` (kind `google`, `vertex: true`), each with the `base_url` of the service or of the gateway | `chat`, `vision`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `audio`; `music` on a provider of kind `google` (Lyria) |
 | 2. Ollama | a running Ollama server with the models pulled (`ollama pull <tag>`); no key | add `ollama` (kind `ollama`) | `system1` (System-1 models, needed by classify `--backend system1`), small `chat` and `vision` models, `speech` on macOS |
-| 3. GPU | an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon | add `local` (kind `diffusers`) and the `diffusers` section | `image`, `image_edit`, `image_best`, `image_multi_ref`, `music` in the skill's process |
+| 3. GPU | an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon | add `local` (kind `diffusers`) and the `diffusers` section | `image`, `image_edit`, `image_best`, `image_multi_ref`, `music`, `video` in the skill's process |
 
-Point each task the user needs at a provider of the chosen level. A task without a model fails only when a skill asks for it. The model ids of the template are examples; ask the user which models to use when the template has none for a provider. At level 3 the image-gen and music wrappers install torch and diffusers (the skill's `local` extra) when they build the environment, and the first run downloads the weights.
+Point each task the user needs at a provider of the chosen level. A task without a model fails only when a skill asks for it. The model ids of the template are examples; ask the user which models to use when the template has none for a provider. At level 3 the image-gen, music and short-video wrappers install torch and diffusers (the skill's `local` extra) when they build the environment, and the first run downloads the weights.
 
 ## Settings errors
 
@@ -127,7 +127,14 @@ Required settings, per skill:
 
 | Plugin | Skill and command | Required |
 |---|---|---|
-| ai, media | classify, second-opinion, image-gen, music, voiceover `--backend speech` | a model for the task in `models`, and the `api_key` of its provider when the provider needs one |
+| ai, media | classify, second-opinion, image-gen, music, voiceover `--backend speech`, short-video video scenes | a model for the task in `models`, and the `api_key` of its provider when the provider needs one |
+| media | voiceover `--backend kokoro` (the default) | `VOICEOVER_KOKORO_MODEL_URL`, `VOICEOVER_KOKORO_VOICES_URL`, `VOICEOVER_KOKORO_VOICE` |
+| media | voiceover `--backend chatterbox` | `VOICEOVER_CHATTERBOX_MODEL`, `VOICEOVER_CHATTERBOX_URL`, `VOICEOVER_CHATTERBOX_FILES`, `VOICEOVER_CHATTERBOX_VOICE` |
+| media | voiceover `--backend speech` | `VOICEOVER_SPEECH_VOICE` (the default voice of the `speech` model) |
+| media | voiceover `synth` without `--no-align`, `setup` | `VOICEOVER_ALIGNER`, `VOICEOVER_ALIGNER_URL` |
+| media | image-gen with a model of kind `openai`, `azure`, `openrouter`, `ollama` or `diffusers` | `IMAGE_GEN_OPENAI_MAX_EDGE`, `IMAGE_GEN_OPENAI_MIN_PIXELS`, `IMAGE_GEN_OPENAI_MAX_PIXELS`, `IMAGE_GEN_LOCAL_MAX_EDGE`, `IMAGE_GEN_LOCAL_MIN_EDGE` |
+
+The values of these settings are in `assets/config.example.yaml`.
 
 ## Models
 
@@ -141,8 +148,8 @@ Provider kinds (`providers.<name>.kind`):
 | `openrouter` | chat, vision, audio input, embeddings, images, image edits, speech | `api_key` |
 | `openai` | any OpenAI-compatible server: chat, embeddings, images, speech | `base_url`, `api_key` |
 | `azure` | Azure OpenAI: chat, images with masks, speech | `base_url` (the Azure endpoint), `api_version`, `api_key` |
-| `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint |
-| `diffusers` | local images, image edits with masks, music, in the skill's process on a CUDA or Apple MPS GPU | none; the models are in `diffusers` |
+| `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint; `predict_models`, the music models served by the Vertex `:predict` endpoint (the others stream) |
+| `diffusers` | local images, image edits with masks, music, image to video, in the skill's process on a CUDA or Apple MPS GPU | none; the models are in `diffusers` |
 
 Every provider except `diffusers` takes `timeout` (seconds per request, default 600). System-1 models go to the `base_url` of their provider, so any provider with a `base_url` can serve them; Ollama serves them at `/v1/systemone`.
 
@@ -159,7 +166,8 @@ Tasks (`models.<task>`) and the skills that ask for them:
 | `speech` | voiceover `--backend speech` |
 | `music` | music `generate` |
 | `audio` | music `analyze` (a chat model that takes audio) |
+| `video` | short-video video scenes (`Engine: video`): an image animated into a clip |
 
-The `audio` task is optional; without it `music analyze` skips the model section. `image_best` and `image_multi_ref` are optional; without them the image-gen tiers `best` and `multi-ref` fail with a message naming the task.
+The `audio` task is optional; without it `music analyze` skips the model section. `image_best` and `image_multi_ref` are optional; without them the image-gen tiers `best` and `multi-ref` fail with a message naming the task. `video` is optional; without it a short-video scene with `Engine: video` fails at `render` with a message naming the task.
 
-`diffusers.<name>` describes one local model: `repo` (a Hugging Face repository; weights go to the Hugging Face cache), `steps`, `guidance`, and `inpaint` (the diffusers pipeline class for edits with a mask). A model id `local:<name>` names it.
+`diffusers.<name>` describes one local model: `repo` (a Hugging Face repository; weights go to the Hugging Face cache), `steps`, `guidance`, and `inpaint` (the diffusers pipeline class for edits with a mask). A model id `local:<name>` names it. A video model also has these keys, all required: `pipeline` (the diffusers class to load), `fps`, `size_multiple` (width and height are rounded to it), `frame_step` (frame counts are `frame_step * k + 1`), `width`, `height` (the default size) and `max_frames`.

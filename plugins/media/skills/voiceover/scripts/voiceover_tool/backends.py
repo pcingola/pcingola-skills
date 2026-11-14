@@ -3,8 +3,8 @@
 A backend turns one sentence into mono float32 samples at `sample_rate`.
 Register new backends in `BACKENDS` (name -> factory taking `style`).
 
-- `kokoro`: local Kokoro v1.0 (kokoro-onnx), English voices only, no style.
-- `chatterbox`: local Chatterbox-Turbo with voice cloning, see `chatterbox.py`.
+- `kokoro`: local Kokoro (kokoro-onnx), English voices only, no style.
+- `chatterbox`: local Chatterbox Turbo with voice cloning, see `chatterbox.py`.
 - `speech`: the `speech` model of the `ai_models` config (OpenAI-style, Gemini
   TTS or Ollama), see `speech.py`.
 """
@@ -15,7 +15,7 @@ from typing import Callable, Protocol, runtime_checkable
 
 import numpy as np
 
-from . import download
+from . import config, download
 
 
 @runtime_checkable
@@ -43,11 +43,14 @@ def kokoro_lang(voice: str) -> str:
 
 
 class KokoroBackend:
-    """Kokoro v1.0 via kokoro-onnx, weights from the project's GitHub release."""
+    """Kokoro via kokoro-onnx, weights from the URLs of the settings."""
 
     name = "kokoro"
     sample_rate = 24_000
-    default_voice = "af_heart"
+
+    @property
+    def default_voice(self) -> str:
+        return config.require("VOICEOVER_KOKORO_VOICE")
 
     def __init__(self, style: str | None = None) -> None:
         if style:
@@ -60,10 +63,9 @@ class KokoroBackend:
 
             from . import espeak
 
-            model = download.ensure_weight(download.KOKORO_MODEL)
-            voices = download.ensure_weight(download.KOKORO_VOICES)
-            config = EspeakConfig(data_path=espeak.data_path())
-            self._kokoro = Kokoro(str(model), str(voices), espeak_config=config)
+            model, voices = (download.ensure_weight(w) for w in download.kokoro_weights())
+            espeak_config = EspeakConfig(data_path=espeak.data_path())
+            self._kokoro = Kokoro(str(model), str(voices), espeak_config=espeak_config)
         return self._kokoro
 
     def voices(self) -> list[str]:

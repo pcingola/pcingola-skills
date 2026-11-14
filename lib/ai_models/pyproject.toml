@@ -11,12 +11,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# local images and music in process; only skills that need it install torch
+# local images, music and video in process; only skills that need it install torch.
+# imageio-ffmpeg: MP4 encoding of video clips (diffusers.utils.export_to_video); av: the LTX-2
+# image-to-video pipeline re-encodes its conditioning image as H.264
 diffusers = [
     "torch>=2.9",
     "diffusers>=0.42",
     "transformers>=5",
     "accelerate",
+    "imageio",
+    "imageio-ffmpeg",
+    "av",
 ]
 
 [[tool.uv.index]]

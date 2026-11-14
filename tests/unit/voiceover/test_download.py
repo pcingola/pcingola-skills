@@ -2,7 +2,7 @@
 
 import pytest
 
-from voiceover_tool.download import KOKORO_MODEL, DownloadError, ensure_file
+from voiceover_tool.download import DownloadError, ensure_file
 
 from .cli_run import voiceover
 
@@ -18,10 +18,15 @@ def test_connection_error_is_download_error(tmp_path):
 
 
 def test_setup_failure_is_one_error_line(tmp_path):
-    """The proxy at a closed local port makes every download fail without reaching the network."""
+    """The proxy at a closed local port makes every download fail without reaching the network; the weight URLs
+    come from the settings file."""
     proxy = "http://127.0.0.1:1"
-    p = voiceover("setup", VOICEOVER_MODEL_DIR=str(tmp_path), HTTPS_PROXY=proxy, https_proxy=proxy,
+    config = tmp_path / "config.yaml"
+    config.write_text(f"settings:\n  VOICEOVER_KOKORO_MODEL_URL: {UNREACHABLE}\n"
+                      f"  VOICEOVER_KOKORO_VOICES_URL: {UNREACHABLE}\n"
+                      f"  VOICEOVER_ALIGNER: MMS_FA\n  VOICEOVER_ALIGNER_URL: {UNREACHABLE}\n")
+    p = voiceover("setup", SKILLS_CONFIG=str(config), VOICEOVER_MODEL_DIR=str(tmp_path / "w"), HTTPS_PROXY=proxy, https_proxy=proxy,
                   HTTP_PROXY=proxy, http_proxy=proxy, ALL_PROXY=proxy, all_proxy=proxy, NO_PROXY="", no_proxy="")
     assert p.returncode == 1, p.stderr
     assert "Traceback" not in p.stderr
-    assert f"Error: cannot download {KOKORO_MODEL.url}" in p.stderr
+    assert f"Error: cannot download {UNREACHABLE}" in p.stderr

@@ -45,8 +45,8 @@ def test_new_deck(client, studio, emitted):
     chosen map; count may be null; the shape must be 16:9. Guards starting a deck."""
     status, body = client.post("/api/request", deck_req(None, brief="Onboarding in three steps"))
     assert status == 202
-    p = studio.root / "slides" / "onboarding-in-three-steps"
-    assert body["project"] == str(p)
+    p = Path(body["project"])
+    assert p.parent == studio.root / "slides"
     meta = json.loads((p / "project.json").read_text())
     assert meta["kind"] == "slide" and meta["assembly"] == "images" and meta["chosen"] == {}
     assert emitted[-1]["request"]["slide"] is None and emitted[-1]["request"]["count"] is None

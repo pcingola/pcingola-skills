@@ -2,13 +2,41 @@
 
 A scene version (`scenes/<id>/v<N>/`) is a self-contained HyperFrames
 project. `scaffold` writes everything except the animation; you edit only
-`index.html`. The first version starts from `assets/scene.html` (a template
-scene: `assets/<name>.html`); later versions start from the previous
-`index.html`.
+`index.html`. The first version starts from `assets/scene.html` (a scene
+without `Image:`: `assets/scene-drawn.html`; a template scene:
+`assets/<name>.html`); later versions start from the previous `index.html`.
 
 Read `brief.md` first: the brief, each sentence's beat, `S(n)`/`SE(n)` and
 the start time of every word. It is generated from `storyboard.md`; a change
 to the brief, a beat or a sentence goes into `storyboard.md`.
+
+## Movement
+
+The scene is a shot of a film: something on screen moves the whole time, in
+step with the sentences, and the movement shows what the narration says. No
+stretch is still for longer than about 2 s (the last 0.5 s excepted), and
+frames 2 s apart differ in a way a viewer sees (the motion check in
+"Procedure"). Labels appearing on a still picture are not movement enough.
+
+For each sentence, decide what moves before writing any label:
+
+- The camera: a move per sentence to the part of the picture the sentence
+  names, large enough to notice without looking for it (a push-in from 1.05
+  to 1.3, a pan across a third of the picture), changing target or direction
+  as the sentences change.
+- Drawn movement: lines and paths drawn along a route, arrows growing,
+  shapes outlined, diagrams built part by part.
+- Flows: particles, dots or arrows streaming from one part of the picture to
+  another while the sentence describes it.
+- Values: numbers counting, bars and gauges growing, a marker sliding along
+  a scale.
+- Text built with the speech, word by word or line by line.
+- Layers: an added element, a crop of the picture or a second image moving
+  over the background at another speed.
+
+Between two cues the scene keeps changing visibly: the camera move runs on
+to the next cue, a flow continues, a line keeps drawing. A slow drift alone
+does not pass the motion check.
 
 ## Composition rules
 
@@ -25,9 +53,11 @@ to the brief, a beat or a sentence goes into `storyboard.md`.
   than the background video below.
 - Overlays (labels, arrows, boxes, SVG diagrams) are absolutely positioned
   elements inside `#root`, after the `<!-- overlays here -->` comment,
-  starting hidden (`opacity: 0`) and shown by the timeline.
-- Local files only: `gsap.min.js`, `timing.js`, `background.png`,
-  `background.mp4` and files you add to the version directory. No network fonts or CDNs.
+  starting hidden (`opacity: 0`) and shown by the timeline. An overlay fixed
+  to a point of the picture goes inside `#anchored`, the full-frame layer
+  that moves with the camera.
+- Local files only: `gsap.min.js`, `timing.js`, `background.png` (scenes
+  with `Image:`), `background.mp4` and files you add to the version directory. No network fonts or CDNs.
 - The page has no audio; `render` muxes the narration.
 
 ## Timing helpers (`timing.js`)
@@ -49,6 +79,28 @@ page and renders a scene with no animation.
 Land an event a little before its word (`W(2, "spike") - 0.1`), and keep it
 on screen until its sentence ends (`SE(n)`), not for a fixed delay.
 
+## Scenes without a picture
+
+A scene without `Image:` has no `background.png` and no `#bg-image`.
+Everything on screen is drawn in the page: a diagram, chart, map, process or
+text built with the speech, as HTML, SVG or canvas drawn from the timeline.
+`#bg-fill` is the background, a flat colour or gradient in the film's
+palette (the suggested page's navy gradient is a placeholder; restyle it as
+for "Title, summary and end scenes"), or a background drawn in the page.
+Put the drawing inside `#anchored`, the full-frame layer the camera moves
+(`tl.fromTo("#anchored", ...)`); text and labels fixed to the frame go after
+it.
+
+The rules of "Movement" apply as for every scene. Over a flat or gradient
+background a camera move on `#bg-fill` is invisible, so the movement comes
+from the drawing: parts built with the sentence that names them, flows
+along its lines, values counting, and camera moves on `#anchored` to the part
+each sentence names. The motion check is the same.
+
+`render` refuses a page other than a template's that uses `background.png`
+when the version has none: a scene whose `Image:` was removed keeps its
+previous page, so redraw it without the picture.
+
 ## Placing overlays on the image
 
 `#bg-image` uses `object-fit: contain`. For a frame `W x H` and an image of
@@ -60,16 +112,22 @@ native size `w x h` (`file background.png`), the scale is
 An image that is almost 16:9 (gpt-image-2 returns 1360x768) leaves a thin
 dark line of the blurred fill at the frame edges. Close it with
 `#bg-image { transform: scale(1.012); }` (or the scale that covers the gap),
-not with `clip-path`. A camera move on `#bg-image` then starts from that
-scale.
+not with `clip-path`. The edge scale only closes the gap: camera moves go
+far beyond it and never below it.
 
-Overlays placed on the image do not follow a camera move of `#bg-image`: show
-them only while the camera is still, or give them the same transform.
+The camera moves `#bg-image` and `#anchored` with the same tween, so labels
+and shapes fixed to the picture follow it; the camera does not stop for a
+label. Both are full-frame boxes, so image pixel `(x, y)` stays under the
+point placed at `(left + k*x, top + k*y)` inside `#anchored`. Text inside
+`#anchored` scales with the camera: size it for the largest zoom of its
+sentence. To keep the image's box over the whole frame, a shift (`xPercent`,
+`yPercent`) stays within `(scale - 1) / 2` of the frame on each axis.
 
 ## Background video
 
-A pre-rendered clip (such as a morph from `media:video-effects`) can replace
-the still image while overlays and camera moves run on top. HyperFrames
+A pre-rendered clip (a morph from `media:video-effects`, generated video,
+the user's footage) can replace the still image while overlays and camera
+moves run on top. HyperFrames
 extracts the clip's frames with FFmpeg at the render's frame rate and paints
 frame `floor(t * fps)` at scene time `t`, copying the video element's
 transform, so the clip stays in sync with the timeline frame by frame.
@@ -85,10 +143,11 @@ carries it into later versions. Replace the `<img id="bg-image">` line with:
 with the root's `data-duration` in place of `6.2` (later scaffolds keep it
 equal to the scene length), and add
 `#bg-video { object-fit: contain; }` to the style. Camera moves and overlay
-placement work as on `#bg-image`, with `#bg-video` as the target:
+placement work as on `#bg-image`, with `#bg-video` and `#anchored` as the
+targets:
 
 ```js
-tl.fromTo("#bg-video", { scale: 1 }, { scale: 1.3, transformOrigin: "50% 50%",
+tl.fromTo(["#bg-video", "#anchored"], { scale: 1 }, { scale: 1.3, transformOrigin: "50% 50%",
           duration: SE(2) - S(1), ease: "sine.inOut" }, S(1));
 ```
 
@@ -104,18 +163,36 @@ tl.fromTo("#bg-video", { scale: 1 }, { scale: 1.3, transformOrigin: "50% 50%",
 
 ```js
 const tl = gsap.timeline({ paused: true });
+const cam = ["#bg-image", "#anchored"];  // the picture and the overlays fixed to it
 
-// Label appears on the word that names it, leaves at the end of the sentence
-tl.fromTo("#lbl-spike", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.35 }, W(2, "spike") - 0.1);
-tl.to("#lbl-spike", { opacity: 0, duration: 0.3 }, SE(2));
+// Camera: one move per sentence, each to the part the sentence names, running
+// into the next sentence so it never rests (scale the image, not the page)
+tl.fromTo(cam, { scale: 1.05, xPercent: 0, yPercent: 0 },
+          { scale: 1.35, xPercent: 8, yPercent: -4, transformOrigin: "50% 50%",
+            duration: S(2) - S(1), ease: "sine.inOut" }, S(1));
+tl.to(cam, { scale: 1.6, xPercent: -14, yPercent: 6, duration: S(3) - S(2), ease: "sine.inOut" }, S(2));
 
-// Slow camera push-in over a sentence (scale the image, not the page)
-tl.fromTo("#bg-image", { scale: 1 }, { scale: 1.25, transformOrigin: "62% 40%",
-          duration: SE(2) - S(2), ease: "sine.inOut" }, S(2));
+// A path drawn along the route the sentence describes
+const route = document.querySelector("#route");
+const len = route.getTotalLength();
+gsap.set(route, { strokeDasharray: len, strokeDashoffset: len });
+tl.to(route, { strokeDashoffset: 0, duration: WE(3, "away") - W(3, "carries"), ease: "none" }, W(3, "carries"));
 
-// Arrow drawn as an SVG line
-tl.fromTo("#arrow line", { attr: { x2: 600, y2: 300 } },
-          { attr: { x2: 840, y2: 420 }, duration: 0.5 }, W(3, "binds"));
+// A flow along a path: every dot's position is computed from the tween's progress,
+// so it is right at every seeked frame. Use this pattern for every flow, the
+// prototype's included. #flow-path and the .dot circles are in an SVG in #anchored.
+const flowPath = document.querySelector("#flow-path");
+const flowLen = flowPath.getTotalLength();
+const dots = Array.from(document.querySelectorAll("#anchored .dot"));
+const flow = { p: 0 };
+tl.to(flow, { p: 1, duration: SE(2) - S(2), ease: "none", onUpdate: () => {
+  dots.forEach((d, i) => {
+    const f = (flow.p * 4 + i / dots.length) % 1;  // each dot makes 4 trips in the sentence
+    const pt = flowPath.getPointAtLength(f * flowLen);
+    d.setAttribute("cx", pt.x);
+    d.setAttribute("cy", pt.y);
+  });
+} }, S(2));
 
 // Number counting up as it is said
 const n = { v: 0 };
@@ -123,9 +200,26 @@ tl.to(n, { v: 95, duration: 0.8, onUpdate: () => {
   document.querySelector("#pct").textContent = Math.round(n.v) + "%";
 } }, W(4, "95%"));
 
-// Highlight box pulse
+// A highlight that keeps pulsing while its sentence plays
 tl.fromTo("#box", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.3 }, W(1, "nucleus"));
+tl.to("#box", { scale: 1.06, duration: 0.5, yoyo: true, repeat: 3, ease: "sine.inOut" }, W(1, "nucleus") + 0.3);
+
+// Label on the word that names it, inside #anchored so it rides with the camera
+tl.fromTo("#lbl-spike", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.35 }, W(2, "spike") - 0.1);
+tl.to("#lbl-spike", { opacity: 0, duration: 0.3 }, SE(2));
 ```
+
+## GSAP pitfalls
+
+- `fromTo` renders its start state at once, when the timeline is built. A
+  later `fromTo` on an element that must stay hidden or placed elsewhere
+  until its cue needs `immediateRender: false` in its end values.
+- A tween of `x`, `y`, `scale` or `rotation` on an SVG element with a
+  `transform` attribute replaces that attribute. Wrap the element in a
+  `<g>` and tween the wrapper.
+- Rotate or pulse an SVG element about a point with `svgOrigin: "x y"` (in
+  the SVG's user units); `transformOrigin` on SVG is relative to the
+  element's bounding box.
 
 ## Style
 
@@ -133,20 +227,28 @@ Defaults for a 1920x1080 frame. Depart from them when the film needs it, as
 long as text stays legible and the frame uncluttered; record a change the
 user asks for in `lessons.md`.
 
-- Label text at least 36 px, with a solid or semi-opaque background, inside a
-  60 px margin from the frame edge.
+- Label text at least 36 px on screen in every frame, after any camera zoom:
+  a label inside `#anchored` scales with the camera, so size it for the
+  smallest scale of its sentence, and scale it up or remove it where a
+  pull-back would shrink it below 36 px. Labels sit inside a 60 px margin
+  from the frame edge.
+- Colours, for labels and cards alike: text is dark on a light ground and
+  light on a dark ground, in the film's palette. A label carries its own
+  solid or semi-opaque ground, so its text contrasts with that ground, not
+  with the picture behind it; a card's ground is its background.
 - At most three overlays at once; remove an overlay when the narration moves
   on.
-- Ease with `power2.out` or `sine.inOut`; entrances 0.3-0.5 s; camera moves
-  span a whole sentence.
-- Nothing moves in the last 0.5 s of the scene.
+- Ease with `power2.out` or `sine.inOut`; entrances 0.3-0.5 s. A camera
+  move lasts its sentence and changes target with the next one.
+- Nothing moves in the last 0.5 s of the scene; everything before it moves.
 
 ## Title, summary and end scenes
 
 The suggested pages have a dark navy background, white text and a yellow
 accent as placeholders. Restyle the page to match the prototype's
 `index.html` and the film's images (background, colours, fonts, sizes, label
-style, motion): light images get a light card with dark text. Render the
+style, motion), with the colour rule of "Style": light images get a light
+card with dark text. Render the
 suggestion unchanged only when it already matches the film. Later scaffolds
 copy the restyled page.
 
@@ -163,6 +265,28 @@ Keep, whatever the style:
   `SE(last)` the `credit` line, when set (null: none), fades in under them
   and holds to the end of the scene. It is a small byline that does not compete with the closing
   line.
+- Each sentence, and a hold after the narration (the end scene's credit
+  hold), gets its own movement with a new target, as in "Movement". The
+  suggested pages move the background to a new framing (a shift and scale
+  with no margin limit) and move and scale the text block as far as the
+  60 px margin allows, measured on its rows (`fit` in the page), so no text
+  leaves the margin at any shot. A restyled page keeps a movement per
+  sentence that passes the motion check, with its text inside the margin.
+  The last 0.5 s is still.
+- Over a flat or gradient background, moving the background is invisible:
+  on such a card, and on any text-only card, the per-sentence movement comes
+  from drawn elements (a diagram, icon or counter built with the speech).
+  The end scene's hold shows a drawn element completing or moving, with or
+  without a credit line.
+- `#sweep` on the title and end pages, a line drawn across the frame during
+  each sentence, is a placeholder: a restyled page replaces it with a drawn
+  element tied to the text (an underline of a key word, a shape or icon of
+  the point, a counter).
+- Summary: each point arrives with an element drawn in the page and tied to
+  it (a shape, icon, counter or chart mark); the suggested page draws a
+  mark beside each point and a bar under it during its sentence. A crop or
+  file from the evidence scene's version may be copied into the summary's
+  version directory after `scaffold`, as the logo is, and drawn in.
 - The text fits: check `contact.png` for wrapping.
 
 With `brand:` set, the title and end scenes show the brand logo: copy the
@@ -176,5 +300,17 @@ each new version after `scaffold`.
 1. `short-video.sh scaffold -p <project> --scene ID`.
 2. Edit `index.html`: overlays in the body, the timeline in the script.
 3. `short-video.sh render -p <project> --scene ID`. Fix any error it reports
-   and render again; this re-renders the same version.
-4. Look at `contact.png`, and at `frames --at <t>` for each beat's key word.
+   and render again; this re-renders the same version. A fix found while looking at frames (layout, size, timing,
+   movement) edits the page and runs `render` again on the same version;
+   `scaffold` makes a new version only when the storyboard, the image or
+   the voice changed.
+4. Motion check, over the whole scene (start, middle, end and any hold):
+   `frames --at 0,1,2,...`, one per second. Put each frame next to the
+   frame 2 s later. The pair fails when neither the view nor any object
+   moved by about a tenth of the frame width (192 px at 1920) and no new
+   element appeared; a slow drift of a few pixels fails. The last 0.5 s is
+   excepted. The contact sheet's thumbnails are too small to judge it.
+   Where a pair fails, add movement and render again until every pair
+   passes; the scene is not done before.
+5. Look at `contact.png` for layout and at `frames --at <t>` for each beat's
+   key word, to see that the text is legible.

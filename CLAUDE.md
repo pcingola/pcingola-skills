@@ -9,7 +9,7 @@ This repository is a Claude Code marketplace, `pcingola-skills` (`.claude-plugin
 | dev | plan, skill-author | setup |
 | brand | brand, style | setup |
 | ai | classify, second-opinion | setup |
-| studio | images | brand, media, setup |
+| studio | images, videos | brand, media, setup |
 | setup | settings | none |
 
 ## Rules

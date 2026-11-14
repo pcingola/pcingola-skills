@@ -2,7 +2,8 @@
 <!--
   SUGGESTED title scene: restyle it to match the film. Keep the root element
   and its data-* attributes, #bg-fill, the text from window.CARD (card.js:
-  rows, author, image, byline) and the timing (references/scenes.md).
+  rows, author, image, byline), the timing and a movement
+  of its own in every sentence (references/scenes.md).
 -->
 <html lang="en">
 <head>
@@ -17,6 +18,8 @@
   #root { position: relative; width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; color: #fff;
           font-family: Inter, "Helvetica Neue", Arial, sans-serif; }
   .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #sweep { position: absolute; left: 160px; right: 160px; bottom: 110px; height: 6px; border-radius: 3px;
+           background: #f2b134; opacity: 0.8; transform-origin: 0 50%; transform: scaleX(0); }
   #bg-fill { background: radial-gradient(ellipse at 30% 20%, #1f3a5f 0%, #0b1320 70%); }
   #bg-fill.image { background: url("__BACKGROUND__") center / cover no-repeat;
                    filter: blur(24px) brightness(0.35); transform: scale(1.1); }
@@ -35,6 +38,7 @@
   <div id="bg-fill" class="clip bg" data-start="0" data-duration="__DURATION__" data-full-length
        data-track-index="0"></div>
   <div id="card"></div>
+  <div id="sweep"></div>
 </div>
 <script>
   const C = window.CARD;
@@ -57,6 +61,52 @@
     tl.fromTo(add("line", C.rows[n - 1]), hidden, shown, Math.max(0, S(n) - 0.1));
   }
   if (C.byline) tl.fromTo(add("by", C.byline), hidden, shown, S(1) + 0.8);
+
+  // Every sentence, and a hold after the narration, gets its own movement
+  // with a new target: the background moves to a new framing (it has no
+  // margin limit), and the text block moves and scales as far as the 60 px
+  // margin allows, measured on its rows. The accent line #sweep draws across the
+  // frame; it is a placeholder for a drawn element tied to the text.
+  // Nothing moves in the last 0.5 s.
+  const root = document.getElementById("root");
+  const FW = Number(root.dataset.width), FH = Number(root.dataset.height);
+  const END = Number(root.dataset.duration) - 0.5, MARGIN = 60, REACH = 160;
+  // x, y: the direction of the text shift (up to REACH px); bx, by, bs: the background's.
+  const SHOTS = [{ x: -1, y: 1, scale: 1.08, bx: -7, by: 5, bs: 1.2 },
+                 { x: 1, y: -1, scale: 0.96, bx: 18, by: -12, bs: 1.55 },
+                 { x: -1, y: -1, scale: 1.05, bx: -15, by: -10, bs: 1.4 },
+                 { x: 1, y: 1, scale: 1, bx: 12, by: 12, bs: 1.6 }];
+  // The shot's shift and scale, reduced so the scaled, shifted rows stay inside the margin.
+  function fit(el, shot) {
+    const o = el.getBoundingClientRect();
+    const ox = o.left + o.width / 2, oy = o.top + o.height / 2;
+    let L = Infinity, T = Infinity, R = -Infinity, B = -Infinity;
+    for (const c of el.children) {
+      const b = c.getBoundingClientRect();
+      if (!b.width || !b.height) continue;
+      L = Math.min(L, b.left); T = Math.min(T, b.top); R = Math.max(R, b.right); B = Math.max(B, b.bottom);
+    }
+    if (L === Infinity) return { x: 0, y: 0, scale: 1 };
+    const s = Math.min(shot.scale, (FW - 2 * MARGIN) / (R - L), (FH - 2 * MARGIN) / (B - T));
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    return {
+      x: clamp(shot.x * REACH, MARGIN - (ox + s * (L - ox)), FW - MARGIN - (ox + s * (R - ox))),
+      y: clamp(shot.y * REACH, MARGIN - (oy + s * (T - oy)), FH - MARGIN - (oy + s * (B - oy))),
+      scale: s,
+    };
+  }
+  const text = document.querySelector("#card");
+  const marks = C.rows.map((_, i) => S(i + 1));
+  if (END - SE(C.rows.length) > 1) marks.push(SE(C.rows.length));
+  marks.forEach((t, i) => {
+    const until = Math.min(i + 1 < marks.length ? marks[i + 1] : END, END);
+    if (until <= t) return;
+    const shot = SHOTS[i % SHOTS.length];
+    tl.to(text, { ...fit(text, shot), duration: until - t, ease: "sine.inOut" }, t);
+    tl.to("#bg-fill", { xPercent: shot.bx, yPercent: shot.by, scale: shot.bs, duration: until - t,
+                        ease: "sine.inOut" }, t);
+    tl.fromTo("#sweep", { scaleX: 0 }, { scaleX: 1, duration: until - t, ease: "none" }, t);
+  });
 
   window.__timelines = window.__timelines || {};
   window.__timelines["__SCENE_ID__"] = tl;

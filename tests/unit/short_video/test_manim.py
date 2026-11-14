@@ -78,14 +78,14 @@ class TestEngineKey(unittest.TestCase):
 
     def test_errors(self) -> None:
         """storyboard.parse_markdown refuses an unknown or empty engine, a manim scene without Brief, Engine on
-        a template and an html scene without Image, each with its line. Guards the Engine key rules."""
+        a template and an html scene without Brief, each with its line. Guards the Engine key rules."""
         cases = [  # (replace, with, line, fragment)
             ("Engine: html", "Engine: blender", 23, "`Engine:` must be one of html, manim"),
             ("Engine: html", "Engine:", 23, "`Engine:` must be one of"),
             ("Brief: Draw the curve.\n", "", 5, "scene 'plot': missing `Brief:`"),
             ("Engine: manim\nBrief: Draw the curve.", "Engine: manim\nTemplate: title", 6,
              "a template scene takes no `Engine:`"),
-            ("Engine: html\nImage: a.png\n", "Engine: html\n", 22, "missing `Image:`"),
+            ("Engine: html\nImage: a.png\nBrief: Pan.\n", "Engine: html\n", 22, "scene 'html': missing `Brief:`"),
         ]
         for old, new, line, fragment in cases:
             with self.subTest(fragment=fragment):
@@ -101,6 +101,7 @@ class TestEngineKey(unittest.TestCase):
             (project / "images").mkdir()
             (project / "images" / "a.png").write_bytes(b"")
             (project / "settings.yaml").write_text("author: [Jane Doe]\nlength: {min_seconds: 1}\n")
+            (project / "storyboard.md").write_text(MD)
             settings.use_project(project)
             try:
                 r = storyboard.validate(storyboard.parse_markdown(MD), project)
@@ -150,8 +151,8 @@ class TestStaticCheckAndPage(unittest.TestCase):
 
     def test_starting_page(self) -> None:
         """manim_scene.render_starting_page fills assets/manim_scene.py with the beats quoted as Python, the
-        background colour and finish(), and the page compiles and passes the helper check. Guards the starting
-        scene.py."""
+        background colour, a ValueTracker-driven movement and finish(), and the page compiles and passes the
+        helper check. Guards the starting scene.py."""
         scene = {"id": "plot", "engine": "manim", "brief": "b", "beats": ['label "cell"', "it's it"]}
         page = manim_scene.render_starting_page(scene)
         self.assertNotIn("__", page.replace("__file__", ""))
@@ -159,6 +160,7 @@ class TestStaticCheckAndPage(unittest.TestCase):
         self.assertIn("""BEATS = ['label "cell"', "it's it"]""", page)
         self.assertIn("BACKGROUND_COLOR = '#0b1320'", page)
         self.assertIn("self.finish()", page)
+        self.assertIn("ValueTracker(0)", page)
         compile(page, "scene.py", "exec")
         self.assertEqual(manim_scene.check_scene_py(page, TIMING)[0], [])
 

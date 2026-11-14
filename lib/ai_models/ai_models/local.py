@@ -1,9 +1,12 @@
-"""Local images and music in process with `diffusers` (extra `ai-models[diffusers]`).
+"""Local images and music in process with `diffusers` (extra `ai-models[diffusers]`), and the
+pipeline cache and device of every local model (video: `video`).
 
 A model is `diffusers.<name>` in the config: `repo` (a Hugging Face repo, loaded
 with `DiffusionPipeline.from_pretrained`; weights go to the Hugging Face cache),
 `steps`, `guidance`, and `inpaint` (a diffusers pipeline class for mask edits,
-built over the loaded modules with `from_pipe`). The device is CUDA, else MPS.
+built over the loaded modules with `from_pipe`). A video model also has
+`pipeline` (the class to load), `fps`, `size_multiple`, `frame_step`, `width`, `height` and
+`max_frames` (see `video`). The device is CUDA, else MPS.
 Pipelines stay loaded for the life of the process. torch and diffusers are
 imported only here.
 """
@@ -22,7 +25,6 @@ from pydantic_ai.messages import BinaryImage
 from . import config
 from .errors import AIModelsError, ConfigError
 
-DEFAULT_MUSIC_SECONDS = 30.0
 _pipes: dict[str, Any] = {}
 
 
@@ -36,21 +38,19 @@ def device() -> str:
     raise AIModelsError(f"local models need a CUDA or Apple MPS GPU; torch {torch.__version__} sees neither")
 
 
-def pipeline(repo: str, inpaint: str | None = None):
-    """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules."""
+def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline"):
+    """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules.
+    `cls` is the diffusers class to load."""
+    import diffusers
     import torch
 
-    key = f"{repo}#{inpaint or ''}"
+    key = f"{repo}#{inpaint or ''}#{cls}"
     if key not in _pipes:
         if inpaint:
-            import diffusers
-
             # from_pipe casts the shared modules to float32 unless given the loaded dtype
             _pipes[key] = getattr(diffusers, inpaint).from_pipe(pipeline(repo), dtype=torch.bfloat16)
         else:
-            from diffusers import DiffusionPipeline
-
-            _pipes[key] = DiffusionPipeline.from_pretrained(repo, dtype=torch.bfloat16).to(device())
+            _pipes[key] = getattr(diffusers, cls).from_pretrained(repo, dtype=torch.bfloat16).to(device())
     return _pipes[key]
 
 
@@ -126,7 +126,7 @@ class DiffusersImageModel(ImageGenerationModel):
 
 
 class DiffusersMusicModel:
-    """A local music pipeline (ACE-Step: `AceStepPipeline`)."""
+    """A local music pipeline: `prompt`, `lyrics` and `audio_duration` in, `.audios` and `sample_rate` out."""
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -134,10 +134,12 @@ class DiffusersMusicModel:
 
     def compose(self, prompt: str, *, seconds: float | None = None, lyrics: str | None = None,
                 seed: int | None = None) -> bytes:
-        """A 16-bit WAV file of the track at the pipeline's sample rate."""
+        """A 16-bit WAV file of the track at the pipeline's sample rate; without `seconds`, the pipeline's own length."""
         import torch
 
-        extra: dict[str, Any] = {"audio_duration": float(seconds or DEFAULT_MUSIC_SECONDS), "seed": seed}
+        extra: dict[str, Any] = {"seed": seed}
+        if seconds is not None:
+            extra["audio_duration"] = float(seconds)
         if lyrics is not None:
             extra["lyrics"] = lyrics
         pipe = pipeline(self.spec["repo"])
@@ -150,3 +152,28 @@ class DiffusersMusicModel:
             w.setframerate(int(pipe.sample_rate))
             w.writeframes(pcm)
         return buf.getvalue()
+
+
+def animate(name: str, image: bytes, prompt: str, *, seconds: float, width: int | None = None,
+            height: int | None = None, seed: int | None = None) -> bytes:
+    """An MP4 (H.264, no audio) of the image-to-video model `diffusers.<name>`. The image is cropped to
+    the clip's aspect ratio and scaled to its size. An audio track the pipeline generates is dropped."""
+    import tempfile
+    from pathlib import Path
+
+    from diffusers.utils import export_to_video
+    from PIL import Image, ImageOps
+
+    from .video import frame_count, frame_size, video_spec
+
+    spec = video_spec(name)
+    w, h = frame_size(width or spec["width"], height or spec["height"], spec["size_multiple"])
+    frames_n = frame_count(seconds, spec["fps"], spec["frame_step"], spec["max_frames"])
+    extra: dict[str, Any] = {"width": w, "height": h, "num_frames": frames_n, "seed": seed}
+    pipe = pipeline(spec["repo"], cls=spec["pipeline"])
+    still = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
+    frames = pipe(image=still, prompt=prompt, output_type="np", **pipe_kwargs(spec, extra)).frames[0]
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "clip.mp4"
+        export_to_video(list(frames), str(out), fps=spec["fps"])
+        return out.read_bytes()

@@ -59,8 +59,8 @@ voice:
   style_backends: [speech]   # backends that accept `style=`
   speed_backends: [kokoro, speech]   # backends that accept a speed other than 1.0
   names:          # default voice per backend; null = voiceover's default
-    kokoro: af_heart
-    chatterbox: default
+    kokoro: null
+    chatterbox: null
     speech: null
 
 # preview_width: width of the image preview in storyboard.md; a percentage of
@@ -141,14 +141,19 @@ music:
   file: null
   extra_seconds: 5
 
-# Critics. claude: the scene critic subagent on the contact sheets. model: the
-# film critic, a non-Claude model run through ai:second-opinion on the
-# assembled MP4 with its sound; null = off. A model id <provider>:<model> of
-# the ai_models config.yaml. Only a Gemini model of a provider of kind google
-# takes video, so the film critic step is skipped when the config has none.
+# Critics. claude: the scene critic subagent on each scene's frames, before
+# assembly. model: the film critic, a non-Claude model run through
+# ai:second-opinion on the assembled MP4 with its sound; null = off. A model
+# id <provider>:<model> of the ai_models config.yaml. Only a Gemini model of a
+# provider of kind google takes video, so the film critic step is skipped when
+# the config has none. rounds: review-and-fix rounds of the film critic, each
+# ending in one assembly. max_findings: the most findings the film critic
+# reports per round.
 critic:
-  claude: true
+  claude: false
   model: vertex:gemini-3.1-pro-preview
+  rounds: 1
+  max_findings: 5
 
 # `play` opens files with these applications (macOS `open -a`): images
 # (.png, .jpg, .jpeg, .webp, .gif) with image_app, video and audio with app.
@@ -167,12 +172,8 @@ forbidden_project_root: null
 # the narration length; the scene ends with `self.finish()` to meet it.
 # verbosity: Manim's log level (`manim render -v`).
 # background_color: the starting page's background colour (a constant at the top of scene.py).
-# font_size: the starting page's beat text size (Manim `Text` font_size; Manim's default is 48).
-# fade_seconds: the starting page's fade in and out of each beat.
 manim:
   scene_class: Main
   length_tolerance_frames: 1
   verbosity: WARNING
   background_color: "#0b1320"
-  font_size: 40
-  fade_seconds: 0.4

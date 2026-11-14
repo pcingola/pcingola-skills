@@ -1,9 +1,8 @@
 """Weight downloads: stream to `<dest>.part`, check the byte count, rename.
 
-Weights come from GitHub releases, Meta's download server and the ModelScope
-mirror of Resemble AI's Chatterbox-Turbo repository. Our own downloader is also
-used for the MMS_FA aligner (instead of torch.hub's) so every download checks
-its size and none is left half-written under its final name.
+The weight URLs and file names are settings (`config.py`). Our own downloader
+is also used for the aligner (instead of torch.hub's) so every download checks
+its size against Content-Length and none is left half-written under its final name.
 """
 
 from __future__ import annotations
@@ -14,43 +13,42 @@ from pathlib import Path
 
 from . import config
 
-_KOKORO_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
-
 
 @dataclass(frozen=True)
 class Weight:
     url: str
     rel_path: str  # relative to config.model_dir()
-    size: int  # expected size in bytes
+    size: int | None = None  # expected size in bytes; None checks Content-Length only
 
 
-KOKORO_MODEL = Weight(f"{_KOKORO_BASE}/kokoro-v1.0.onnx", "kokoro-v1.0/kokoro-v1.0.onnx", 325_532_387)
-KOKORO_VOICES = Weight(f"{_KOKORO_BASE}/voices-v1.0.bin", "kokoro-v1.0/voices-v1.0.bin", 28_214_398)
-MMS_FA = Weight(
-    "https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt",
-    "mms_fa/model.pt",
-    1_262_047_414,
-)
-ALL_WEIGHTS = (KOKORO_MODEL, KOKORO_VOICES, MMS_FA)
+def _basename(url: str) -> str:
+    return url.rstrip("/").rsplit("/", 1)[-1]
 
-_CHATTERBOX_BASE = "https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master"
-CHATTERBOX_DIR = "chatterbox-turbo"
-# file name -> size in bytes; s3gen.safetensors (the non-Turbo decoder) is not needed
-_CHATTERBOX_FILES = {
-    "t3_turbo_v1.safetensors": 1_915_480_052,
-    "s3gen_meanflow.safetensors": 1_064_875_036,
-    "ve.safetensors": 5_695_784,
-    "conds.pt": 169_454,
-    "vocab.json": 999_186,
-    "merges.txt": 456_318,
-    "tokenizer_config.json": 3_878,
-    "added_tokens.json": 418,
-    "special_tokens_map.json": 470,
-}
-CHATTERBOX_WEIGHTS = tuple(
-    Weight(f"{_CHATTERBOX_BASE}/{name}", f"{CHATTERBOX_DIR}/{name}", size)
-    for name, size in _CHATTERBOX_FILES.items()
-)
+
+def kokoro_weights() -> tuple[Weight, Weight]:
+    """The Kokoro model and voices files of the settings, in `<model file stem>/`."""
+    model_url = config.require("VOICEOVER_KOKORO_MODEL_URL")
+    voices_url = config.require("VOICEOVER_KOKORO_VOICES_URL")
+    model_name = _basename(model_url)
+    d = model_name.rsplit(".", 1)[0]
+    return Weight(model_url, f"{d}/{model_name}"), Weight(voices_url, f"{d}/{_basename(voices_url)}")
+
+
+def aligner_weight() -> Weight:
+    """The forced aligner's weights, in `<pipeline name lowercased>/`, the file name torch.hub looks for."""
+    url = config.require("VOICEOVER_ALIGNER_URL")
+    return Weight(url, f"{config.aligner().lower()}/{_basename(url)}")
+
+
+def chatterbox_weights() -> tuple[Weight, ...]:
+    """The files of `VOICEOVER_CHATTERBOX_FILES` under the repository URL `VOICEOVER_CHATTERBOX_URL`."""
+    base = config.require("VOICEOVER_CHATTERBOX_URL").rstrip("/")
+    names = [n.strip() for n in config.require("VOICEOVER_CHATTERBOX_FILES").split(",") if n.strip()]
+    return tuple(Weight(f"{base}/{n}", f"{config.chatterbox_model()}/{n}") for n in names)
+
+
+def all_weights() -> tuple[Weight, ...]:
+    return (*kokoro_weights(), aligner_weight())
 
 
 class DownloadError(RuntimeError):
@@ -114,9 +112,9 @@ def ensure_weight(w: Weight) -> Path:
 
 
 def missing_weights() -> list[Path]:
-    return [weight_path(w) for w in ALL_WEIGHTS if not weight_path(w).is_file()]
+    return [weight_path(w) for w in all_weights() if not weight_path(w).is_file()]
 
 
 def ensure_all() -> list[Path]:
     """Download every weight that is missing; return all weight paths."""
-    return [ensure_weight(w) for w in ALL_WEIGHTS]
+    return [ensure_weight(w) for w in all_weights()]

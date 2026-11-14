@@ -7,7 +7,7 @@
 # Sections:
 #     providers   where models run, with the key of each provider (api_key)
 #     models      the model of each task, as <provider name>:<model>
-#     diffusers   local image and music models (GPU)
+#     diffusers   local image, music and video models (GPU)
 #     settings    every other setting, KEY: value
 #
 # A skill reads settings.<KEY>, else the variable KEY of the process
@@ -22,7 +22,8 @@
 #
 # Provider kinds: ollama, openrouter, openai (any OpenAI-compatible server),
 # azure (Azure OpenAI, needs api_version), google (Gemini, Lyria; vertex: true
-# for a Vertex endpoint), diffusers (local models of the diffusers section).
+# for a Vertex endpoint; predict_models lists the music models served by the
+# Vertex predict endpoint, the others stream), diffusers (local models of the diffusers section).
 # Every kind except diffusers takes timeout (seconds per request, default 600).
 # Delete the providers you do not use; replace each replace-me with a key.
 # azure and vertex below point at a company (enterprise) gateway that serves
@@ -33,7 +34,7 @@ providers:
   ollama:      {kind: ollama, base_url: http://localhost:11434/v1}
   openrouter:  {kind: openrouter, api_key: sk-or-v1-replace-me}
   azure:       {kind: azure, base_url: https://gateway.example.com/azure-openai, api_version: 2025-04-01-preview, api_key: replace-me}
-  vertex:      {kind: google, vertex: true, base_url: https://gateway.example.com/vertex-ai, api_key: replace-me}
+  vertex:      {kind: google, vertex: true, base_url: https://gateway.example.com/vertex-ai, api_key: replace-me, predict_models: [lyria-002]}
   local:       {kind: diffusers}
 
 # The model of each task. The skills ask for these tasks:
@@ -51,6 +52,8 @@ providers:
 #               same across images (Studio "Multi-reference")
 #   speech      media:voiceover (speech backend)
 #   music       media:music generate
+#   video       media:short-video video scenes (Engine: video): an image
+#               animated into a clip
 #   audio       media:music analyze (a chat model that takes audio)
 # A `--model <provider>:<model>` flag of a skill replaces the task's model.
 models:
@@ -59,11 +62,12 @@ models:
   system1: ollama:d3:4b
   image: local:z-image-turbo
   image_edit: local:flux2-klein-4b
-  image_best: azure:gpt-image-2
-  image_multi_ref: openrouter:google/gemini-3-pro-image
+  image_best: local:flux2-klein-4b
+  image_multi_ref: local:flux2-klein-4b
   speech: azure:gpt-4o-mini-tts
   music: vertex:lyria-002
   audio: vertex:gemini-3.1-pro-preview
+  video: local:ltx-video
   # Minimal models for the integration tests, not for real use: they check that
   # the workflow runs and give useless output. To run the integration tests
   # fast, use these in place of the lines above.
@@ -71,20 +75,29 @@ models:
   #image: local:tiny-flux2-klein
   #image_best: local:tiny-flux2-klein
   #image_edit: local:tiny-flux2-klein
+  #image_multi_ref: local:tiny-flux2-klein
   #music: local:ace-step-min
+  #video: local:tiny-ltx2
 
 # Local models (provider kind diffusers): repo (Hugging Face repository),
 # steps, guidance, inpaint (the diffusers pipeline class for edits with a
-# mask). The image-gen and music wrappers install torch and diffusers when a
-# provider of kind diffusers is present; the first run downloads the weights
-# to the Hugging Face cache (HF_HOME below).
+# mask). A video model also has, all required: pipeline (the diffusers class
+# to load), fps, size_multiple (width and height are rounded to it),
+# frame_step (frame counts are frame_step * k + 1), width, height (the default
+# size) and max_frames. The image-gen, music and
+# short-video wrappers install torch and diffusers when a provider of kind
+# diffusers is present; the first run downloads the weights to the Hugging
+# Face cache (HF_HOME below).
 diffusers:
   z-image-turbo:  {repo: Tongyi-MAI/Z-Image-Turbo, steps: 9, guidance: 0.0, inpaint: ZImageInpaintPipeline}
   flux2-klein-4b: {repo: black-forest-labs/FLUX.2-klein-4B, steps: 4, guidance: 1.0, inpaint: Flux2KleinInpaintPipeline}
   ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0}
+  # LTX-Video 0.9.5 (2B), image to video; about 26 GB of weights.
+  ltx-video:      {repo: Lightricks/LTX-Video-0.9.5, pipeline: LTXImageToVideoPipeline, steps: 30, guidance: 3.0, fps: 24, size_multiple: 32, frame_step: 8, width: 768, height: 512, max_frames: 121}
   # Minimal models for the integration tests, not for real use (see models above).
   tiny-flux2-klein: {repo: optimum-intel-internal-testing/tiny-random-flux.2-klein, steps: 1, guidance: 1.0, inpaint: Flux2KleinInpaintPipeline}
   ace-step-min:   {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 1, guidance: 1.0}
+  tiny-ltx2:      {repo: optimum-intel-internal-testing/tiny-random-ltx2, pipeline: LTX2ImageToVideoPipeline, steps: 2, fps: 24, size_multiple: 32, frame_step: 8, width: 64, height: 64, max_frames: 241}
 
 
 # === Settings ================================================================
@@ -123,8 +136,8 @@ settings:
   # use certifi's roots plus EXTRA_CA_CERT.
   #SSL_CERT_FILE: /path/to/ca_bundle.pem
   # Hugging Face cache, where the local diffusers models (media:image-gen,
-  # media:music) download their weights (4 to 33 GB per model). Default
-  # ~/.cache/huggingface.
+  # media:music, media:short-video) download their weights (4 to 90 GB per
+  # model). Default ~/.cache/huggingface.
   #HF_HOME: /path/to/huggingface
   # Hugging Face token. Needed only for a gated repository.
   #HF_TOKEN: hf_replace-me
@@ -136,6 +149,44 @@ settings:
   # Chatterbox voice recordings written by `add-voice`.
   # Default <VOICEOVER_MODEL_DIR>/voices.
   #VOICEOVER_VOICES_DIR: /path/to/voices
+  # Model weights and default voices. Required by the backend that uses them.
+  # Kokoro (kokoro backend): the ONNX model and voices files, stored in
+  # <VOICEOVER_MODEL_DIR>/<model file name without suffix>/.
+  VOICEOVER_KOKORO_MODEL_URL: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+  VOICEOVER_KOKORO_VOICES_URL: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+  VOICEOVER_KOKORO_VOICE: af_heart
+  # Word aligner (every backend, unless --no-align): a torchaudio pipeline
+  # (torchaudio.pipelines.<name>) and its weights file.
+  VOICEOVER_ALIGNER: MMS_FA
+  VOICEOVER_ALIGNER_URL: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt
+  # Chatterbox Turbo (chatterbox backend): model name (also its directory),
+  # base URL of the repository files, the file names, and the default voice
+  # (`default` is the model's built-in voice).
+  VOICEOVER_CHATTERBOX_MODEL: chatterbox-turbo
+  VOICEOVER_CHATTERBOX_URL: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master
+  VOICEOVER_CHATTERBOX_FILES: t3_turbo_v1.safetensors,s3gen_meanflow.safetensors,ve.safetensors,conds.pt,vocab.json,merges.txt,tokenizer_config.json,added_tokens.json,special_tokens_map.json
+  VOICEOVER_CHATTERBOX_VOICE: default
+  # Default voice of the `speech` model (marin: OpenAI; Kore: Gemini TTS;
+  # default: Ollama). VOICEOVER_SPEECH_VOICES, optional: the voices `voices`
+  # lists for the speech backend, comma-separated.
+  VOICEOVER_SPEECH_VOICE: marin
+  #VOICEOVER_SPEECH_VOICES: alloy,ash,ballad,cedar,coral,echo,fable,marin,nova,onyx,sage,shimmer,verse
+
+  # --- media:image-gen -------------------------------------------------------
+  # Size limits. Required for OpenAI-kind models (openai, azure, openrouter,
+  # ollama): edges multiples of 16, longest edge, total pixels (the values
+  # below are gpt-image-2's). Required for local diffusers models: longest
+  # and shortest edge.
+  IMAGE_GEN_OPENAI_MAX_EDGE: 3840
+  IMAGE_GEN_OPENAI_MIN_PIXELS: 655360
+  IMAGE_GEN_OPENAI_MAX_PIXELS: 8294400
+  IMAGE_GEN_LOCAL_MAX_EDGE: 2048
+  IMAGE_GEN_LOCAL_MIN_EDGE: 256
+  # OpenAI-kind model ids (<provider>:<model>, comma-separated) that always get
+  # a size (default 1:1, 1K) and quality IMAGE_GEN_SIZED_QUALITY unless the
+  # options give them.
+  IMAGE_GEN_SIZED_MODELS: azure:gpt-image-2
+  IMAGE_GEN_SIZED_QUALITY: high
 
   # --- brand:brand -----------------------------------------------------------
   # Colon-separated directories searched for brand folders (<dir>/<name>/
@@ -148,3 +199,7 @@ settings:
   # infographic, slides, short-video). Created when missing. Default
   # ~/Documents/Studio.
   #STUDIO_DIR: ~/Documents/Studio
+  # Your name, the default "Made by" of a new short video in the Studio.
+  # Several names are separated by commas. Unset: films start with no author,
+  # and a film without an author has no creator credit.
+  #AUTHOR_NAME: Alice Example

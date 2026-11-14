@@ -34,9 +34,9 @@ A project is the request's `project` directory (absolute). Every file this skill
 
 | File | Content |
 |---|---|
-| `project.json` | `name`, `brief`, `kind` (absent means `image`), `created`, `autonomy` (`step` or `auto`), `settings` (the fields of the last `generate`: `brief`, `refs`, `brand`, `shape`, `model`, `count`, `style`) |
+| `project.json` | `name`, `named` (true once the user renamed the project in the page), `brief`, `kind` (absent in projects made before kinds, which are `image`), `created`, `autonomy` (`step` or `auto`), `settings` (the fields of the last `generate`: `brief`, `refs`, `brand`, `shape`, `model`, `count`, `style`) |
 | `v<N>.png` | version N, numbered from 1 in the order made |
-| `v<N>.json` | `prompt` (the text sent to the model), `scene` (what the image shows, without style line and palette; a `change` copies it from its source), `refs` (absolute paths of the user's reference images and the brand logo, if used; the source version and the marked copy excluded; later versions made from this one keep them), `style` (style name), `brand` (name or null), `model`, `shape`, `action` (the request action that made it), `change` (`{"note", "marks"}` of a `change`, else null), `source` (N of the version it came from, else null), `created`, `invented` (`name`, `description`, `style_line`, `palette` of an invented style; absent otherwise; versions made from it keep it), `kind` (the request's `kind`) |
+| `v<N>.json` | `prompt` (the text sent to the model), `scene` (what the image shows, without style line and palette; a `change` copies it from its source), `refs` (absolute paths of the user's reference images and the brand logo, if used; the source version and the marked copy excluded; later versions made from this one keep them), `style` (style name), `brand` (name or null), `model`, `model_id`, `shape`, `action` (the request action that made it), `change` (`{"note", "marks"}` of a `change`, else null), `source` (N of the version it came from, else null), `created`, `invented` (`name`, `description`, `style_line`, `palette` of an invented style; absent otherwise; versions made from it keep it), `kind` (the request's `kind`) |
 | `refs/` | reference images, written by the page |
 | `marks/v<N>-marked-<k>.png` | a marked copy of version N, one per change request, written by the page |
 | `marks/v<N>-mask-<k>.png` | the edit mask of that change request (same k): version N's pixel size, transparent inside the marks, written by the page |
@@ -46,6 +46,10 @@ A project is the request's `project` directory (absolute). Every file this skill
   kept as found.
 - `model` is the request's image-gen tier (`best`, `fast`, `multi-ref`); `shape` is `1:1`, `4:3`,
   `16:9` or `9:16`.
+- `model_id` is the `<provider>:<model>` that made the image, from the request's `models` (the model of each
+  config task when the Studio server accepted the request): tier `fast` takes `image` without reference images and
+  `image_edit` with them, `best` takes `image_best`, `multi-ref` `image_multi_ref`. A version made from another
+  (`change`, `variations`, `other-styles`) passes reference images. Null when that task has no model.
 - Numbering: find the existing `v*.json` and `v*.png` with Glob in the project directory; the next N is one more than
   the highest N among them (1 when there is none). A request that makes several images reserves consecutive numbers
   before the first generation starts.
@@ -75,7 +79,7 @@ The request's fields map to the generation task given to `media:image-gen` like 
 | Request field | Task for `media:image-gen` |
 |---|---|
 | `shape` | the aspect ratio, unchanged (`1:1`, `4:3`, `16:9`, `9:16`) |
-| `model` | image-gen's tier of the same name (`best`, `fast`, `multi-ref`), which picks a model of image-gen's config; a legacy value maps as the Studio server maps it (`gpt-image-2` to `best`, `nano-banana-pro` to `multi-ref`, `nano-banana-2` to `fast`). Ask image-gen for that tier and for no model id; record the field in `v<N>.json` as given |
+| `model` | image-gen's tier of the same name (`best`, `fast`, `multi-ref`), which picks a model of image-gen's config. Ask image-gen for that tier and for no model id; record the field in `v<N>.json` as given |
 | `count` | that many separate generations of the same prompt, each with its own output path `v<N>.png` |
 | `refs` | reference images, passed as given |
 | `brand` | colours in the prompt; the logo is passed as a reference image only when the brief asks for it (a PNG `logo`, else `raster`); a brand with no PNG logo (for example `neutral`, or an SVG `logo` only) gets none, and the post says so |
@@ -98,15 +102,16 @@ Fields: `brief`, `refs`, `brand`, `shape`, `model`, `count`, `style`. The first 
 with a `project.json` the Studio server created (name from the brief, the autonomy chosen in the page, empty
 `settings`); the project may already hold reference images in `refs/`.
 
-1. Update `settings` in `project.json` to exactly these fields.
+1. Update `settings` in `project.json` to exactly these fields. Unless `named` is true, set `name` to a short title
+   of what the project makes (two to five words, e.g. "Ginger cat at dusk"), not the brief's first words.
 2. Choose the styles:
    - a style name: that style, `count` images in it;
    - `"auto"`: three styles that fit the brief, one image in each (`count` does not apply). A brand whose `styles`
      key lists three or more styles: pick three of them, in its order of preference. A brand listing fewer: use
      every listed style and fill up to three from the catalogue. Otherwise compare the catalogue's tags, media
-     (`suits`) and descriptions with the brief and pick three that differ from each other. For an infographic,
-     every style taken from the catalogue is one whose `suits` includes `infographic`. Note the three names and
-     one line on why each fits.
+     (`suits`) and descriptions with the brief and pick three that differ from each other. Any catalogue style
+     may be picked; `suits` is one of the things compared, never a filter. Note the three names and one line on
+     why each fits.
    - `"invent"`: three styles made up for this image, one image in each (`count` does not apply). They are new:
      no catalogued style is loaded or used as a reference, and nothing is compared with the catalogue or with
      styles invented before. The three differ clearly from each other. Each has a `name` (a few words, kebab-case),
@@ -184,6 +189,8 @@ change, a question about a version), carry it out with the rules of the action i
   the new PNGs).
 - Failure: when a generation fails, post the error text and which versions were not made; the versions that
   succeeded are kept and posted.
+- A prompt may first say that the user stopped earlier requests in the page: their work is not continued, and what
+  they made is kept as it is.
 - Questions: the agent never asks in the terminal. When a request cannot be carried out as given (a version that does
   not exist, a style or brand that is not found, a reference file missing), it posts the question or the problem
   with `post` and ends the turn.
@@ -259,8 +266,8 @@ makes the deck, or rewrites it from the brief when it has slides.
    ask and narrative arc in `working.md`, then `slides.md` with every slide's on-slide text and speaker notes, then
    `deck.json`. The number of slides is `count`, or, when null, the number media:pptx-author's phase 1 judges right for
    the brief. A rewrite replaces `slides.md` and `deck.json`; the `slide-<k>/` directories and their versions stay.
-3. Choose one style for the whole deck: a style name is that style; `"auto"` is one catalogue style whose `suits`
-   includes `slide` that fits the brief (the brand's `styles` first, when it lists some); `"invent"` is one style
+3. Choose one style for the whole deck: a style name is that style; `"auto"` is one catalogue style that fits the brief,
+   chosen as for images (the brand's `styles` first, when it lists some); `"invent"` is one style
    invented as for images (`name`, `description`, `style_line`, `palette`), kept in each slide's `invented`.
 4. Make one image per slide as media:pptx-author's phase 3 says, each written to `<deck>/slide-<k>/v<N>.png` (the next N
    in that slide's directory), all slides in parallel as for images, then each `v<N>.json` with `scene` (what the

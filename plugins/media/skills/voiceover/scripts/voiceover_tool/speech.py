@@ -5,8 +5,8 @@ A style goes as the model's `instructions` (OpenAI-style providers) or as a
 prefix of the text (Gemini TTS). A speed (0.25 to 4) goes to OpenAI-style
 providers, which may refuse it (Ollama does); Gemini TTS has none. The answer is
 a WAV file; raw 16-bit PCM (some OpenAI-compatible servers) is taken as
-24 kHz. The voice is checked by the provider; `voices` lists the documented
-voices of OpenAI, Gemini and Ollama (`phonon`) speech models.
+24 kHz. The voice is checked by the provider. The default voice is the setting
+VOICEOVER_SPEECH_VOICE; `voices` lists VOICEOVER_SPEECH_VOICES when set.
 """
 
 from __future__ import annotations
@@ -19,20 +19,6 @@ import numpy as np
 SAMPLE_RATE = 24_000
 TASK = "speech"
 
-OPENAI_VOICES = (
-    "alloy", "ash", "ballad", "cedar", "coral", "echo", "fable", "marin", "nova", "onyx", "sage",
-    "shimmer", "verse",
-)
-GEMINI_VOICES = (
-    "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede", "Autonoe", "Callirrhoe",
-    "Charon", "Despina", "Enceladus", "Erinome", "Fenrir", "Gacrux", "Iapetus", "Kore",
-    "Laomedeia", "Leda", "Orus", "Puck", "Pulcherrima", "Rasalgethi", "Sadachbia", "Sadaltager",
-    "Schedar", "Sulafat", "Umbriel", "Vindemiatrix", "Zephyr", "Zubenelgenubi",
-)
-OLLAMA_VOICES = ("default", "Easton", "Freya", "Hadley", "Zoey")
-# provider kind -> (voices, default voice)
-VOICES = {"google": (GEMINI_VOICES, "Kore"), "ollama": (OLLAMA_VOICES, "default")}
-OPENAI_STYLE = (OPENAI_VOICES, "marin")
 SPEED_RANGE = (0.25, 4.0)
 
 
@@ -75,7 +61,11 @@ class SpeechBackend:
         except AIModelsError as e:
             raise ValueError(str(e)) from None
         self.style = style
-        self._voices, self.default_voice = VOICES.get(self.kind, OPENAI_STYLE)
+        from . import config
+
+        self.default_voice = config.require("VOICEOVER_SPEECH_VOICE")
+        listed = [v.strip() for v in (config.PLUGIN.get("VOICEOVER_SPEECH_VOICES") or "").split(",") if v.strip()]
+        self._voices = listed or [self.default_voice]
 
     def voices(self) -> list[str]:
         return list(self._voices)
