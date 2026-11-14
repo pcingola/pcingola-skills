@@ -250,6 +250,7 @@
         return `Scene ${i + 1}: write what is said and what is on screen in every sentence; it is saved once both are filled in.`;
       if (!s.template && s.engine !== "clip" && !(s.brief || "").trim())
         return `Scene ${i + 1}: write ${drawn(s) ? "what the scene draws and how it moves" : "how the picture moves"}; it is saved once that is filled in.`;
+      if (s.engine === "video" && !s.image) return `Scene ${i + 1}: a video model animates the scene's picture; add a picture first.`;
     }
     return null;
   }
@@ -1410,7 +1411,8 @@
     const select = h("select", { onchange: e => {
       if (e.target.value === "html") delete s.engine; else s.engine = e.target.value;
       commit();
-    } }, ENGINES.map(([v, label, task]) => h("option", { value: v, disabled: !!task && !taskModel(task) && s.engine !== v },
+    } }, ENGINES.map(([v, label, task]) => h("option", { value: v,
+      disabled: s.engine !== v && ((!!task && !taskModel(task)) || (v === "video" && !s.image)) },
       task ? Studio.withModel(label, taskModel(task)) : label)));
     select.value = s.engine || "html";
     return h("div", { style: "margin-bottom:12px;max-width:420px" }, h("label", { class: "f" }, "Animated by"), select);

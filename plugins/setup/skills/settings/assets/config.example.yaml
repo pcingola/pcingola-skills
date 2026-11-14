@@ -80,7 +80,6 @@ models:
   #image_multi_ref: local:qwen-image
   #music: local:ace-step
   #video: local:ltx-2.5
-  #film_critic: ollama:gemma4:31b
   # Small local models for the integration tests and a quick test film: real
   # models at small size and few steps, low quality output.
   #image: local:flux2-klein-4b
