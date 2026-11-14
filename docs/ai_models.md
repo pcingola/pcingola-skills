@@ -128,6 +128,12 @@ the machine hangs without an error. `local.pipeline` therefore does three things
   found. A process that has loaded a model keeps the lock until it exits, also while it does other work; a load
   that fails while the process has no pipeline releases it. One `threading.RLock` serialises loads within a
   process, so worker threads (`asyncio.to_thread`) share one lock.
+- Handover. The OS releases the lock file before the holder has exited, and the holder's device memory comes
+  back after that. On a GB10, a waiter that got the lock from a holder of a 60 GB CUDA tensor read 65.5 GB free
+  for 0.5 s and 126.9 GB 1 s after, so a 70 GB load right after the handover is refused. A process that waited for the lock
+  therefore waits up to `SETTLE_SECONDS` for the PID in the PID file to exit (gone, or a zombie), and a check that
+  then fails reads the free memory again every `SETTLE_POLL_SECONDS` for up to `SETTLE_SECONDS`
+  (`wait_for_memory`) and resets the cap before it raises.
 - Check. After `from_pretrained` and before any weight moves to the device, the bytes of every parameter and
   buffer of the pipeline's torch modules (`weight_bytes`) are compared with the device's free memory
   (`free_memory`), read before the load, because a load that converts dtypes holds the weights in process memory

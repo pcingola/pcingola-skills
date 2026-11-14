@@ -120,3 +120,91 @@ def test_refused_load_releases_the_lock(tmp_path):
     finally:
         first.kill()
         first.wait()
+
+
+SLOW_EXIT = """
+    import sys, time
+    from ai_models import local
+    local.hold_lock()
+    print("held", flush=True)
+    sys.stdin.readline()
+    local.release_lock()  # the lock goes before the process does, as when the OS tears a process down
+    time.sleep(2)
+"""
+
+
+WAITER = """
+    import psutil
+    from ai_models import local
+    holder = int(open(local.Path(local.tempfile.gettempdir()) / local.PID_FILE).read())
+    waited = local.hold_lock()
+    print(waited, psutil.pid_exists(holder), flush=True)
+"""
+
+
+def test_waiter_returns_after_the_holder_exits(tmp_path):
+    """Guards the refused LTX renders: a process that waited for the lock goes on only after the previous holder
+    has exited, not when the lock file is released, so the holder's memory is not counted as used."""
+    env = lock_env(tmp_path)
+    first = start(SLOW_EXIT, env)
+    try:
+        assert first.stdout.readline().strip() == "held", first.stderr.read()
+        second = start(WAITER, env)
+        try:
+            time.sleep(2)
+            first.stdin.write("\n")
+            first.stdin.flush()
+            first.wait(timeout=30)  # reaped as it exits, as a shell reaps a finished command
+            out, err = second.communicate(timeout=60)
+            assert out.split() == ["True", "False"], err
+        finally:
+            second.kill()
+    finally:
+        first.kill()
+        first.wait()
+
+
+GPU_HOLDER = """
+    import sys, torch
+    from ai_models import local
+    local.hold_lock()
+    x = torch.ones(int(sys.argv[1]), dtype=torch.uint8, device="cuda")
+    torch.cuda.synchronize()
+    print("held", flush=True)
+    sys.stdin.readline()
+"""
+
+
+GPU_WAITER = """
+    import sys
+    from ai_models import local
+    local.hold_lock()
+    print(local.wait_for_memory("cuda", int(sys.argv[1])), flush=True)
+"""
+
+
+@requires(torch.cuda.is_available(), "a CUDA GPU")
+def test_free_memory_comes_back_after_the_holder_exits(tmp_path):
+    """Guards the refused LTX renders: after waiting for a holder of GPU memory, `wait_for_memory` reads the
+    memory the holder gave back, within `SETTLE_SECONDS`."""
+    env = lock_env(tmp_path)
+    before = local.free_memory("cuda")
+    size = before // 3
+    first = subprocess.Popen([sys.executable, "-c", textwrap.dedent(GPU_HOLDER), str(size)], env=env, text=True,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        assert first.stdout.readline().strip() == "held", first.stderr.read()
+        assert local.free_memory("cuda") < before - size // 2
+        need = before - size // 2
+        second = subprocess.Popen([sys.executable, "-c", textwrap.dedent(GPU_WAITER), str(need)], env=env,
+                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            time.sleep(2)
+            first.stdin.close()
+            out, err = second.communicate(timeout=60)
+            assert int(out) >= need, err
+        finally:
+            second.kill()
+    finally:
+        first.kill()
+        first.wait()

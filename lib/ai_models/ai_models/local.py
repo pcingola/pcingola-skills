@@ -31,6 +31,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import urllib.request
 import wave
 from collections.abc import Iterable, Iterator, Sequence
@@ -52,6 +53,11 @@ _load_lock = threading.RLock()  # one thread at a time takes the FileLock and fi
 LOCK_FILE = "ai-models-local.lock"
 PID_FILE = "ai-models-local.pid"
 GB = 1e9
+# After waiting for the lock: how long to wait for the previous holder to exit, and then for its memory to come back
+# before a load is refused. The OS releases the lock file before the process exits and before the GPU driver returns
+# its memory (docs/ai_models.md, Local model memory).
+SETTLE_SECONDS = 10.0
+SETTLE_POLL_SECONDS = 0.5
 
 
 def device() -> str:
@@ -68,7 +74,8 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
     """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules.
     `cls` is the diffusers class to load; the components in `skip` are loaded as None. A load first takes
     the lock (`hold_lock`), caps the CUDA allocator (`cap_memory`) and checks the weights against the free
-    memory (`check_memory`)."""
+    memory (`check_memory`). After waiting for the lock, a check that fails reads the free memory again for up to
+    `SETTLE_SECONDS` (`wait_for_memory`), while the previous holder's memory comes back."""
     import diffusers
     import torch
 
@@ -81,13 +88,17 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
             # from_pipe casts the shared modules to float32 unless given the loaded dtype
             _pipes[key] = getattr(diffusers, inpaint).from_pipe(pipeline(repo, cls=cls, skip=skip), dtype=torch.bfloat16)
             return _pipes[key]
-        hold_lock()
+        waited = hold_lock()
         try:
             dev = device()
             free = free_memory(dev)
             cap_memory(dev, free)
             pipe = _from_pretrained(getattr(diffusers, cls), repo, dtype=torch.bfloat16, **dict.fromkeys(skip))
-            check_memory(repo, weight_bytes(pipe.components.values()), free)
+            weights = weight_bytes(pipe.components.values())
+            if waited and weights > free:
+                free = wait_for_memory(dev, weights)
+                cap_memory(dev, free)
+            check_memory(repo, weights, free)
             with out_of_memory(repo):
                 _pipes[key] = to_device(pipe, dev)
         except BaseException:
@@ -97,13 +108,14 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
         return _pipes[key]
 
 
-def hold_lock() -> None:
+def hold_lock() -> bool:
     """Take the exclusive lock `LOCK_FILE` in the system temporary directory, once per process, and keep it until
     the process exits (the OS releases it then, also after a crash). The holder writes its PID to `PID_FILE`
-    beside it. Another process that holds the lock makes this one wait, with a line on stderr naming that PID."""
+    beside it. Another process that holds the lock makes this one wait, with a line on stderr naming that PID, and
+    then wait up to `SETTLE_SECONDS` for that process to exit. True when this call waited."""
     global _lock
     if _lock is not None:
-        return
+        return False
     from filelock import FileLock, Timeout
 
     lock = FileLock(Path(tempfile.gettempdir()) / LOCK_FILE, mode=0o666, thread_local=False)
@@ -118,11 +130,42 @@ def hold_lock() -> None:
         print(f"ai_models: waiting for process {holder}, which holds local models (lock {lock.lock_file})",
               file=sys.stderr, flush=True)
         lock.acquire()
+        wait_for_exit(holder)
+        waited = True
+    else:
+        waited = False
     _lock = lock
     try:
         pid_file.write_text(str(os.getpid()))
     except OSError:  # a file another user wrote; the PID only helps find a stuck holder
         pass
+    return waited
+
+
+def wait_for_exit(pid: str) -> None:
+    """Wait up to `SETTLE_SECONDS` for process `pid` (text from `PID_FILE`) to exit (gone, or a zombie that holds
+    no memory); an unreadable PID or this process returns at once."""
+    import psutil
+
+    if not pid.isdigit() or int(pid) == os.getpid():
+        return
+    deadline = time.monotonic() + SETTLE_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            if psutil.Process(int(pid)).status() == psutil.STATUS_ZOMBIE:
+                return
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return
+        time.sleep(SETTLE_POLL_SECONDS)
+
+
+def wait_for_memory(dev: str, need: int) -> int:
+    """The device's free memory, read every `SETTLE_POLL_SECONDS` until it reaches `need` bytes or
+    `SETTLE_SECONDS` pass; the last reading."""
+    deadline = time.monotonic() + SETTLE_SECONDS
+    while (free := free_memory(dev)) < need and time.monotonic() < deadline:
+        time.sleep(SETTLE_POLL_SECONDS)
+    return free
 
 
 def release_lock() -> None:
