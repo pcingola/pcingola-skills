@@ -20,7 +20,7 @@ per concern). It has three parts:
 | `speech` | `speak` |
 | `music` | `compose` |
 | `video` | `animate`, `aanimate`; `frame_count`, `frame_size`, `clip_size` |
-| `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` (video), the pipeline cache |
+| `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` (video), the pipeline cache, the lock, memory check and cap (Local model memory) |
 | `tls` | the TLS context of remote clients |
 | `errors` | `AIModelsError`, `ConfigError`, `explained` |
 
@@ -112,6 +112,39 @@ The adapters cover what Pydantic-AI has no call for:
   from a file mapping is about 100 times slower on a unified-memory GPU (GB10: 87 s against under 2 s for FLUX.2
   klein 4B). Weights go to the Hugging Face cache. torch and diffusers are imported
   only in this module.
+
+## Local model memory
+
+A diffusers pipeline runs in the caller's process and keeps its weights for the life of that process. Skills run
+model commands in parallel (parallel tool calls, one subagent per scene), and Ollama keeps a model resident for
+5 minutes after its last call. On a unified-memory GPU, allocations past the free memory exhaust system memory and
+the machine hangs without an error. `local.pipeline` therefore does three things before a load:
+
+- Lock. The first load of a process takes an exclusive `filelock.FileLock` on `ai-models-local.lock` in the system
+  temporary directory (`tempfile.gettempdir()`) and holds it until the process exits; the OS releases it then,
+  also after a crash. Every skill environment and plugin shares the file, so one process at a time holds local
+  models and the others wait without a time limit, so parallel commands queue behind a render. The holder writes
+  its PID to `ai-models-local.pid` beside the lock, and the waiter's stderr line names it, so a stuck holder can be
+  found. A process that has loaded a model keeps the lock until it exits, also while it does other work; a load
+  that fails while the process has no pipeline releases it. One `threading.RLock` serialises loads within a
+  process, so worker threads (`asyncio.to_thread`) share one lock.
+- Check. After `from_pretrained` and before any weight moves to the device, the bytes of every parameter and
+  buffer of the pipeline's torch modules (`weight_bytes`) are compared with the device's free memory
+  (`free_memory`), read before the load, because a load that converts dtypes holds the weights in process memory
+  until the move. Weights over the free memory raise `AIModelsError` with the model, both sizes in GB and the
+  models resident in each `ollama` provider of the config (`GET /api/ps`).
+- Cap. On CUDA, `torch.cuda.set_per_process_memory_fraction((free + memory_reserved) / total)` is set before each
+  load (`cap_memory`). Growth during a load or call then raises `torch.OutOfMemoryError`, which `out_of_memory`
+  turns into the same kind of `AIModelsError`, instead of taking memory other processes need. MPS has its own
+  limit (`PYTORCH_MPS_HIGH_WATERMARK_RATIO`).
+
+Free memory: on CUDA `torch.cuda.mem_get_info()`; on MPS `torch.mps.recommended_max_memory()` minus
+`torch.mps.driver_allocated_memory()`, at most the system's available memory (`psutil.virtual_memory().available`),
+because the driver figure counts only this process. On an integrated CUDA GPU under Linux (`is_integrated` in the
+device properties) it is the system's available memory (`MemAvailable` of `/proc/meminfo`): the device allocates system memory and reclaims the page
+cache, but `mem_get_info()` reports `MemFree` and counts the page cache as used. On a GB10, after 34 GB of
+safetensors files were read, `mem_get_info()` reported 83 GB free and `MemAvailable` 125 GB, and a 102 GB CUDA
+allocation succeeded.
 
 ## Video
 
