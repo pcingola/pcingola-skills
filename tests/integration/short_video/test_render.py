@@ -13,6 +13,7 @@ from pathlib import Path
 
 from short_video_tool import config, media, scenes, settings, state, storyboard, versions
 from tests.prereq import requires
+from tests.integration.short_video.wrapper_env import NODE_DIR
 
 DURATION = 2.0
 TIMING = {
@@ -35,7 +36,7 @@ def _ffmpeg(*args: str) -> None:
     subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True)
 
 
-@requires(scenes.node_ready(config.NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run plugins/media/skills/short-video/scripts/short-video.sh setup")
+@requires(scenes.node_ready(NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run plugins/media/skills/short-video/scripts/short-video.sh setup")
 class TestRender(unittest.TestCase):
 
     @classmethod
@@ -61,12 +62,12 @@ class TestRender(unittest.TestCase):
         (vdir / "timing.json").write_text(json.dumps(TIMING))
         state.write_meta(vdir, {"duration": DURATION})
 
-        cls.sdir = scenes.scaffold(p, cls.scene, config.NODE_DIR)
+        cls.sdir = scenes.scaffold(p, cls.scene, NODE_DIR)
         html = (cls.sdir / "index.html").read_text()
         html = html.replace("<!-- overlays here -->", LABEL)
         html = html.replace("const tl = gsap.timeline({ paused: true });", ANIMATION)
         (cls.sdir / "index.html").write_text(html)
-        cls.scene_mp4 = scenes.render(p, cls.scene, config.NODE_DIR)
+        cls.scene_mp4 = scenes.render(p, cls.scene, NODE_DIR)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -135,18 +136,18 @@ class TestRender(unittest.TestCase):
     def test_unknown_word_blocks_render(self) -> None:
         """scenes.scaffold copies index.html from the previous version, and scenes.render refuses a helper call
         naming a word not in the narration. Guards the static helper check before rendering."""
-        sdir = scenes.scaffold(self.project, self.scene, config.NODE_DIR)
+        sdir = scenes.scaffold(self.project, self.scene, NODE_DIR)
         self.assertEqual(sdir.name, "v2")
         html = (sdir / "index.html").read_text()
         self.assertIn('W(1, "world")', html)  # copied from v1
         (sdir / "index.html").write_text(html.replace('W(1, "world")', 'W(1, "planet")'))
         with self.assertRaises(scenes.SceneError) as cm:
-            scenes.render(self.project, self.scene, config.NODE_DIR)
+            scenes.render(self.project, self.scene, NODE_DIR)
         self.assertIn("planet", str(cm.exception))
         shutil.rmtree(sdir)
 
 
-@requires(scenes.node_ready(config.NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run plugins/media/skills/short-video/scripts/short-video.sh setup")
+@requires(scenes.node_ready(NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run plugins/media/skills/short-video/scripts/short-video.sh setup")
 class TestRenderEndTemplate(unittest.TestCase):
     """An end scene: generated page, no image, credit held past the narration."""
 
@@ -170,8 +171,8 @@ class TestRenderEndTemplate(unittest.TestCase):
                 str(vdir / "narration.wav"))
         (vdir / "timing.json").write_text(json.dumps(TIMING))
         state.write_meta(vdir, {"duration": DURATION})
-        cls.sdir = scenes.scaffold(p, cls.scene, config.NODE_DIR)
-        cls.scene_mp4 = scenes.render(p, cls.scene, config.NODE_DIR)
+        cls.sdir = scenes.scaffold(p, cls.scene, NODE_DIR)
+        cls.scene_mp4 = scenes.render(p, cls.scene, NODE_DIR)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -193,7 +194,7 @@ class TestRenderEndTemplate(unittest.TestCase):
         html = (self.sdir / "index.html").read_text().replace("#0b1320", "#ffffff")
         (self.sdir / "index.html").write_text(html)
         scene = dict(self.scene, beats=["New takeaway"])
-        sdir = scenes.scaffold(self.project, scene, config.NODE_DIR)
+        sdir = scenes.scaffold(self.project, scene, NODE_DIR)
         try:
             self.assertIn("#ffffff", (sdir / "index.html").read_text())
             self.assertIn("New takeaway", (sdir / scenes.CARD_JS).read_text())

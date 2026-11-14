@@ -17,6 +17,7 @@ from pathlib import Path
 
 from short_video_tool import config, media, scenes
 from tests.prereq import requires
+from tests.integration.short_video.wrapper_env import NODE_DIR
 
 SKILLS = Path(__file__).resolve().parents[3] / "plugins" / "media" / "skills"
 SHORT_VIDEO = SKILLS / "short-video" / "scripts" / "short-video.sh"
@@ -63,7 +64,7 @@ def _run(*args: str) -> str:
 
 @requires(shutil.which("ffmpeg") is not None, "ffmpeg not installed")
 @requires(not (_weights_missing()), "voiceover weights not downloaded; run voiceover.sh setup")
-@requires(scenes.node_ready(config.NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run short-video.sh setup")
+@requires(scenes.node_ready(NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run short-video.sh setup")
 class TestSpeakersVoice(unittest.TestCase):
 
     @classmethod

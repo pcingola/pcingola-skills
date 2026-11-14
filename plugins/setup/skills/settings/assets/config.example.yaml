@@ -64,6 +64,14 @@ models:
   speech: azure:gpt-4o-mini-tts
   music: vertex:lyria-002
   audio: vertex:gemini-3.1-pro-preview
+  # Minimal models for the integration tests, not for real use: they check that
+  # the workflow runs and give useless output. To run the integration tests
+  # fast, use these in place of the lines above.
+  #chat: ollama:qwen3:0.6b
+  #image: local:tiny-flux2-klein
+  #image_best: local:tiny-flux2-klein
+  #image_edit: local:tiny-flux2-klein
+  #music: local:ace-step-min
 
 # Local models (provider kind diffusers): repo (Hugging Face repository),
 # steps, guidance, inpaint (the diffusers pipeline class for edits with a
@@ -74,6 +82,9 @@ diffusers:
   z-image-turbo:  {repo: Tongyi-MAI/Z-Image-Turbo, steps: 9, guidance: 0.0, inpaint: ZImageInpaintPipeline}
   flux2-klein-4b: {repo: black-forest-labs/FLUX.2-klein-4B, steps: 4, guidance: 1.0, inpaint: Flux2KleinInpaintPipeline}
   ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0}
+  # Minimal models for the integration tests, not for real use (see models above).
+  tiny-flux2-klein: {repo: optimum-intel-internal-testing/tiny-random-flux.2-klein, steps: 1, guidance: 1.0, inpaint: Flux2KleinInpaintPipeline}
+  ace-step-min:   {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 1, guidance: 1.0}
 
 
 # === Settings ================================================================

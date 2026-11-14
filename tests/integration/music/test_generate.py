@@ -21,13 +21,13 @@ def probe(path: Path) -> tuple[float, str]:
 
 class TestGenerate(unittest.TestCase):
     def test_instrumental_with_tempo(self) -> None:
-        """`music generate --instrumental --bpm 90 --seconds 30` writes an audio file of the format the model
+        """`music generate --instrumental --bpm 90 --seconds 6` writes an audio file of the format the model
         returns, with a sidecar recording the model, the prompt sent and the options."""
         with tempfile.TemporaryDirectory() as tmp:
             out, err = io.StringIO(), io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 try:
-                    cli.main(["generate", "calm piano", "--instrumental", "--bpm", "90", "--seconds", "30",
+                    cli.main(["generate", "calm piano", "--instrumental", "--bpm", "90", "--seconds", "6",
                               "-o", str(Path(tmp) / "a.mp3")])
                 except SystemExit as e:
                     self.assertEqual(e.code, 0, err.getvalue())
@@ -37,7 +37,7 @@ class TestGenerate(unittest.TestCase):
             self.assertGreater(dur, 5)
             meta = json.loads(cli.sidecar(path, ".json").read_text(encoding="utf-8"))
             self.assertIn(":", meta["model"])
-            self.assertEqual(meta["options"], {"instrumental": True, "bpm": 90, "seconds": 30})
+            self.assertEqual(meta["options"], {"instrumental": True, "bpm": 90, "seconds": 6})
             self.assertIn("90", meta["prompt"])
 
 

@@ -7,6 +7,7 @@ voiceover skill is not used). The Manim environment
 cannot be.
 """
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -14,6 +15,8 @@ import unittest
 from pathlib import Path
 
 from tests.prereq import requires
+from tests.integration.short_video import wrapper_env
+from tests.integration.short_video.wrapper_env import NODE_DIR
 from short_video_tool import config, manim_scene, media, mix, scenes, settings, state, storyboard, versions
 
 DURATION = 2.0
@@ -71,15 +74,30 @@ def _manim_ready() -> str | None:
         return "ffmpeg not installed (brew install ffmpeg)"
     if shutil.which("uv") is None:
         return "uv not installed"
-    try:
-        env = manim_scene.manim_env_vars()
-    except scenes.SceneError as e:
-        return str(e)
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    env["UV_PROJECT_ENVIRONMENT"] = str(wrapper_env.MANIM_VENV)
     proc = subprocess.run(["uv", "run", "--project", str(config.MANIM_PROJECT), "manim", "--version"],
                           env=env, capture_output=True, text=True, timeout=1200)
     if proc.returncode != 0:
         return "the Manim environment could not be created: " + (proc.stderr or proc.stdout).strip()[-500:]
     return None
+
+
+def _render(project: Path, sid: str) -> Path:
+    """manim_scene.render of scene `sid` through short-video.sh render, which sets PLUGIN_ENV_DIR and so the
+    Manim environment; returns the scene.mp4 it prints."""
+    r = wrapper_env.run("render", "-p", project, "--scene", sid)
+    if r.returncode != 0:
+        raise AssertionError(f"short-video.sh render failed ({r.returncode}):\n{r.stderr}")
+    return Path(r.stdout.splitlines()[0])
+
+
+def _render_error(project: Path, sid: str) -> str:
+    """The error of a short-video.sh render that must fail (the SceneError message on stderr)."""
+    r = wrapper_env.run("render", "-p", project, "--scene", sid)
+    if r.returncode == 0:
+        raise AssertionError(f"short-video.sh render succeeded: {r.stdout}")
+    return r.stderr
 
 
 def _voice(project: Path, sid: str) -> None:
@@ -111,7 +129,7 @@ class TestManimRender(unittest.TestCase):
             _voice(p, sid)
         cls.sdir = manim_scene.scaffold(p, cls.scene)
         (cls.sdir / "scene.py").write_text(SCENE_PY, encoding="utf-8")
-        cls.scene_mp4 = manim_scene.render(p, cls.scene)
+        cls.scene_mp4 = _render(p, "plot")
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -170,8 +188,7 @@ class TestManimRender(unittest.TestCase):
         try:
             self.assertEqual((sdir / "scene.py").read_text(), SCENE_PY)
             (sdir / "scene.py").write_text(SCENE_PY.replace('W(1, "world")', 'W(1, "planet")'))
-            with self.assertRaisesRegex(scenes.SceneError, "planet"):
-                manim_scene.render(self.project, self.scene)
+            self.assertRegex(_render_error(self.project, "plot"), "planet")
         finally:
             shutil.rmtree(sdir)
 
@@ -181,18 +198,17 @@ class TestManimRender(unittest.TestCase):
         sdir = manim_scene.scaffold(self.project, self.scene)
         try:
             (sdir / "scene.py").write_text(SCENE_PY.replace("        self.finish()\n", ""))
-            with self.assertRaisesRegex(scenes.SceneError, r"self\.finish\(\)"):
-                manim_scene.render(self.project, self.scene)
+            self.assertRegex(_render_error(self.project, "plot"), r"self\.finish\(\)")
         finally:
             shutil.rmtree(sdir)
 
-    @requires(scenes.node_ready(config.NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run plugins/media/skills/short-video/scripts/short-video.sh setup")
+    @requires(scenes.node_ready(NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run plugins/media/skills/short-video/scripts/short-video.sh setup")
     def test_mixed_film(self) -> None:
         """mix.assemble concatenates an HTML and a manim scene with equal SAR into a film of both lengths.
         Guards mixing the two engines in one film."""
         html_scene = storyboard.scene_by_id(self.data, "html")
-        scenes.scaffold(self.project, html_scene, config.NODE_DIR)
-        html_mp4 = scenes.render(self.project, html_scene, config.NODE_DIR)
+        scenes.scaffold(self.project, html_scene, NODE_DIR)
+        html_mp4 = scenes.render(self.project, html_scene, NODE_DIR)
         self.assertEqual(self._video(html_mp4)["sample_aspect_ratio"], self._video(self.scene_mp4)["sample_aspect_ratio"])
         film = mix.assemble(self.project, self.data)
         manifest = json.loads((film.parent / "manifest.json").read_text())
