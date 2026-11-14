@@ -35,7 +35,7 @@ wheels = [
 [[package]]
 name = "ai-models"
 version = "0.1.0"
-source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fai_models&branch=main#dc9a9a25a7ef3ca95e926b1ac5ce5e2d7b330c3a" }
+source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fai_models&branch=main#fe1444c6e28e0aa86039fd662244e939ca4979bf" }
 dependencies = [
     { name = "certifi" },
     { name = "plugin-settings" },
@@ -1651,7 +1651,7 @@ wheels = [
 [[package]]
 name = "plugin-settings"
 version = "0.1.0"
-source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main#dc9a9a25a7ef3ca95e926b1ac5ce5e2d7b330c3a" }
+source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main#fe1444c6e28e0aa86039fd662244e939ca4979bf" }
 dependencies = [
     { name = "pyyaml" },
 ]
