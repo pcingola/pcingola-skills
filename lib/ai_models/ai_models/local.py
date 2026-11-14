@@ -21,6 +21,7 @@ import asyncio
 import io
 import wave
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from pydantic_ai.exceptions import UserError
@@ -56,9 +57,25 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
             # from_pipe casts the shared modules to float32 unless given the loaded dtype
             _pipes[key] = getattr(diffusers, inpaint).from_pipe(pipeline(repo, cls=cls, skip=skip), dtype=torch.bfloat16)
         else:
-            _pipes[key] = to_device(getattr(diffusers, cls).from_pretrained(repo, dtype=torch.bfloat16,
-                                                                            **dict.fromkeys(skip)), device())
+            _pipes[key] = to_device(_from_pretrained(getattr(diffusers, cls), repo, dtype=torch.bfloat16,
+                                                     **dict.fromkeys(skip)), device())
     return _pipes[key]
+
+
+def _from_pretrained(cls, repo: str, **kwargs):
+    """`cls.from_pretrained` from the cached snapshot folder of `repo`, else with a download.
+    Loading the repository id fetches every weight file of each component folder, including
+    alternative shardings the pipeline never reads, and `local_files_only` refuses a snapshot
+    that lacks any of them; a folder load reads only the files the pipeline names."""
+    from huggingface_hub import try_to_load_from_cache
+
+    index = try_to_load_from_cache(repo, "model_index.json")
+    if isinstance(index, str):
+        try:
+            return cls.from_pretrained(str(Path(index).parent), **kwargs)
+        except (OSError, ValueError):
+            pass
+    return cls.from_pretrained(repo, **kwargs)
 
 
 def to_device(pipe, dev: str):
