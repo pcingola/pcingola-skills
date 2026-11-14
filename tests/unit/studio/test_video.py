@@ -863,9 +863,10 @@ def test_phone(client, studio, emitted):
     assert set((studio.root / "short-video").iterdir()) == before
 
 
-def test_markdown_project(client, studio):
-    """A project holding storyboard.md takes only messages: every other request and every write is a 400. Guards
-    projects made in the terminal."""
+def test_markdown_project(client, studio, tmp_path):
+    """A project holding storyboard.md takes only messages, autonomy, rename and delete: every other request and
+    every write is a 400. Guards projects made in the terminal."""
+    studio.trash_root = tmp_path / "Trash"
     p = make_video(studio.root, storyboard=None)
     (p / "storyboard.md").write_text("# Film\n")
     assert client.post("/api/request", vreq(p, "message", text="hi"))[0] == 202
@@ -875,11 +876,18 @@ def test_markdown_project(client, studio):
               ("/api/scene-style", {"scene": "injection", "style": "ink"}),
               ("/api/picture", {"scene": "injection", "name": "a.png", "data": data_url()}),
               ("/api/sources", {"name": "a.md", "data": data_url(b"x", "text/plain")}),
-              ("/api/refs", {"name": "a.png", "data": data_url()}), ("/api/autonomy", {"autonomy": "auto"}),
+              ("/api/refs", {"name": "a.png", "data": data_url()}),
               ("/api/marked", {"scene": "injection", "version": 1, "png": data_url()})]
     for path, body in writes:
         status, out = client.post(path, {"project": str(p), **body})
         assert status == 400 and "storyboard.md" in out["error"], path
+    assert client.post("/api/autonomy", {"project": str(p), "autonomy": "auto"}) == (200, {"autonomy": "auto"})
+    assert client.post("/api/name", {"project": str(p), "name": "Terminal film"}) == (200, {"name": "Terminal film"})
+    meta = json.loads((p / "project.json").read_text())
+    assert meta["autonomy"] == "auto" and meta["name"] == "Terminal film"
+    client.post("/event", {"kind": "ended"})
+    status, body = client.post("/api/delete", {"project": str(p)})
+    assert status == 200 and not p.exists() and (Path(body["trash"]) / "storyboard.md").is_file()
 
 
 def test_scene_refused_elsewhere(client, studio):

@@ -126,7 +126,7 @@ that changes a scene, recording what the status command reported and the scene i
 scene with that record and shows the state, so an edit in the page changes the state at once. The state is only
 displayed; `make-film` and `remake-scene` run the status command, which decides what is remade.
 
-A project that holds `storyboard.md` instead of `storyboard.json` is shown with an error and accepts only messages.
+A project that holds `storyboard.md` instead of `storyboard.json` is shown with an error and accepts only messages, a change of autonomy, a rename and a delete.
 
 ## Server
 

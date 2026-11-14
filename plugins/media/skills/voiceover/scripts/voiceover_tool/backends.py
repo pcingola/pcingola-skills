@@ -3,7 +3,7 @@
 A backend turns one sentence into mono float32 samples at `sample_rate`.
 Register new backends in `BACKENDS` (name -> factory taking `style`).
 
-- `kokoro`: local Kokoro (kokoro-onnx), English voices only, no style.
+- `kokoro`: local Kokoro (kokoro-onnx), the voices of the prefixes in VOICEOVER_KOKORO_LANGS, no style.
 - `chatterbox`: local Chatterbox Turbo with voice cloning, see `chatterbox.py`.
 - `speech`: the `speech` model of the `ai_models` config (OpenAI-style, Gemini
   TTS or Ollama), see `speech.py`.
@@ -31,15 +31,24 @@ class TTSBackend(Protocol):
         ...
 
 
-# Kokoro voice prefix -> espeak language: American (a) and British (b) English
-KOKORO_LANGS = {"af_": "en-us", "am_": "en-us", "bf_": "en-gb", "bm_": "en-gb"}
+LANGS_KEY = "VOICEOVER_KOKORO_LANGS"
+
+
+def kokoro_langs() -> dict[str, str]:
+    """Kokoro voice prefix -> espeak language, from the setting VOICEOVER_KOKORO_LANGS (comma-separated
+    `prefix=language` pairs)."""
+    raw = config.require(LANGS_KEY)
+    pairs = [(p.strip(), lang.strip(), sep) for p, sep, lang in (x.partition("=") for x in raw.split(",") if x.strip())]
+    if not pairs or not all(p and lang and sep for p, lang, sep in pairs):
+        config.PLUGIN.invalid(LANGS_KEY, raw, "comma-separated prefix=language pairs (af_=en-us)")
+    return {p: lang for p, lang, _ in pairs}
 
 
 def kokoro_lang(voice: str) -> str:
-    for prefix, lang in KOKORO_LANGS.items():
+    for prefix, lang in kokoro_langs().items():
         if voice.startswith(prefix):
             return lang
-    raise ValueError(f"kokoro voice {voice!r} is not an English voice; run `voiceover.sh voices`")
+    raise ValueError(f"kokoro voice {voice!r} has no language in {LANGS_KEY}; run `voiceover.sh voices`")
 
 
 class KokoroBackend:
@@ -69,7 +78,7 @@ class KokoroBackend:
         return self._kokoro
 
     def voices(self) -> list[str]:
-        return [v for v in self._model().get_voices() if v.startswith(tuple(KOKORO_LANGS))]
+        return [v for v in self._model().get_voices() if v.startswith(tuple(kokoro_langs()))]
 
     def synthesize(self, text: str, voice: str, speed: float) -> np.ndarray:
         lang = kokoro_lang(voice)

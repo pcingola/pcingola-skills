@@ -193,6 +193,8 @@ def _check_scene(s: object, i: int, seen: set, speakers: dict, err) -> None:
         err(f"{label}: missing `brief`")
     if s.get("image") == "":
         err(f"{label}: `image` is empty; name a file under images/ or leave it out")
+    elif engine == "video" and template is None and "image" not in s:
+        err(f"{label}: missing `image`; a scene with `engine` video animates that image")
     silent = engine == "clip" and template is None
     narration = s.get("narration", [] if silent else None)
     if not isinstance(narration, list) or not all(_text(x) for x in narration):

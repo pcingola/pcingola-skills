@@ -84,8 +84,11 @@ def test_request_carries_models(client, emitted):
 
 
 def test_storyboard_engine_video():
-    """A scene with engine video passes the storyboard check; an unknown engine does not. Guards the page's engine
-    choice against the server refusing the write."""
-    scene = {"id": "a", "brief": "the camera pushes in", "narration": ["One."], "beats": ["One"]}
+    """A scene with engine video and an image passes the storyboard check; one without an image, or with an unknown
+    engine, does not. Guards the page's engine choice against the server refusing the write, and a video scene with
+    no picture to animate."""
+    scene = {"id": "a", "image": "a.png", "brief": "the camera pushes in", "narration": ["One."], "beats": ["One"]}
     assert check_storyboard({"title": "T", "topic": "t", "scenes": [{**scene, "engine": "video"}]}) == []
+    no_image = {k: v for k, v in scene.items() if k != "image"}
+    assert check_storyboard({"title": "T", "topic": "t", "scenes": [{**no_image, "engine": "video"}]})
     assert check_storyboard({"title": "T", "topic": "t", "scenes": [{**scene, "engine": "film"}]})

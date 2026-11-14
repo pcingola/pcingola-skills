@@ -22,6 +22,9 @@ Commands:
     music      Import music.file (made with the music skill) as the next
                music version.
     length     Print the narration length and the music length to request.
+    critic     Print the film critic's model: `critic.model` of settings.yaml,
+               else task `film_critic` of the ai_models config; `off` when
+               `critic.model` is null.
     assemble   Join all scenes, mix the music under the voice, draw the creator
                caption: film/v<N>/film.mp4.
     credit     Add the creator caption and metadata to an existing MP4.
@@ -499,6 +502,22 @@ def _cmd_play(args: argparse.Namespace) -> int:
     return max(subprocess.run(cmd).returncode for cmd in play_commands(paths))
 
 
+def _cmd_critic(args: argparse.Namespace) -> int:
+    _project(args)
+    c = settings.get().get("critic") or {}
+    if "model" in c and c["model"] is None:
+        print("off")
+        return 0
+    from ai_models import config as ai_config
+    from ai_models.errors import AIModelsError
+
+    try:
+        print(ai_config.resolve(c.get("model"), "film_critic"))
+    except AIModelsError as e:
+        config.error(str(e))
+    return 0
+
+
 BRAND_HELP = "The brand folder the brand skill reports"
 
 
@@ -561,6 +580,7 @@ def _build_parser() -> argparse.ArgumentParser:
     c.set_defaults(func=_cmd_music)
 
     project_cmd("length", "Print the narration length and the music length to request").set_defaults(func=_cmd_length)
+    project_cmd("critic", "Print the film critic's model, or `off`").set_defaults(func=_cmd_critic)
 
     c = project_cmd("assemble", "Assemble the film as the next film version")
     c.add_argument("--music", help="Music version, e.g. v2 (default: latest)")

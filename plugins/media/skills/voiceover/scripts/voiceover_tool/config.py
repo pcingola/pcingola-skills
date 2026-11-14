@@ -11,6 +11,7 @@ Model settings, all required by the backend that uses them (no defaults in code)
     VOICEOVER_KOKORO_MODEL_URL   Kokoro ONNX model file URL
     VOICEOVER_KOKORO_VOICES_URL  Kokoro voices file URL
     VOICEOVER_KOKORO_VOICE       default kokoro voice
+    VOICEOVER_KOKORO_LANGS       Kokoro voice prefix -> espeak language, comma-separated `prefix=language`
     VOICEOVER_ALIGNER            torchaudio forced-alignment pipeline (`torchaudio.pipelines.<name>`)
     VOICEOVER_ALIGNER_URL        that pipeline's weights file URL
     VOICEOVER_CHATTERBOX_MODEL   Chatterbox model name (label and directory)

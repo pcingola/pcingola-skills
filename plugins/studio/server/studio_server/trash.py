@@ -32,18 +32,23 @@ def trash_dir() -> Path:
 
 def move_to_trash(path: Path, label: str, root: Path | None = None) -> Path:
     """Moves the directory `path` into the Trash `root` (None: trash_dir()) as `label` (`label 2`, ... when taken);
-    on Linux into `files/` with its `info/<name>.trashinfo`, so the desktop's Trash can restore it. Answers the new
-    path."""
+    on Linux into `files/` with its `info/<name>.trashinfo`, so the desktop's Trash can restore it. A failed move
+    leaves no `.trashinfo`. Answers the new path."""
     root = root or trash_dir()
     linux = sys.platform.startswith("linux")
     files = root / "files" if linux else root
     files.mkdir(parents=True, exist_ok=True)
     target = _free(files, label)
-    if linux:
-        info = root / "info"
-        info.mkdir(parents=True, exist_ok=True)
-        (info / f"{target.name}.trashinfo").write_text(
+    info = root / "info" / f"{target.name}.trashinfo" if linux else None
+    if info:
+        info.parent.mkdir(parents=True, exist_ok=True)
+        info.write_text(
             f"[Trash Info]\nPath={quote(str(path))}\nDeletionDate={datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}\n",
             encoding="utf-8")
-    shutil.move(str(path), str(target))
+    try:
+        shutil.move(str(path), str(target))
+    except BaseException:
+        if info:
+            info.unlink(missing_ok=True)
+        raise
     return target

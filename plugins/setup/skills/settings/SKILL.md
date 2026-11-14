@@ -128,7 +128,7 @@ Required settings, per skill:
 | Plugin | Skill and command | Required |
 |---|---|---|
 | ai, media | classify, second-opinion, image-gen, music, voiceover `--backend speech`, short-video video scenes | a model for the task in `models`, and the `api_key` of its provider when the provider needs one |
-| media | voiceover `--backend kokoro` (the default) | `VOICEOVER_KOKORO_MODEL_URL`, `VOICEOVER_KOKORO_VOICES_URL`, `VOICEOVER_KOKORO_VOICE` |
+| media | voiceover `--backend kokoro` (the default) | `VOICEOVER_KOKORO_MODEL_URL`, `VOICEOVER_KOKORO_VOICES_URL`, `VOICEOVER_KOKORO_VOICE`, `VOICEOVER_KOKORO_LANGS` |
 | media | voiceover `--backend chatterbox` | `VOICEOVER_CHATTERBOX_MODEL`, `VOICEOVER_CHATTERBOX_URL`, `VOICEOVER_CHATTERBOX_FILES`, `VOICEOVER_CHATTERBOX_VOICE` |
 | media | voiceover `--backend speech` | `VOICEOVER_SPEECH_VOICE` (the default voice of the `speech` model) |
 | media | voiceover `synth` without `--no-align`, `setup` | `VOICEOVER_ALIGNER`, `VOICEOVER_ALIGNER_URL` |

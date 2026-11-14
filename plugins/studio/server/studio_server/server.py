@@ -525,13 +525,14 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(503, "the stop could not be passed to Claude Code") from None
         self.reply_json(202, {"id": request_id})
 
-    def _body_project(self) -> tuple[dict, Path]:
-        """The body and its project; a short-video project holding storyboard.md takes no write."""
+    def _body_project(self, *, markdown: bool = False) -> tuple[dict, Path]:
+        """The body and its project; a short-video project holding storyboard.md takes no write, unless `markdown`
+        (a write of project.json only, or a move of the whole project)."""
         body = self.read_json()
         if not isinstance(body, dict):
             raise HttpError(400, "the body must be a JSON object")
         project = project_path(self.studio.root, body.get("project"))
-        if is_video(project):
+        if is_video(project) and not markdown:
             refuse_markdown(project)
         return body, project
 
@@ -620,7 +621,7 @@ class Handler(BaseHTTPRequestHandler):
         self.reply_json(200, {"project": str(project)})
 
     def post_autonomy(self, q: dict) -> None:
-        body, project = self._body_project()
+        body, project = self._body_project(markdown=True)
         autonomy = body.get("autonomy")
         if autonomy not in AUTONOMY:
             raise HttpError(400, f"autonomy must be one of {', '.join(AUTONOMY)}")
@@ -629,7 +630,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_name(self, q: dict) -> None:
         """The user's name of a project: `name` in project.json, and `named` true so the agent keeps it."""
-        body, project = self._body_project()
+        body, project = self._body_project(markdown=True)
         name = body.get("name")
         if not isinstance(name, str) or not name.strip() or len(name.strip()) > NAME_MAX:
             raise HttpError(400, f"name must be a non-blank string of at most {NAME_MAX} characters")
@@ -639,7 +640,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_delete(self, q: dict) -> None:
         """Moves a project to the user's Trash; 409 while a current or queued request works on it."""
-        body, project = self._body_project()
+        body, project = self._body_project(markdown=True)
         busy = [r for r in self.studio.pending_requests()
                 if str(project) in (r.get("project"), r.get("target"))]
         if busy:

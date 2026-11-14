@@ -285,7 +285,8 @@ for, post that a project has to be opened first.
 
 - Progress: `mcp__studio__note` with one short line. During `make-film` the page shows the latest note as progress.
 - Result: `mcp__studio__post` with `text` and `images` (absolute paths of new pictures or contact sheets).
-- Failure: post the error text and what was not made; what succeeded is kept and posted.
+- Failure: post the command's one-line error message (never a traceback) and what was not made; what succeeded
+  is kept and posted.
 - A prompt may first say that the user stopped earlier requests in the page: their work is not continued, and what
   they made is kept as it is.
 - Questions: never asked in the terminal. A request that cannot be carried out as given (a scene, version or file

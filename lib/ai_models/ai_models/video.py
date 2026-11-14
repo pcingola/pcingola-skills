@@ -11,7 +11,8 @@ besides `repo`, `steps` and `guidance`, all required:
     width, height   the size when the caller gives none
     max_frames      the longest clip; a longer request is cut to it
 
-A missing key is a `ConfigError` that names it.
+A missing key is a `ConfigError` that names it. Any other failure of the model call (a pipeline error,
+out of memory, a failed download) is an `AIModelsError` with a one-line message.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ import math
 from typing import Any
 
 from . import config
-from .errors import ConfigError
+from .errors import AIModelsError, ConfigError
 
 VIDEO_KEYS = ("pipeline", "fps", "size_multiple", "frame_step", "width", "height", "max_frames")
 
@@ -51,12 +52,19 @@ def animate(image: bytes, prompt: str, *, seconds: float, model: str | None = No
             height: int | None = None, seed: int | None = None) -> bytes:
     """An MP4 of `image` (PNG or JPEG bytes) animated as `prompt` describes, at least `seconds` long unless
     the model's `max_frames` is shorter."""
-    name, bare = config.split_id(config.resolve(model, "video"))
+    model_id = config.resolve(model, "video")
+    name, bare = config.split_id(model_id)
     if (kind := config.provider(name)["kind"]) != "diffusers":
         raise ConfigError(f"provider {name!r} of kind {kind!r} has no video models")
     from . import local
 
-    return local.animate(bare, image, prompt, seconds=seconds, width=width, height=height, seed=seed)
+    try:
+        return local.animate(bare, image, prompt, seconds=seconds, width=width, height=height, seed=seed)
+    except AIModelsError:
+        raise
+    except Exception as e:
+        first = next(iter(str(e).strip().splitlines()), "")
+        raise AIModelsError(f"{model_id}: {type(e).__name__}" + (f": {first}" if first else "")) from e
 
 
 async def aanimate(image: bytes, prompt: str, **kwargs) -> bytes:

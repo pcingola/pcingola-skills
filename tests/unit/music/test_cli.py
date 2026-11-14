@@ -80,8 +80,8 @@ def test_options_the_model_does_not_take(music, tmp_path):
     """Options are refused before any request: by the CLI (`--seed` with `--samples`, an image that is not
     PNG, JPEG or WebP) and by `ai_models.music` for the model's kind (images for lyria-002, a negative
     prompt for Lyria 3, samples for a local model)."""
-    (tmp_path / "config.yaml").write_text("providers:\n  g: {kind: google}\n  local: {kind: diffusers}\n"
-                                          "models: {}\n")
+    (tmp_path / "config.yaml").write_text("providers:\n  g: {kind: google, predict_models: [lyria-002]}\n"
+                                          "  local: {kind: diffusers}\nmodels: {}\n")
     gif = tmp_path / "a.gif"
     gif.write_bytes(b"GIF8")
     png = tmp_path / "a.png"

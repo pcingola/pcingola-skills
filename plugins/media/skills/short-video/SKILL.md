@@ -160,13 +160,13 @@ scene.
    when `author:` names someone. If the voice is hard to hear, lower
    `mix.music_db` and assemble again. Do the checks in
    `references/post-production.md` before handing the film over.
-9. Film critic, when `critic.model` is set (default
-   `vertex:gemini-3.1-pro-preview`, a model id of the `ai_models` config).
+9. Film critic: `critic` prints its model (task `film_critic` of the model
+   config, or `critic.model` of `settings.yaml`), or `off`.
    Only a Gemini model of a `google` provider in that config takes video.
    Load `ai:second-opinion` and ask
    it to review `film/v<N>/film.mp4`, the storyboard file (`storyboard.md`
    or `storyboard.json`) and the source text
-   under `sources/`, with `critic.model` as the model,
+   under `sources/`, with that model,
    `references/critic.md` as the brief and at most `critic.max_findings`
    findings. Verify each finding against the film with `frames` on the scene
    that holds its time range: a scene starts in the film at the sum of the
@@ -174,10 +174,12 @@ scene.
    feedback on the film, assemble once, and tell the user what was found,
    fixed and dropped. That is one round; `critic.rounds` sets how many run,
    and no review follows the last.
-   When second-opinion stops because the config has no such provider or its
-   key is not set, skip this step. Tell the user that the film critic needs a
-   Gemini model of a `google` provider in the model config. `critic.model: null` in
-   `settings.yaml` turns the step off.
+   When `critic` prints `off`, skip this step. When `critic` fails (no
+   `film_critic` task) or second-opinion stops because the config has no such
+   provider or its key is not set, skip this step and tell the user that the
+   film critic needs task `film_critic` set to a Gemini model of a `google`
+   provider in the model config. `critic.model: null` in `settings.yaml` turns
+   the step off.
 
 After a later change to the storyboard or `settings.yaml`, `status` lists the
 scenes that need a new voice or render; redo what "What an edit needs" in
@@ -261,6 +263,7 @@ be the `brand:` value.
 | `clip --scene ID FILE` | import a video as the next version of a clip scene, mux, contact sheet |
 | `frames --scene ID --at 3.2,7.5 [--version vN]` | full-size PNGs at given times |
 | `length` | narration length (a clip scene: at least its clip), silent clip length, and the music length to request |
+| `critic` | the film critic's model (task `film_critic` of the model config, or `critic.model`), or `off` |
 | `music` | import `music.file` as the next music version |
 | `assemble [--music vN] [--brand DIR]` | the next film version |
 | `audiocheck [FILE...] [--film vN]` | bursts and clicks in each source track; exit 1 if any |

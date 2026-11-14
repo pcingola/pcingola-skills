@@ -3,8 +3,12 @@ pipeline cache and device of every local model (video: `video`).
 
 A model is `diffusers.<name>` in the config: `repo` (a Hugging Face repo, loaded
 with `DiffusionPipeline.from_pretrained`; weights go to the Hugging Face cache),
-`steps`, `guidance`, and `inpaint` (a diffusers pipeline class for mask edits,
-built over the loaded modules with `from_pipe`). A video model also has
+`steps`, `guidance` (optional: without it no `guidance_scale` is passed), `inpaint` (a
+diffusers pipeline class for mask edits, built over the loaded modules with `from_pipe`),
+`args` (optional: more pipeline call arguments, after steps and guidance and before the
+caller's) and `skip` (optional: pipeline components loaded as None). A music model also has
+`duration_arg` and `lyrics_arg`: the names of the pipeline call arguments that take the
+length in seconds and the lyrics; without one, the model does not take that option. A video model also has
 `pipeline` (the class to load), `fps`, `size_multiple`, `frame_step`, `width`, `height` and
 `max_frames` (see `video`). The device is CUDA, else MPS.
 Pipelines stay loaded for the life of the process. torch and diffusers are
@@ -16,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import io
 import wave
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic_ai.exceptions import UserError
@@ -38,26 +43,30 @@ def device() -> str:
     raise AIModelsError(f"local models need a CUDA or Apple MPS GPU; torch {torch.__version__} sees neither")
 
 
-def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline"):
+def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline", skip: Sequence[str] = ()):
     """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules.
-    `cls` is the diffusers class to load."""
+    `cls` is the diffusers class to load; the components in `skip` are loaded as None."""
     import diffusers
     import torch
 
-    key = f"{repo}#{inpaint or ''}#{cls}"
+    skip = tuple(skip)
+    key = f"{repo}#{inpaint or ''}#{cls}#{','.join(skip)}"
     if key not in _pipes:
         if inpaint:
             # from_pipe casts the shared modules to float32 unless given the loaded dtype
-            _pipes[key] = getattr(diffusers, inpaint).from_pipe(pipeline(repo), dtype=torch.bfloat16)
+            _pipes[key] = getattr(diffusers, inpaint).from_pipe(pipeline(repo, cls=cls, skip=skip), dtype=torch.bfloat16)
         else:
-            _pipes[key] = getattr(diffusers, cls).from_pretrained(repo, dtype=torch.bfloat16).to(device())
+            _pipes[key] = getattr(diffusers, cls).from_pretrained(repo, dtype=torch.bfloat16,
+                                                                  **dict.fromkeys(skip)).to(device())
     return _pipes[key]
 
 
 def pipe_kwargs(spec: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
-    """Steps and guidance of the model, then `extra`; `seed` becomes a torch generator."""
+    """Steps and guidance of the model (each only when set), its `args`, then `extra`; `seed` becomes a torch
+    generator."""
     kwargs = {k: v for k, v in (("num_inference_steps", spec.get("steps")),
                                 ("guidance_scale", spec.get("guidance"))) if v is not None}
+    kwargs.update(spec.get("args") or {})
     kwargs.update(extra)
     if (seed := kwargs.pop("seed", None)) is not None:
         import torch
@@ -116,7 +125,8 @@ class DiffusersImageModel(ImageGenerationModel):
                 kwargs["image_reference"] = pics[1:]
         elif pics:
             kwargs["image"] = pics
-        pipe = pipeline(self.spec["repo"], self.spec.get("inpaint") if self.mask is not None else None)
+        pipe = pipeline(self.spec["repo"], self.spec.get("inpaint") if self.mask is not None else None,
+                        skip=self.spec.get("skip") or ())
         out = []
         for img in pipe(prompt=prompt, **kwargs).images:
             buf = io.BytesIO()
@@ -126,7 +136,8 @@ class DiffusersImageModel(ImageGenerationModel):
 
 
 class DiffusersMusicModel:
-    """A local music pipeline: `prompt`, `lyrics` and `audio_duration` in, `.audios` and `sample_rate` out."""
+    """A local music pipeline: `prompt` and the arguments named by `duration_arg` and `lyrics_arg` in,
+    `.audios` and `sample_rate` out."""
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -138,11 +149,13 @@ class DiffusersMusicModel:
         import torch
 
         extra: dict[str, Any] = {"seed": seed}
-        if seconds is not None:
-            extra["audio_duration"] = float(seconds)
-        if lyrics is not None:
-            extra["lyrics"] = lyrics
-        pipe = pipeline(self.spec["repo"])
+        for key, value in (("duration_arg", None if seconds is None else float(seconds)), ("lyrics_arg", lyrics)):
+            if value is None:
+                continue
+            if not (arg := self.spec.get(key)):
+                raise ConfigError(f"diffusers model {self.name!r} has no `{key}` for {key.removesuffix('_arg')}")
+            extra[arg] = value
+        pipe = pipeline(self.spec["repo"], skip=self.spec.get("skip") or ())
         audio = pipe(prompt=prompt, output_type="pt", **pipe_kwargs(self.spec, extra)).audios[0]  # (channels, samples)
         pcm = (audio.float().clamp(-1, 1) * 32767).to(torch.int16).T.contiguous().cpu().numpy().tobytes()
         buf = io.BytesIO()
@@ -170,7 +183,7 @@ def animate(name: str, image: bytes, prompt: str, *, seconds: float, width: int 
     w, h = frame_size(width or spec["width"], height or spec["height"], spec["size_multiple"])
     frames_n = frame_count(seconds, spec["fps"], spec["frame_step"], spec["max_frames"])
     extra: dict[str, Any] = {"width": w, "height": h, "num_frames": frames_n, "seed": seed}
-    pipe = pipeline(spec["repo"], cls=spec["pipeline"])
+    pipe = pipeline(spec["repo"], cls=spec["pipeline"], skip=spec.get("skip") or ())
     still = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
     frames = pipe(image=still, prompt=prompt, output_type="np", **pipe_kwargs(spec, extra)).frames[0]
     with tempfile.TemporaryDirectory() as tmp:

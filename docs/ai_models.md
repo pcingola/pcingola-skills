@@ -41,9 +41,13 @@ The package reads three sections; the fourth, `settings`, belongs to `plugin_set
 - `models`: task to model id. A model id is `<provider name>:<model>`; the first colon splits it, so
   `ollama:d3:4b` is the Ollama tag `d3:4b`. A caller passes its own id (a `--model` flag) or asks for a task and gets
   `models.<task>` (`config.resolve`). The tasks the skills use: `chat`, `vision`, `system1`, `image`,
-  `image_edit`, `image_best`, `image_multi_ref`, `speech`, `music`, `audio`, `video`. The package has no model defaults.
-- `diffusers`: name to local model: `repo` (a Hugging Face repository), `steps`, `guidance`, and `inpaint` (the
-  diffusers pipeline class for an edit with a mask, built over the loaded modules with `from_pipe`). A model id
+  `image_edit`, `image_best`, `image_multi_ref`, `speech`, `music`, `audio`, `video`, `film_critic`. The package has no model defaults.
+- `diffusers`: name to local model: `repo` (a Hugging Face repository), `steps`, `guidance` (optional: without it
+  no `guidance_scale` is passed), `inpaint` (the diffusers pipeline class for an edit with a mask, built over the
+  loaded modules with `from_pipe`), `args` (optional: more pipeline call arguments, after steps and guidance and
+  before the caller's) and `skip` (optional: pipeline components loaded as None). A music model adds `duration_arg`
+  and `lyrics_arg`, the pipeline call argument names for the length in seconds and the lyrics; a model without one
+  does not take that option. A model id
   `<diffusers provider>:<name>` names it. A video model adds the keys of the Video section.
 
 The image-gen, music and short-video wrappers install the extra when the config has a provider of kind `diffusers`

@@ -55,6 +55,9 @@ providers:
 #   video       media:short-video video scenes (Engine: video): an image
 #               animated into a clip
 #   audio       media:music analyze (a chat model that takes audio)
+#   film_critic media:short-video film critic, through ai:second-opinion (a
+#               model that takes video with sound: a Gemini model of a
+#               provider of kind google)
 # A `--model <provider>:<model>` flag of a skill replaces the task's model.
 models:
   chat: openrouter:google/gemini-3-pro
@@ -62,42 +65,61 @@ models:
   system1: ollama:d3:4b
   image: local:z-image-turbo
   image_edit: local:flux2-klein-4b
-  image_best: local:flux2-klein-4b
-  image_multi_ref: local:flux2-klein-4b
+  image_best: azure:gpt-image-2
+  image_multi_ref: openrouter:google/gemini-3-pro-image
   speech: azure:gpt-4o-mini-tts
   music: vertex:lyria-002
   audio: vertex:gemini-3.1-pro-preview
   video: local:ltx-video
-  # Minimal models for the integration tests, not for real use: they check that
-  # the workflow runs and give useless output. To run the integration tests
-  # fast, use these in place of the lines above.
-  #chat: ollama:qwen3:0.6b
-  #image: local:tiny-flux2-klein
-  #image_best: local:tiny-flux2-klein
-  #image_edit: local:tiny-flux2-klein
-  #image_multi_ref: local:tiny-flux2-klein
-  #music: local:ace-step-min
-  #video: local:tiny-ltx2
+  film_critic: vertex:gemini-3.1-pro-preview
+  # Local models on a GPU (Ollama and the diffusers section below), in place of
+  # the cloud lines above:
+  #speech: ollama:lfm3-audio
+  #image_best: local:qwen-image
+  #image_edit: local:qwen-image
+  #image_multi_ref: local:qwen-image
+  #music: local:ace-step
+  #video: local:ltx-2.5
+  #film_critic: ollama:gemma4:31b
+  # Small local models for the integration tests and a quick test film: real
+  # models at small size and few steps, low quality output.
+  #image: local:flux2-klein-4b
+  #image_best: local:flux2-klein-4b
+  #image_edit: local:flux2-klein-4b
+  #image_multi_ref: local:flux2-klein-4b
+  #speech: ollama:lfm3-audio
+  #music: local:ace-step
+  #video: local:ltx-video-small
 
 # Local models (provider kind diffusers): repo (Hugging Face repository),
-# steps, guidance, inpaint (the diffusers pipeline class for edits with a
-# mask). A video model also has, all required: pipeline (the diffusers class
-# to load), fps, size_multiple (width and height are rounded to it),
-# frame_step (frame counts are frame_step * k + 1), width, height (the default
-# size) and max_frames. The image-gen, music and
-# short-video wrappers install torch and diffusers when a provider of kind
-# diffusers is present; the first run downloads the weights to the Hugging
-# Face cache (HF_HOME below).
+# steps, guidance (optional; without it no guidance_scale is passed, for a
+# pipeline that has no such argument), inpaint (the diffusers pipeline class
+# for edits with a mask), args (optional: a mapping of more pipeline call
+# arguments, after steps and guidance and before the caller's) and skip
+# (optional: a list of pipeline components loaded as None, such as a text
+# encoder the model does not use). A music model also has duration_arg and
+# lyrics_arg: the names of the pipeline call arguments for the length in
+# seconds and the lyrics (a model without one does not take that option). A
+# video model also has, all required: pipeline (the diffusers class to load),
+# fps, size_multiple (width and height are rounded to it), frame_step (frame
+# counts are frame_step * k + 1), width, height (the default size) and
+# max_frames. The image-gen, music and short-video wrappers install torch and
+# diffusers when a provider of kind diffusers is present; the first run
+# downloads the weights to the Hugging Face cache (HF_HOME below).
 diffusers:
   z-image-turbo:  {repo: Tongyi-MAI/Z-Image-Turbo, steps: 9, guidance: 0.0, inpaint: ZImageInpaintPipeline}
   flux2-klein-4b: {repo: black-forest-labs/FLUX.2-klein-4B, steps: 4, guidance: 1.0, inpaint: Flux2KleinInpaintPipeline}
-  ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0}
+  ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0, duration_arg: audio_duration, lyrics_arg: lyrics}
   # LTX-Video 0.9.5 (2B), image to video; about 26 GB of weights.
   ltx-video:      {repo: Lightricks/LTX-Video-0.9.5, pipeline: LTXImageToVideoPipeline, steps: 30, guidance: 3.0, fps: 24, size_multiple: 32, frame_step: 8, width: 768, height: 512, max_frames: 121}
-  # Minimal models for the integration tests, not for real use (see models above).
-  tiny-flux2-klein: {repo: optimum-intel-internal-testing/tiny-random-flux.2-klein, steps: 1, guidance: 1.0, inpaint: Flux2KleinInpaintPipeline}
-  ace-step-min:   {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 1, guidance: 1.0}
-  tiny-ltx2:      {repo: optimum-intel-internal-testing/tiny-random-ltx2, pipeline: LTX2ImageToVideoPipeline, steps: 2, fps: 24, size_multiple: 32, frame_step: 8, width: 64, height: 64, max_frames: 241}
+  # Qwen-Image 2.1, generation and edit (one pipeline, no guidance_scale); about 33 GB.
+  qwen-image:     {repo: Qwen/Qwen-Image-2.1, steps: 40, args: {output_resolution: 2048}}
+  # LTX-2.5 distilled, image to video (gated: accept the license, set HF_TOKEN);
+  # about 70 GB of the components it loads. The args are the distilled
+  # schedule and guidance off, from the model card.
+  ltx-2.5:        {repo: Lightricks/LTX-2.5-Diffusers, pipeline: LTX2ImageToVideoPipeline, steps: 8, guidance: 1.0, fps: 24, size_multiple: 32, frame_step: 8, width: 960, height: 544, max_frames: 481, args: {sigmas: [1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875], audio_guidance_scale: 1.0, stg_scale: 0.0, audio_stg_scale: 0.0, modality_scale: 1.0, audio_modality_scale: 1.0}, skip: [processor, prompt_enhancer]}
+  # LTX-Video 0.9.5 at small size and few steps, for tests (see models above).
+  ltx-video-small: {repo: Lightricks/LTX-Video-0.9.5, pipeline: LTXImageToVideoPipeline, steps: 8, guidance: 3.0, fps: 24, size_multiple: 32, frame_step: 8, width: 512, height: 320, max_frames: 121}
 
 
 # === Settings ================================================================
@@ -155,6 +177,9 @@ settings:
   VOICEOVER_KOKORO_MODEL_URL: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
   VOICEOVER_KOKORO_VOICES_URL: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
   VOICEOVER_KOKORO_VOICE: af_heart
+  # Kokoro voice name prefix -> espeak language, comma-separated
+  # prefix=language pairs; `voices` lists the voices of these prefixes.
+  VOICEOVER_KOKORO_LANGS: af_=en-us,am_=en-us,bf_=en-gb,bm_=en-gb
   # Word aligner (every backend, unless --no-align): a torchaudio pipeline
   # (torchaudio.pipelines.<name>) and its weights file.
   VOICEOVER_ALIGNER: MMS_FA
@@ -167,8 +192,9 @@ settings:
   VOICEOVER_CHATTERBOX_FILES: t3_turbo_v1.safetensors,s3gen_meanflow.safetensors,ve.safetensors,conds.pt,vocab.json,merges.txt,tokenizer_config.json,added_tokens.json,special_tokens_map.json
   VOICEOVER_CHATTERBOX_VOICE: default
   # Default voice of the `speech` model (marin: OpenAI; Kore: Gemini TTS;
-  # default: Ollama). VOICEOVER_SPEECH_VOICES, optional: the voices `voices`
-  # lists for the speech backend, comma-separated.
+  # default: Ollama; lfm3-audio on Ollama takes female or male, optionally
+  # with a language: female-british-english). VOICEOVER_SPEECH_VOICES,
+  # optional: the voices `voices` lists for the speech backend, comma-separated.
   VOICEOVER_SPEECH_VOICE: marin
   #VOICEOVER_SPEECH_VOICES: alloy,ash,ballad,cedar,coral,echo,fable,marin,nova,onyx,sage,shimmer,verse
 

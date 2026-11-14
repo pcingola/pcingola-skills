@@ -1460,6 +1460,49 @@
      }
     ]
    }
+  },
+  {
+   "case": "valid video 1",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "image": "a.png",
+      "engine": "video"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid video 1",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "engine": "video"
+     }
+    ]
+   }
   }
  ]
 }

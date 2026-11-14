@@ -2,7 +2,7 @@
 
 import pytest
 
-from ai_models import ConfigError, video
+from ai_models import AIModelsError, ConfigError, video
 
 
 
@@ -44,3 +44,16 @@ def test_model_resolves_from_task_video(write_config):
     write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {}})
     with pytest.raises(ConfigError, match="models.video"):
         video.animate(b"", "p", seconds=1.0)
+
+
+def test_model_failure_is_one_line(write_config):
+    """A failure inside the video pipeline (here a `pipeline` class diffusers does not have) is an AIModelsError
+    with a one-line message that names the model, not the library's exception. Guards the one-line error
+    media:short-video and Studio report for an `Engine: video` scene."""
+    write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {"video": "local:v"},
+                  "diffusers": {"v": {"repo": "r", "pipeline": "NoSuchPipeline", "fps": 24, "size_multiple": 32,
+                                      "frame_step": 8, "width": 64, "height": 64, "max_frames": 9}}})
+    with pytest.raises(AIModelsError) as e:
+        video.animate(b"", "p", seconds=1.0)
+    assert type(e.value) is AIModelsError and "\n" not in str(e.value)
+    assert str(e.value).startswith("local:v: AttributeError")

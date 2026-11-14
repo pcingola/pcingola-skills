@@ -7,7 +7,9 @@ import numpy as np
 import pytest
 
 from tests.unit.voiceover.cli_run import voiceover
-from voiceover_tool.backends import KokoroBackend, get_backend, kokoro_lang
+from tests.settings_env import write_config
+from tests.subproc import child_env, py_value, run_python
+from voiceover_tool.backends import KokoroBackend, get_backend
 from voiceover_tool.speech import decode
 from voiceover_tool.timing import build_timing
 
@@ -17,11 +19,18 @@ def test_unknown_backend_refused():
         get_backend("nope")
 
 
-def test_kokoro_lang_and_style():
-    assert [kokoro_lang(v) for v in ("af_heart", "am_michael", "bf_emma", "bm_george")] == \
-        ["en-us", "en-us", "en-gb", "en-gb"]
-    with pytest.raises(ValueError):
-        kokoro_lang("ff_siwis")
+def test_kokoro_lang_and_style(tmp_path):
+    """A Kokoro voice's espeak language comes from the prefixes of the setting VOICEOVER_KOKORO_LANGS; a voice of
+    no listed prefix is a ValueError, a malformed setting an error naming it, and Kokoro takes no style."""
+    config = write_config(tmp_path / "config.yaml", {"VOICEOVER_KOKORO_LANGS": "af_=en-us, bm_=en-gb"})
+    imports = "from voiceover_tool.backends import kokoro_lang"
+    env = child_env(SKILLS_CONFIG=str(config))
+    assert py_value(imports, "[kokoro_lang(v) for v in ('af_heart', 'bm_george')]", env) == ["en-us", "en-gb"]
+    done = run_python(f"{imports}\nkokoro_lang('ff_siwis')", env)
+    assert "ValueError" in done.stderr and "VOICEOVER_KOKORO_LANGS" in done.stderr
+    bad = write_config(tmp_path / "bad.yaml", {"VOICEOVER_KOKORO_LANGS": "af_en-us"})
+    done = run_python(f"{imports}\nkokoro_lang('af_heart')", child_env(SKILLS_CONFIG=str(bad)))
+    assert done.returncode == 1 and "VOICEOVER_KOKORO_LANGS" in done.stderr and "prefix=language" in done.stderr
     with pytest.raises(ValueError):
         KokoroBackend(style="calm")
 

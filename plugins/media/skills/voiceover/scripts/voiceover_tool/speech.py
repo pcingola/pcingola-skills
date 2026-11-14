@@ -83,6 +83,10 @@ class SpeechBackend:
         except AIModelsError as e:
             msg = str(e)
             raise TTSError(msg if msg.startswith(self.model) else f"{self.model}: {msg}") from None
+        except Exception as e:
+            if getattr(e, "status_code", None) is None:
+                raise
+            raise TTSError(f"{self.model}: {e}") from None  # the provider refused the request (a voice it lacks)
         samples, rate = decode(data)
         if rate != self.sample_rate:
             raise TTSError(f"{self.model} returned {rate} Hz, expected {self.sample_rate} Hz")

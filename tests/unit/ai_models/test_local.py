@@ -65,3 +65,33 @@ def test_mask_needs_a_reference_and_an_inpaint_pipeline():
     ref = BinaryImage(data=b"\x89PNG", media_type="image/png")
     with pytest.raises(ConfigError, match="inpaint"):
         ImageGenerator(local.DiffusersImageModel("tiny-no-inpaint", mask=b"m")).generate_sync("x", images=[ref])
+
+
+def test_pipe_kwargs_order_and_optional_guidance():
+    """A model entry's steps, guidance (only when set) and `args` go to the pipeline call, and the caller's arguments
+    override `args` (docs/ai_models.md, `diffusers`). Guards a pipeline without `guidance_scale` and the model's
+    fixed call arguments."""
+    spec = {"steps": 4, "args": {"true_cfg_scale": 4.0, "max_sequence_length": 256}}
+    assert local.pipe_kwargs(spec, {"max_sequence_length": 512}) == {
+        "num_inference_steps": 4, "true_cfg_scale": 4.0, "max_sequence_length": 512}
+    assert "guidance_scale" in local.pipe_kwargs({"steps": 1, "guidance": 1.0}, {})
+
+
+def test_skip_loads_components_as_none():
+    """`skip` components are loaded as None, and a pipeline with and one without them are cached apart. Guards a
+    model entry that leaves out a component it does not use."""
+    require_gpu()
+    skipped = local.pipeline(TINY, skip=["safety_checker", "feature_extractor"])
+    assert skipped.safety_checker is None and skipped.feature_extractor is None
+    assert local.pipeline(TINY) is not skipped
+
+
+def test_music_option_needs_its_argument_name(write_config):
+    """A local music model takes `seconds` and `lyrics` only when its entry names their pipeline arguments
+    (`duration_arg`, `lyrics_arg`); without one the option is a ConfigError before any pipeline loads. Guards a
+    diffusers music pipeline with other argument names."""
+    write_config({"diffusers": {"m": {"repo": "no/such-repo", "steps": 1}}})
+    with pytest.raises(ConfigError, match="duration_arg"):
+        local.DiffusersMusicModel("m").compose("piano", seconds=10)
+    with pytest.raises(ConfigError, match="lyrics_arg"):
+        local.DiffusersMusicModel("m").compose("piano", lyrics="la")

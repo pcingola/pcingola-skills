@@ -138,7 +138,7 @@ what a viewer sees. The agent that makes a scene takes `frames` at one per secon
 pair shows a new framing (the view moved by about 10% of the frame or more) or a new drawn, flowing or counting
 element, so a slow drift of a few pixels fails. The contact sheet's thumbnails are too small for this.
 
-The review runs on the assembled film by default: the film critic (`critic.model`, through `ai:second-opinion`)
+The review runs on the assembled film by default: the film critic (task `film_critic` of `config.yaml`, or `critic.model` of a project's `settings.yaml`; `critic` prints it; through `ai:second-opinion`)
 reports at most `critic.max_findings` findings, each with a time range in the film, limited to what misleads or bores
 a viewer: still stretches, wrong facts or numbers, narration that does not match the picture, unreadable text, and
 narration hard to hear or audio defects. Consistency of fonts and colours and the brand logo are not on its list; the

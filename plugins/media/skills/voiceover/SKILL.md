@@ -36,8 +36,9 @@ as the user ("in my voice"): run `voices --backend chatterbox` and pass the
 person's voice name. If they have no voice yet, see "Cloned voices" below.
 
 `--style` is a delivery instruction in plain words ("calm documentary
-narrator, unhurried pace"); it is not spoken. Kokoro voices: `af_`/`am_`
-American, `bf_`/`bm_` British English.
+narrator, unhurried pace"); it is not spoken. Kokoro voices: those whose
+name prefix the setting `VOICEOVER_KOKORO_LANGS` maps to an espeak language
+(`af_`/`am_` American, `bf_`/`bm_` British English in the example config).
 
 ## Script format
 
