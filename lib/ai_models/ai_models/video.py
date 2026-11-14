@@ -8,7 +8,8 @@ besides `repo`, `steps` and `guidance`, all required:
     fps             frames per second of the clip
     size_multiple   width and height are rounded to a multiple of this
     frame_step      frame counts are frame_step * k + 1
-    width, height   the size when the caller gives none
+    width, height   the size when the caller gives none; with an `aspect`, reshaped to that ratio at the
+                    same pixel count
     max_frames      the longest clip; a longer request is cut to it
 
 A missing key is a `ConfigError` that names it. Any other failure of the model call (a pipeline error,
@@ -43,15 +44,26 @@ def frame_count(seconds: float, fps: float, frame_step: int, max_frames: int) ->
     return frame_step * k + 1
 
 
-def frame_size(width: int, height: int, multiple: int) -> tuple[int, int]:
+def frame_size(width: float, height: float, multiple: int) -> tuple[int, int]:
     """(width, height) rounded to the nearest multiple of `multiple`, at least `multiple`."""
     return (max(multiple, round(width / multiple) * multiple), max(multiple, round(height / multiple) * multiple))
 
 
+def clip_size(spec: dict[str, Any], width: int | None = None, height: int | None = None,
+              aspect: float | None = None) -> tuple[int, int]:
+    """The frame size of a clip of model `spec`: `width` and `height`, else the model's; `aspect` (width / height)
+    reshapes it to that ratio at the same pixel count; then rounded by `frame_size` to `size_multiple`."""
+    w, h = width or spec["width"], height or spec["height"]
+    if aspect is not None:
+        w, h = math.sqrt(w * h * aspect), math.sqrt(w * h / aspect)
+    return frame_size(w, h, spec["size_multiple"])
+
+
 def animate(image: bytes, prompt: str, *, seconds: float, model: str | None = None, width: int | None = None,
-            height: int | None = None, seed: int | None = None) -> bytes:
+            height: int | None = None, aspect: float | None = None, seed: int | None = None) -> bytes:
     """An MP4 of `image` (PNG or JPEG bytes) animated as `prompt` describes, at least `seconds` long unless
-    the model's `max_frames` is shorter."""
+    the model's `max_frames` is shorter. The size is `width` and `height`, else the model's; `aspect`
+    (width / height) reshapes it to that ratio at the same pixel count."""
     model_id = config.resolve(model, "video")
     name, bare = config.split_id(model_id)
     if (kind := config.provider(name)["kind"]) != "diffusers":
@@ -59,7 +71,8 @@ def animate(image: bytes, prompt: str, *, seconds: float, model: str | None = No
     from . import local
 
     try:
-        return local.animate(bare, image, prompt, seconds=seconds, width=width, height=height, seed=seed)
+        return local.animate(bare, image, prompt, seconds=seconds, width=width, height=height, aspect=aspect,
+                            seed=seed)
     except AIModelsError:
         raise
     except Exception as e:

@@ -19,7 +19,7 @@ per concern). It has three parts:
 | `system1` | `system1_model`, `decide` |
 | `speech` | `speak` |
 | `music` | `compose` |
-| `video` | `animate`, `aanimate`; `frame_count`, `frame_size` |
+| `video` | `animate`, `aanimate`; `frame_count`, `frame_size`, `clip_size` |
 | `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` (video), the pipeline cache |
 | `tls` | the TLS context of remote clients |
 | `errors` | `AIModelsError`, `ConfigError`, `explained` |
@@ -107,12 +107,15 @@ The adapters cover what Pydantic-AI has no call for:
 - Local models (`local`). `DiffusersImageModel` is a Pydantic-AI `ImageGenerationModel`; `DiffusersMusicModel` gives
   a WAV file; `animate` gives an MP4 (Video). Pipelines load in bfloat16 with `DiffusionPipeline.from_pretrained`,
   or with the class a model's `pipeline` names, on CUDA, else MPS, else an error,
-  and stay loaded for the life of the process. Weights go to the Hugging Face cache. torch and diffusers are imported
+  and stay loaded for the life of the process. `from_pretrained` leaves the weights memory-mapped from the safetensors
+  files; `to_device` copies each one to process memory before the move to the GPU, because a host-to-device copy
+  from a file mapping is about 100 times slower on a unified-memory GPU (GB10: 87 s against under 2 s for FLUX.2
+  klein 4B). Weights go to the Hugging Face cache. torch and diffusers are imported
   only in this module.
 
 ## Video
 
-`video.animate(image, prompt, *, seconds, model=None, width=None, height=None, seed=None)` returns an MP4 of the
+`video.animate(image, prompt, *, seconds, model=None, width=None, height=None, aspect=None, seed=None)` returns an MP4 of the
 image animated as the prompt says; `aanimate` runs it in a worker thread. The model is `model`, else `models.video`.
 Only the `diffusers` kind serves video. A video model is a `diffusers.<name>` entry with these keys besides `repo`,
 `steps` and `guidance`, all required (`video.video_spec` raises a `ConfigError` that names each missing key):
@@ -123,7 +126,7 @@ Only the `diffusers` kind serves video. A video model is a `diffusers.<name>` en
 | `fps` | frames per second of the clip, passed to the encoder |
 | `size_multiple` | width and height are rounded to the nearest multiple of it, at least the multiple |
 | `frame_step` | the frame count is the smallest `frame_step * k + 1` (k >= 1) that covers `seconds * fps` |
-| `width`, `height` | size when the caller gives none |
+| `width`, `height` | size when the caller gives none; with `aspect` (width / height), reshaped to that ratio at the same pixel count (`video.clip_size`) |
 | `max_frames` | the longest clip; a longer request is cut to it |
 
 The frame count is cut to `max_frames`, rounded down to the `frame_step * k + 1` form.

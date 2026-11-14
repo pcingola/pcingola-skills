@@ -42,8 +42,9 @@ A change to the brief, a beat, a sentence or the image goes into
 ## Length
 
 `render` asks the model for the narration's length (`timing.json`
-`duration`) at the `video:` size. A model makes clips of a few seconds and
-may return a shorter or longer clip, at another size or frame rate. `render`
+`duration`) at the model's own size, reshaped to the `video:` aspect ratio.
+A model makes clips of a few seconds and may return a shorter or longer
+clip, at another size or frame rate. `render`
 makes `silent.mp4` from it:
 
 - scaled to cover the `video:` frame, centre-cropped, at the `video:` fps;

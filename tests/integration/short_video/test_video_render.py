@@ -126,6 +126,17 @@ class TestVideoRender(unittest.TestCase):
         self.assertTrue((self.scene_mp4.parent / video_scene.MODEL_MP4).is_file())
         self.assertTrue((self.scene_mp4.parent / "contact.png").is_file())
 
+    def test_model_clip_at_model_size(self) -> None:
+        """video_scene.render asks the video model for its own size in the `video:` aspect ratio
+        (`ai_models.video.clip_size`), and `fill` scales the clip to `video:`. Guards a small model rendering
+        at the project size."""
+        from ai_models import config as ai_config
+        from ai_models import video
+
+        spec = video.video_spec(ai_config.split_id(state.read_meta(self.scene_mp4.parent)["model"])[1])
+        s = _video(self.scene_mp4.parent / video_scene.MODEL_MP4)
+        self.assertEqual((int(s["width"]), int(s["height"])), video.clip_size(spec, aspect=640 / 360))
+
     def test_meta(self) -> None:
         """video_scene.render records engine video, the voice version, the model, the prompt, the seed and the
         model clip's length in meta.json. Guards `status` and later renders reading the video scene's meta."""

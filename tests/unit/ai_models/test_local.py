@@ -86,6 +86,17 @@ def test_skip_loads_components_as_none():
     assert local.pipeline(TINY) is not skipped
 
 
+def test_pipeline_weights_are_on_the_device():
+    """`pipeline` moves every weight and buffer of each module to the device with `to_device` (docs/ai_models.md,
+    Local models). Guards a weight left on the CPU after the staged copy."""
+    require_gpu()
+    pipe = local.pipeline(TINY)
+    dev = local.device()
+    for module in pipe.components.values():
+        if isinstance(module, torch.nn.Module):
+            assert all(t.device.type == dev for t in [*module.parameters(), *module.buffers()])
+
+
 def test_music_option_needs_its_argument_name(write_config):
     """A local music model takes `seconds` and `lyrics` only when its entry names their pipeline arguments
     (`duration_arg`, `lyrics_arg`); without one the option is a ConfigError before any pipeline loads. Guards a

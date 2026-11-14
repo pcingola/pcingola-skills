@@ -102,8 +102,9 @@ def render(project: Path, scene: dict, seed: int | None = None) -> Path:
 
     try:
         model = ai_config.resolve(None, "video")
+        # the model renders at its own size in the project's aspect ratio; `fill` scales the clip to `video:`
         mp4 = video.animate((sdir / BACKGROUND).read_bytes(), prompt, seconds=seconds, model=model,
-                            width=v["width"], height=v["height"], seed=seed)
+                            aspect=v["width"] / v["height"], seed=seed)
     except AIModelsError as e:
         raise SceneError(f"scene {sid}: video model: {e}") from None
     (sdir / MODEL_MP4).write_bytes(mp4)

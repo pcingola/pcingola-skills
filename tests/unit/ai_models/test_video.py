@@ -27,6 +27,24 @@ def test_frame_size_rounds_to_multiple():
     assert video.frame_size(70, 100, 16) == (64, 96)
 
 
+SPEC = {"width": 512, "height": 320, "size_multiple": 32}
+
+
+def test_clip_size_defaults_to_the_model_size():
+    """clip_size is the model's `width` and `height` without arguments, and the caller's size when given, rounded
+    to `size_multiple` (docs/ai_models.md, Video)."""
+    assert video.clip_size(SPEC) == (512, 320)
+    assert video.clip_size(SPEC, 1920, 1080) == (1920, 1088)
+
+
+def test_clip_size_reshapes_the_model_size_to_the_aspect():
+    """clip_size with `aspect` keeps the model's pixel count in that width / height ratio. Guards a 16:9 project
+    making a small video model render at the 1920x1080 project size."""
+    assert video.clip_size(SPEC, aspect=16 / 9) == (544, 288)
+    assert video.clip_size(SPEC, aspect=9 / 16) == (288, 544)
+    assert video.clip_size(SPEC, aspect=1.0) == (416, 416)
+
+
 def test_missing_video_keys_are_named(write_config):
     """A video model without one of the required keys is a ConfigError that names each missing key."""
     write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {"video": "local:v"},

@@ -10,7 +10,7 @@ caller's) and `skip` (optional: pipeline components loaded as None). A music mod
 `duration_arg` and `lyrics_arg`: the names of the pipeline call arguments that take the
 length in seconds and the lyrics; without one, the model does not take that option. A video model also has
 `pipeline` (the class to load), `fps`, `size_multiple`, `frame_step`, `width`, `height` and
-`max_frames` (see `video`). The device is CUDA, else MPS.
+`max_frames` (see `video`). The device is CUDA, else MPS; `to_device` moves the weights there.
 Pipelines stay loaded for the life of the process. torch and diffusers are
 imported only here.
 """
@@ -56,9 +56,26 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
             # from_pipe casts the shared modules to float32 unless given the loaded dtype
             _pipes[key] = getattr(diffusers, inpaint).from_pipe(pipeline(repo, cls=cls, skip=skip), dtype=torch.bfloat16)
         else:
-            _pipes[key] = getattr(diffusers, cls).from_pretrained(repo, dtype=torch.bfloat16,
-                                                                  **dict.fromkeys(skip)).to(device())
+            _pipes[key] = to_device(getattr(diffusers, cls).from_pretrained(repo, dtype=torch.bfloat16,
+                                                                            **dict.fromkeys(skip)), device())
     return _pipes[key]
+
+
+def to_device(pipe, dev: str):
+    """`pipe` moved to `dev`, each CPU weight first copied to process memory. `from_pretrained` leaves the
+    weights memory-mapped from the safetensors files, and a host-to-device copy from a file mapping is
+    about 100 times slower than from process memory on a unified-memory GPU (docs/ai_models.md)."""
+    import itertools
+
+    import torch
+
+    with torch.no_grad():
+        for module in pipe.components.values():
+            if isinstance(module, torch.nn.Module):
+                for t in itertools.chain(module.parameters(), module.buffers()):
+                    if t.device.type == "cpu":
+                        t.data = t.data.clone().to(dev)
+    return pipe.to(dev)
 
 
 def pipe_kwargs(spec: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
@@ -168,8 +185,9 @@ class DiffusersMusicModel:
 
 
 def animate(name: str, image: bytes, prompt: str, *, seconds: float, width: int | None = None,
-            height: int | None = None, seed: int | None = None) -> bytes:
-    """An MP4 (H.264, no audio) of the image-to-video model `diffusers.<name>`. The image is cropped to
+            height: int | None = None, aspect: float | None = None, seed: int | None = None) -> bytes:
+    """An MP4 (H.264, no audio) of the image-to-video model `diffusers.<name>`, at `width` x `height`, else
+    the model's size, reshaped to `aspect` when given (`video.clip_size`). The image is cropped to
     the clip's aspect ratio and scaled to its size. An audio track the pipeline generates is dropped."""
     import tempfile
     from pathlib import Path
@@ -177,10 +195,10 @@ def animate(name: str, image: bytes, prompt: str, *, seconds: float, width: int 
     from diffusers.utils import export_to_video
     from PIL import Image, ImageOps
 
-    from .video import frame_count, frame_size, video_spec
+    from .video import clip_size, frame_count, video_spec
 
     spec = video_spec(name)
-    w, h = frame_size(width or spec["width"], height or spec["height"], spec["size_multiple"])
+    w, h = clip_size(spec, width, height, aspect)
     frames_n = frame_count(seconds, spec["fps"], spec["frame_step"], spec["max_frames"])
     extra: dict[str, Any] = {"width": w, "height": h, "num_frames": frames_n, "seed": seed}
     pipe = pipeline(spec["repo"], cls=spec["pipeline"], skip=spec.get("skip") or ())
