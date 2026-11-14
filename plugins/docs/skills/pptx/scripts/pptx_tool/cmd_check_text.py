@@ -91,7 +91,7 @@ def run_extract_text(args) -> None:
         for shape in slide.shapes:
             for left, top, label, text in _iter_paragraphs(shape):
                 records.append({
-                    "slide": slide_idx + 1,
+                    "slide": slide_idx,
                     "layout": layout_name,
                     "shape": label,
                     "text": text,

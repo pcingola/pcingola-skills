@@ -1,6 +1,6 @@
 ---
 name: brand
-description: "Finds, shows and copies brand folders: logos, colours, fonts, guidelines, PowerPoint templates. TRIGGER when: user names a brand or asks for a branded deck, document or video, a logo, brand colours, fonts or brand guidelines."
+description: "Finds, shows and copies brand folders: logos, colours, fonts, guidelines, PowerPoint templates. TRIGGER when: user names a brand or asks for a branded deck, document or video, a brand's logo, brand colours, fonts or brand guidelines."
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/brand.sh:*)
 ---
 

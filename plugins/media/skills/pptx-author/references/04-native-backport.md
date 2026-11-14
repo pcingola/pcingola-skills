@@ -14,8 +14,8 @@ gap `magick` can't cover, and treat that as worth surfacing, not silently workin
 The `docs:pptx` operations below (`new-deck`, `add-shapes`, `add-notes`, `export-slides`,
 `list-images`, `extract-images`) are tasks for the `docs:pptx` skill, and image generation
 is a task for the `media:image-gen` skill, both loaded with the Skill tool (see "What this
-is" in `SKILL.md`). Their `SKILL.md` files give the commands, the `add-shapes` JSON format
-and the `jq` recipes for pptx JSON payloads.
+is" in `SKILL.md`). Their `SKILL.md` files give the commands and the `add-shapes` JSON format.
+The `jq` recipes for merging pptx JSON payloads are in this file ("Assembling the deck").
 
 ## Exception: icons and logos
 
@@ -142,7 +142,7 @@ the final deck. A typical slide canvas exports around 1376×768px for a 13.3×7.
 slide — about 103dpi for the *entire slide*. An icon that's visually ~1in square in the
 deck is therefore only ~100px in the source PNG. Crop that out and place it at 1-1.5in
 in PowerPoint and it is **visibly pixelated at actual scale and zoom**, even though it
-looks fine in a 100dpi `export-slides` preview. The low-DPI self-check does not show
+looks fine in an `export-slides` preview. The low-DPI self-check does not show
 this defect, so do not crop icons from the slide image:
 
 - **Generic icons** (a gear, a folder, a speech bubble, a magnifying glass): describe
@@ -231,8 +231,11 @@ hand:**
 Everything else on the slide is still hand-placed `rounded_rect`/`rect`/`textbox`/`line`/
 `image` at measured coordinates.
 
-For JSON assembly across files (merge single-slide files, shift a range, splice a header),
-use the one-liner `jq` recipes `docs:pptx` documents for its JSON payloads.
+For JSON assembly across files, use one-liner `jq` calls on the `slide-N`-keyed payloads.
+The merge of single-slide files is in "Assembling the deck" below. A shift of slides 0 to 2
+by 3 is `jq '{"slide-3": ."slide-0", "slide-4": ."slide-1", "slide-5": ."slide-2"}' a.json > b.json`.
+A splice of a header fragment `header.json` into every slide of `deck.json` is
+`jq --slurpfile h header.json 'with_entries(.value += $h[0]["slide-0"])' deck.json > out.json`.
 
 ## Assembling the deck
 
@@ -243,7 +246,7 @@ same file in sequence hoping the indices line up:
 
 1. `new-deck` with N slides at `<deliverable>.pptx`: the real N-slide canvas.
 2. Merge the fragments into one payload, remapping each `slide-0` to its real slide index.
-   Use the `jq` recipe `docs:pptx` documents for merging single-slide files:
+   Merge single-slide files with `jq`:
    `jq -s '{"slide-0": .[0]["slide-0"], "slide-1": .[1]["slide-0"], "slide-2": .[2]["slide-0"]}' s1.json s2.json s3.json > deck.json`
 3. `add-shapes` of `deck.json` onto `<deliverable>.pptx`, in place, in one call for the whole deck.
 4. `add-notes` of `notes.json` onto `<deliverable>.pptx`, in place, with the notes from phase 2.
@@ -257,7 +260,7 @@ this bug.
 
 After every build:
 
-1. `export-slides` the result **at 150-200 DPI**, not the tool's 100dpi default —
+1. `export-slides` the result **at 150 to 200 DPI** (`export-slides` default 150):
    pixelation and small misalignments genuinely don't show at low DPI. Write these into
    the deck's `renders/` subfolder (and generated icons/images into `images/`) per the
    one-folder-per-deck layout in [01-deck-outline.md](01-deck-outline.md#file-layout-one-folder-per-deck),

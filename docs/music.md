@@ -39,7 +39,8 @@ after base64); larger files and every other type (M4A and AAC are often MP4 cont
 128 kb/s MP3. Providers other than `google` get audio as the OpenAI `input_audio` part, which takes WAV and MP3 only,
 so FLAC and OGG are transcoded there too.
 
-The description request holds no brief, so the description is not primed by what was asked for; the verdict is a
+With the brief in the same request, a model described a pure sine tone as the piano piece the brief asked for.
+The description request therefore holds no brief, so the description is not primed by what was asked for; the verdict is a
 second request, sent only when a brief exists, which quotes the description and the briefs. An answer that lacks a key
 the schema requires is asked again.
 

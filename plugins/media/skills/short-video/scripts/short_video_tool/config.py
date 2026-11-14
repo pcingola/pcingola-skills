@@ -49,9 +49,12 @@ load_settings = PLUGIN.load
 def resolve_project(arg: str | None) -> Path:
     """Map a project path (relative or absolute; None = current directory) to a
     directory. A path at or inside `forbidden_project_root` (skill defaults)
-    is refused."""
+    is refused; a null `forbidden_project_root` refuses no path."""
     p = Path(arg).expanduser().resolve() if arg else Path.cwd().resolve()
-    forbidden = Path(settings.get()["forbidden_project_root"]).expanduser().resolve()
+    root = settings.get().get("forbidden_project_root")
+    if not root:
+        return p
+    forbidden = Path(root).expanduser().resolve()
     if p == forbidden or forbidden in p.parents:
         error(f"{p} is at or inside {forbidden}; put the project elsewhere and pass its path")
     return p

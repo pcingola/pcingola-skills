@@ -2,6 +2,8 @@
 
 Build slides **without** a branded template: start from a blank deck and place native shapes (boxes, ovals, textboxes, connectors, pictures) at exact inch coordinates. Use this for diagrams, custom layouts, and anything the template layouts don't cover. Everything produced is a **real, editable PowerPoint object** — shapes and pictures you can select and move in PowerPoint, never a flattened slide image.
 
+`pptx.sh` below is `${CLAUDE_SKILL_DIR}/scripts/pptx.sh`.
+
 For branded, placeholder-based decks copy slides from a template deck with `select-slides` and fill its placeholders instead (see `SKILL.md`). The two modes compose: you can `add-text`/`add-table` onto a blank deck too, and check the result with `export-slides` or `visual-preview`. To place a picture on a blank deck, use the `image` shape type below — `add-images` targets an existing PICTURE placeholder, which a blank deck doesn't have.
 
 ## 1. Create a blank deck (`new-deck`)

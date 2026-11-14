@@ -19,7 +19,7 @@ Commands run as `${CLAUDE_SKILL_DIR}/scripts/pptx.sh <command> [args]`.
 
 - `inspect-master <file> <out.json>`: Shapes of every slide master (`slide_masters`) and layout (`slide_layouts`, with `non_placeholder_shapes` counts): position, text, fonts, fill, rotation. Shapes are flagged `possible_confidentiality_tag` (a `!` or "confidential"), `template_artifact` ("example", "template", "click to edit"), `rotated_shape` and `off_canvas` (outside a 13.33" x 7.5" canvas). Master shapes are often off-canvas and invisible in rendered slides.
 - `visual-preview <file> [prefix] [--cols 3-6] [--outline-text]`: Thumbnail-grid JPEGs of all slides. The second argument is an output file prefix, not a directory. `--outline-text` outlines text placeholders in red. Requires LibreOffice and Poppler.
-- `list-images <file>`: Embedded images per slide.
+- `list-images <file>`: Embedded images per slide (0-based slide index).
 - `extract-images <file> -o <dir> [--min-bytes N] [--min-pixels WxH]`: Write embedded images at their stored resolution into `<dir>`; skips images under 2048 bytes or 50x50 px by default.
 
 ## Native charts (`add-chart`)
@@ -37,13 +37,13 @@ Commands run as `${CLAUDE_SKILL_DIR}/scripts/pptx.sh <command> [args]`.
 
 ## Several operations in one call (`edit`)
 
-`edit <in.pptx> <out.pptx> <spec>`: Apply a list of operations in order. `spec` is a path, `@path`, or an inline JSON string.
+`edit <in.pptx> <out.pptx> <spec>`: Apply a list of operations in order. `spec` is an inline JSON string when it starts with `{` or `[`, else the path of a JSON file (any extension, with or without a leading `@`).
 
 ```json
 {"operations": [
   {"action": "copy-slide", "source": "deck.pptx", "source_indices": [4], "position": 1},
   {"action": "add-text", "data": {"slide-1": {"shape-0": {"paragraphs": [{"text": "Title"}]}}}},
-  {"action": "add-chart", "slide": 1, "index": 0, "data": {"chart_type": 51, "data": {}}},
+  {"action": "add-chart", "slide": 1, "index": 0, "data": {"chart_type": 51, "data": {"categories": ["Q1", "Q2"], "series": [{"name": "Revenue", "values": [10, 20]}]}}},
   {"action": "add-images", "slide": 2, "images": ["a.png", "b.png"], "type": "OBJECT"},
   {"action": "add-notes", "slide": 1, "data": "Talk track"}
 ]}
@@ -63,14 +63,14 @@ Every action name is a command name: `add-text`, `add-table`, `add-notes`, `add-
 
 ## Extracting all text as a flat dump (`extract-text`)
 
-`extract-text <file> [-o out.txt] [--slide N] [--json]`: Dump every non-empty paragraph as one line: slide number, layout name, shape label, and the text. No formatting metadata, no border declarations, no fill colors.
+`extract-text <file> [-o out.txt] [--slide N] [--json]`: Dump every non-empty paragraph as one line: slide index (0-based, the N of `slide-N`), layout name, shape label, and the text. No formatting metadata, no border declarations, no fill colors.
 
 Typical output: **about 50 to 200 lines** for a full deck vs **4000+ lines** from `extract-shapes`. Small enough that the output never hits a read-truncation limit, so text-quality checks (trailing periods, broken cross-references, stale template values) see every paragraph including footnotes buried at the bottom of large tables.
 
 ```
-S01  Title Slide  DATE@1.20",6.50"       March 2026
-S04  Blank        TEXT@0.50",7.10"       See the appendix for details.
-S04  Blank        TABLE[5,1]@0.30",0.40" Quarterly summary
+S00  Title Slide  DATE@1.20",6.50"       March 2026
+S03  Blank        TEXT@0.50",7.10"       See the appendix for details.
+S03  Blank        TABLE[5,1]@0.30",0.40" Quarterly summary
 ```
 
 Options:

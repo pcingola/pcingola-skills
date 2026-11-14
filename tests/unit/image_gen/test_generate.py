@@ -48,8 +48,15 @@ def test_gpt_image_defaults_square_1k_high():
 
 
 def test_google_one_request_per_image():
-    assert opts("google", n=3, image_size="2K") == ({"google_image_config": {"aspect_ratio": "1:1",
-                                                                             "image_size": "2K"}}, 3)
+    assert opts("google", n=3, image_size="2K") == ({"google_image_config": {"image_size": "2K"}}, 3)
+
+
+def test_google_leaves_missing_aspect_and_size_to_the_model():
+    """Without --aspect and --size a Google model gets no image config, so an edit keeps the reference's
+    aspect instead of becoming 1:1."""
+    assert opts("google") == ({}, 1)
+    assert opts("google", edit=True) == ({}, 1)
+    assert opts("google", aspect_ratio="16:9")[0] == {"google_image_config": {"aspect_ratio": "16:9"}}
 
 
 def test_diffusers_dimensions_and_edit_keeps_reference_size():

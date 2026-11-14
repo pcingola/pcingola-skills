@@ -167,13 +167,8 @@ What the numbers mean:
   measured tempo differs, compare the beat confidence at the requested tempo
   with the one at the measured tempo: similar values mean the tempo is
   ambiguous rather than wrong.
-- Gemini models misread the pitch of a test tone in most probes (2026-10-21).
-  With the brief
-  in the same request, a model described a pure sine tone as the piano
-  piece the brief asked for; the description is therefore requested without
-  the brief, but the verdict request still sees it. Take tempo and
-  key from `signal`. Model verdicts vary between runs and between the MP3
-  and WAV of the same clip.
+- Take tempo and key from `signal`, not from the model description. Model
+  verdicts vary between runs and between the MP3 and WAV of the same clip.
 
 These checks measure fit to the brief and technical defects, not musical
 quality. Present `summary.md` and the images, and leave the choice between

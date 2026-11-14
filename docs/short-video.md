@@ -3,7 +3,7 @@
 ## Project directory
 
 A film project is a directory given by path, and every file the tool writes for a film goes inside it. A path at or
-under `~/short-video` is refused (`forbidden_project_root` in the settings).
+under `forbidden_project_root` in the settings is refused. Its default is null, which refuses no path.
 
 ## Settings
 

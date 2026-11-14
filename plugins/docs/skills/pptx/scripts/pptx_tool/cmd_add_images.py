@@ -62,7 +62,7 @@ def insert_images_in_placeholders(slide, image_paths: list[Path], placeholder_ty
             else:
                 break
         except (IndexError, FileNotFoundError) as e:
-            print(f"Warning: Could not insert image {image_path}: {e}")
+            print(f"Warning: Could not insert image {image_path}: {e}", file=sys.stderr)
             break
     return count
 
@@ -71,7 +71,7 @@ def run_add_images(args) -> None:
     """Entry point from CLI dispatcher."""
     input_path = Path(args.input)
     if not input_path.exists():
-        print(f"Error: Input file not found: {args.input}")
+        print(f"Error: Input file not found: {args.input}", file=sys.stderr)
         sys.exit(1)
 
     image_paths_str = [p.strip() for p in args.images.split(',')]
@@ -79,21 +79,21 @@ def run_add_images(args) -> None:
 
     for img_path in image_paths:
         if not img_path.exists():
-            print(f"Error: Image file not found: {img_path}")
+            print(f"Error: Image file not found: {img_path}", file=sys.stderr)
             sys.exit(1)
 
     try:
         placeholder_type_value = getattr(PlaceholderType, args.placeholder_type.upper()).value
     except AttributeError:
-        print(f"Error: Invalid placeholder type '{args.placeholder_type}'")
-        print(f"Valid types: PICTURE, OBJECT, MEDIA")
+        print(f"Error: Invalid placeholder type '{args.placeholder_type}'; valid types: PICTURE, OBJECT, MEDIA",
+              file=sys.stderr)
         sys.exit(1)
 
     try:
         prs = Presentation(str(input_path))
 
-        if args.slide >= len(prs.slides):
-            print(f"Error: Slide index {args.slide} out of range (0-{len(prs.slides)-1})")
+        if not 0 <= args.slide < len(prs.slides):
+            print(f"Error: Slide index {args.slide} out of range (0-{len(prs.slides)-1})", file=sys.stderr)
             sys.exit(1)
 
         slide = prs.slides[args.slide]
@@ -102,20 +102,18 @@ def run_add_images(args) -> None:
             index = args.index if args.index is not None else 0
             success = insert_image_in_placeholder(slide, image_paths[0], placeholder_type_value, index)
             if not success:
-                print(f"Error: No {args.placeholder_type} placeholder found on slide {args.slide}")
+                print(f"Error: No {args.placeholder_type} placeholder found on slide {args.slide}", file=sys.stderr)
                 sys.exit(1)
             print(f"Inserted {image_paths[0].name} into slide {args.slide}")
         else:
             count = insert_images_in_placeholders(slide, image_paths, placeholder_type_value)
             print(f"Inserted {count} of {len(image_paths)} images into slide {args.slide}")
             if count < len(image_paths):
-                print(f"Warning: Only {count} {args.placeholder_type} placeholders available")
+                print(f"Warning: Only {count} {args.placeholder_type} placeholders available", file=sys.stderr)
 
         prs.save(str(args.output))
         print(f"Saved presentation to: {args.output}")
 
     except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

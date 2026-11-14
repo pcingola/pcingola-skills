@@ -34,13 +34,11 @@ from .cmd_delete_slide import run_delete_slide
 
 
 def _load_spec(spec_arg: str) -> object:
-    """Accept a path, `@path`, or an inline JSON string."""
-    if spec_arg.startswith("@"):
-        return json.loads(Path(spec_arg[1:]).read_text(encoding="utf-8"))
-    path = Path(spec_arg)
-    if spec_arg.endswith(".json") and path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return json.loads(spec_arg)
+    """Accept an inline JSON object or array (first character `{` or `[`), else a
+    path of any extension, with or without a leading `@`."""
+    if spec_arg.lstrip().startswith(("{", "[")):
+        return json.loads(spec_arg)
+    return json.loads(Path(spec_arg.removeprefix("@")).read_text(encoding="utf-8"))
 
 
 def _write_tmp_json(data: object, tmp_root: Path, name: str) -> Path:

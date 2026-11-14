@@ -157,8 +157,8 @@ play:
   app: VLC
   image_app: Preview
 
-# Projects are never created at or under this path.
-forbidden_project_root: ~/short-video
+# Projects are never created at or under this path; null allows any path.
+forbidden_project_root: null
 
 # Scenes with `Engine: manim` in the storyboard: a Manim Community Edition
 # `scene.py` (from assets/manim_scene.py), rendered at the `video:` size and fps.

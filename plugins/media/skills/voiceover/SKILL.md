@@ -134,5 +134,4 @@ those sentences by ear before relying on their word times.
 English only (the voices and the text normalisation are English). Each
 sentence is synthesised separately; with the `speech` models, tone can drift
 a little between sentences. Gemini's length varies from run to run for the same
-text. Backends plug in behind the `TTSBackend` protocol in
-`scripts/voiceover_tool/backends.py`.
+text.

@@ -5,6 +5,7 @@ end of every sentence and word. The `speech` backend's requests go through `ai_m
 
 ## Backends
 
+Backends implement the `TTSBackend` protocol in `plugins/media/skills/voiceover/scripts/voiceover_tool/backends.py`.
 `kokoro` (the default) and `chatterbox` run in the process and need no provider. They are not part of `ai_models`.
 `speech` (`speech.SpeechBackend`) calls `ai_models.speech.speak` with the `speech` model of `config.yaml`, one request
 per sentence; the skill has no model setting and no model flag. The provider kind of that model sets the rest:

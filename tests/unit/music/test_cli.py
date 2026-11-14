@@ -32,10 +32,12 @@ def test_refusals_before_any_model_call(music, tmp_path):
     lyrics.write_text("la")
     existing = tmp_path / "e.mp3"
     existing.write_bytes(b"x")
+    (tmp_path / "s.mp3.json").write_text("{}")
     cases = [
         (["-o", str(tmp_path / "a.mp3")], "no prompt"),
         (["piano", "-o", str(tmp_path / "a.ogg")], "--out must end in .mp3 or .wav"),
         (["piano", "-o", str(existing)], "pass --force"),
+        (["piano", "-o", str(tmp_path / "s.mp3")], "s.mp3.json exists"),
         (["piano", "--lyrics", str(lyrics), "--instrumental", "-o", str(tmp_path / "a.mp3")], "mutually exclusive"),
         (["piano", "--bpm", "0", "-o", str(tmp_path / "a.mp3")], "--bpm must be positive"),
         (["piano", "-o", str(tmp_path / "a.mp3")], "no model for task 'music'"),
@@ -51,6 +53,21 @@ def test_sidecar_and_audio_ext():
     assert cli.sidecar(Path("/x/a.mp3"), ".json") == Path("/x/a.mp3.json")
     assert cli.audio_ext(b"RIFF....WAVE") == ".wav"
     assert cli.audio_ext(b"ID3\x04") == ".mp3"
+
+
+def test_output_path_and_existing_outputs(tmp_path):
+    """A WAV returned for `-o song.mp3` by a remote model is written as `song.wav`, so the overwrite check
+    looks at that path and its sidecars; a local model's WAV is encoded to the asked MP3."""
+    wav, mp3 = b"RIFF....WAVE", b"ID3\x04"
+    target = tmp_path / "song.mp3"
+    assert cli.output_path(target, wav, local=False) == tmp_path / "song.wav"
+    assert cli.output_path(target, wav, local=True) == target
+    assert cli.output_path(target, mp3, local=False) == target
+    assert cli.output_path(tmp_path / "song.wav", mp3, local=True) == tmp_path / "song.mp3"
+    assert cli.existing_outputs([tmp_path / "song.wav"]) == []
+    (tmp_path / "song.wav").write_bytes(wav)
+    (tmp_path / "song.wav.txt").write_text("t")
+    assert cli.existing_outputs([tmp_path / "song.wav"]) == [tmp_path / "song.wav", tmp_path / "song.wav.txt"]
 
 
 def test_sample_paths():

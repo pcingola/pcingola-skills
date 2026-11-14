@@ -48,7 +48,7 @@ def run_list_images(args) -> None:
     prs = Presentation(str(input_path))
 
     rows: list[tuple[int, int, str, int, int, int]] = []
-    for slide_idx, slide in enumerate(prs.slides, start=1):
+    for slide_idx, slide in enumerate(prs.slides):
         img_index = 0
         for shape in _iter_shapes(slide.shapes):
             if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
@@ -86,7 +86,7 @@ def run_extract_images(args) -> None:
     prs = Presentation(str(input_path))
     sidecar: list[dict] = []
     count = 0
-    for slide_idx, slide in enumerate(prs.slides, start=1):
+    for slide_idx, slide in enumerate(prs.slides):
         img_index = 0
         for shape in _iter_shapes(slide.shapes):
             if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
@@ -101,7 +101,8 @@ def run_extract_images(args) -> None:
                 continue
             if width_px < min_w or height_px < min_h:
                 continue
-            name = f"slide_{slide_idx:02d}_img_{this_idx:02d}.{ext}"
+            # File names number slides from 1, like export-slides and extract-shapes.
+            name = f"slide_{slide_idx + 1:02d}_img_{this_idx:02d}.{ext}"
             (output_dir / name).write_bytes(blob)
             sidecar.append(
                 {

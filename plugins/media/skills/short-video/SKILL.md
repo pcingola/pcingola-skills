@@ -84,8 +84,10 @@ scene.
    `references/manim.md`), `render --scene ID`, and play `scene.mp4`. Revise
    with the user.
 5. Remaining scenes, including title, summary and end: one subagent per
-   scene, in parallel. Give each its `brief.md` path, the prototype's page,
-   `references/scenes.md` and `lessons.md`; with `brand:` set, also give the
+   scene, in parallel. Give each the absolute path of
+   `${CLAUDE_SKILL_DIR}/scripts/short-video.sh` as the command `short-video.sh`
+   in the references, the project path, its `brief.md` path, the prototype's
+   page, `references/scenes.md` and `lessons.md`; with `brand:` set, also give the
    title and end subagents the brand folder. Each scaffolds, writes and
    renders its scene. Clip scenes are made as "Clip scenes and transitions"
    describes, not by a scene subagent.

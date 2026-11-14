@@ -17,7 +17,7 @@ color block panels in deep indigo, soft teal and muted purple
 
 ## Result
 
-Flat solid colour panels tiling the canvas with high-contrast white text: poster energy, the boldest of the three bespoke slide styles (with Minimal Enterprise and Editorial Big-Number). Suits a section divider, a three-part structure that dominates a deck, or a single slide that stands out from a run of Minimal Enterprise slides. Text has to stay short to survive the high contrast.
+Flat solid colour panels tiling the canvas with high-contrast white text: poster energy, the boldest of the three slide deck styles (with Minimal Enterprise and Editorial Big-Number). Suits a section divider, a three-part structure that dominates a deck, or a single slide that stands out from a run of Minimal Enterprise slides. Text has to stay short to survive the high contrast.
 
 ## Avoid
 
@@ -25,4 +25,4 @@ Dense or long content. Neon, glow, gradients, 3D, photorealism, busy or cluttere
 
 ## Suits
 
-One of the three styles of bespoke slide decks, used sparingly: it does not fade into the background of a deck the way Minimal Enterprise does.
+A style for a designed slide deck, used sparingly: it does not fade into the background of a deck the way Minimal Enterprise does.

@@ -11,7 +11,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from tests.integration.pptx import (
-    cleanup_dir, create_multilayout_pptx, create_test_image, create_test_pptx,
+    PROJECT_DIR, cleanup_dir, create_multilayout_pptx, create_test_image, create_test_pptx,
     fresh_dir, run_cli, stamp_description, write_readme,
 )
 
@@ -192,6 +192,49 @@ class TestEdit(unittest.TestCase):
         r = run_cli("edit", str(self.source), str(out), spec)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(Presentation(str(out)).slides), 4)
+
+    def test_spec_path_of_any_extension(self) -> None:
+        """edit reads a spec file named without `.json` and without `@`. Guards SKILL.md `edit`:
+        a spec not starting with `{` or `[` is the path of a JSON file of any extension."""
+        out = DIR / "txt_spec.pptx"
+        path = DIR / "spec.txt"
+        path.write_text(json.dumps({"operations": [{"action": "delete-slide", "indices": [0]}]}))
+        r = run_cli("edit", str(self.source), str(out), str(path))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(Presentation(str(out)).slides), 4)
+
+    def test_missing_spec_file_errors(self) -> None:
+        """edit exits 1 with "could not read spec" on stderr for a spec path that does not exist.
+        Guards that a missing file is reported as such, not as a JSON parse error."""
+        r = run_cli("edit", str(self.source), str(DIR / "none.pptx"), str(DIR / "absent.txt"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not read spec", r.stderr)
+        self.assertIn("absent.txt", r.stderr)
+
+    def test_skill_md_example_runs(self) -> None:
+        """The `edit` example of SKILL.md ("Several operations in one call"), read from SKILL.md,
+        runs on a target deck of a blank slide and a Two Content slide, with `deck.pptx` a deck
+        whose slide 4 is Title and Content. Its file names are mapped into the test directory.
+        Guards the example against drifting from the operation formats."""
+        skill = (PROJECT_DIR / "plugins/docs/skills/pptx/SKILL.md").read_text(encoding="utf-8")
+        section = skill.split("## Several operations in one call", 1)[1]
+        example = section.split("```json\n", 1)[1].split("```", 1)[0]
+        source, target = DIR / "deck.pptx", DIR / "example_in.pptx"
+        for path, layouts in ((source, "Title Slide,Title Slide,Title Slide,Title and Content"),
+                              (target, "Two Content")):
+            for args in (("new-deck", str(path)), ("add-slide", str(path), str(path), layouts)):
+                r = run_cli(*args)
+                self.assertEqual(r.returncode, 0, r.stderr)
+        for name in ("a.png", "b.png"):
+            create_test_image(DIR, name, 80, 80, "blue")
+        for name in ("deck.pptx", "a.png", "b.png"):
+            example = example.replace(f'"{name}"', json.dumps(str(DIR / name)))
+        out = DIR / "example_out.pptx"
+        r = run_cli("edit", str(target), str(out), example)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        slides = Presentation(str(out)).slides
+        self.assertTrue(any(s.shape_type == MSO_SHAPE_TYPE.CHART for s in slides[1].shapes))
+        self.assertEqual(sum(s.shape_type == MSO_SHAPE_TYPE.PICTURE for s in slides[2].shapes), 2)
 
     def test_missing_input_errors(self) -> None:
         """edit exits non-zero when the input deck does not exist. Guards the input check of the

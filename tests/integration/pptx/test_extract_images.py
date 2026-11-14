@@ -46,7 +46,7 @@ class TestExtractImages(unittest.TestCase):
         sidecar = json.loads((out_dir / "images.json").read_text())
         self.assertGreaterEqual(len(sidecar), 1)
         entry = sidecar[0]
-        self.assertEqual(entry["slide"], 1)
+        self.assertEqual(entry["slide"], 0)  # 0-based field, 1-based file name
         self.assertTrue((out_dir / entry["file"]).exists())
         self.assertTrue(entry["file"].startswith("slide_01_img_"))
 

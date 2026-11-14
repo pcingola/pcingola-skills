@@ -1,6 +1,6 @@
 ---
 name: pptx-author
-description: "Authors editable pptx decks from the layouts of a brand's template, or from bespoke media:image-gen slide designs rebuilt natively or placed as images. TRIGGER when: user wants a new deck or presentation, or to backport an image-gen slide into pptx."
+description: "Authors editable pptx decks from brand template layouts, or from media:image-gen slide designs rebuilt natively or placed as images. TRIGGER when: user wants a new PowerPoint (.pptx) deck or presentation, or to backport an image-gen slide to pptx."
 allowed-tools: Bash Read Write Edit Glob Grep Skill
 ---
 
@@ -50,8 +50,8 @@ without them.
   directly; this skill does not apply.
 - User chooses an **images-only deck** (one full-slide image per slide, not editable) →
   bespoke design path, with the [images-only assembly](references/04-image-assembly.md) as
-  phase 4. The user's explicit choice is the confirmation: a request that states it, such as
-  a Studio request, needs no further question. Never assume it; without that choice the
+  phase 4. The user's explicit choice is the confirmation: a request that states it needs no further
+  question. Never assume it; without that choice the
   bespoke design path ends in the native backport. The choice is per deck.
 
 ## The template (template path)
@@ -173,7 +173,7 @@ Both paths:
   [references/01-deck-outline.md](references/01-deck-outline.md#file-layout-one-folder-per-deck).
 - **Verify against the deliverable file**, not an intermediate build. Render and check the
   file at the target path before calling it done.
-- **Verify renders at 150 to 200 DPI**, not the 100 DPI default. Pixelation and small
+- **Verify renders at 150 to 200 DPI** (`export-slides` default 150). Pixelation and small
   misalignments do not show at low DPI.
 
 Template path:

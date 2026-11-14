@@ -61,3 +61,28 @@ so resumed lines get the current labels too.
 The Brier score of a yes/no question uses P(yes) alone; for choice and score questions it sums over classes, so a
 two-option choice scores twice the yes/no value for the same probabilities. The last of the 10 `p_top` bins includes
 1.0.
+
+## Python use from skills of the ai plugin
+
+A skill inside the `ai` plugin declares `ai-models` and `plugin-settings` as
+dependencies with git sources in its `pyproject.toml` (`[tool.uv.sources]`
+entries `{ git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/ai_models", branch = "main" }`
+and the same with `subdirectory = "lib/plugin_settings"`) and calls the library
+directly; skills of other plugins load `ai:classify` with the Skill tool and use
+the CLI.
+
+```python
+from ai_models import system1
+from plugin_settings import Plugin
+from pydantic_ai.models.decision import ChoiceQuestion
+
+Plugin.of(__file__).load()   # settings of the plugin that holds this file
+questions = {"team": ChoiceQuestion(instructions="Which team should handle this ticket?",
+                                    criteria={"billing": "invoices, refunds", "technical": None, "sales": None})}
+# model=None: models.system1 of config.yaml; or a "<provider>:<model>" id
+answer = system1.decide(ticket_text, questions).answers["team"]
+answer.choice, answer.probabilities[answer.choice]   # "billing", 0.997
+```
+
+`decide` raises `ai_models.errors.AIModelsError` for a missing config, model
+or server, and Pydantic-AI's `ModelAPIError` subclasses for HTTP errors.

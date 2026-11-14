@@ -8,8 +8,7 @@ editable: every slide is one picture, and its text cannot be changed in PowerPoi
 ## When
 
 Only when the user has chosen images-only for this deck. That choice is the confirmation:
-a request that states it (for example a Studio request asking for an images-only deck)
-needs no further question. Without it, the bespoke design path ends in the native
+a request that states it needs no further question. Without it, the bespoke design path ends in the native
 backport.
 
 The choice is per deck. The same approved images can give both deliverables, an

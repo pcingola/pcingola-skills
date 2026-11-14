@@ -74,6 +74,26 @@ def audio_ext(audio: bytes) -> str:
     return ".wav" if audio[:4] == b"RIFF" else ".mp3"
 
 
+def output_path(target: Path, audio: bytes, local: bool) -> Path:
+    """The path written for `audio` asked at `target`: `target` when the format matches or a local model's
+    WAV is encoded to the asked MP3, else `target` with the suffix of the returned format."""
+    path = target.with_suffix(audio_ext(audio))
+    if path != target and local and target.suffix.lower() == ".mp3":
+        return target
+    return path
+
+
+def existing_outputs(paths: list[Path]) -> list[Path]:
+    """The files among `paths` and their `.json` and `.txt` sidecars that exist."""
+    return [f for p in paths for f in (p, sidecar(p, ".json"), sidecar(p, ".txt")) if f.exists()]
+
+
+def _refuse_overwrite(paths: list[Path], force: bool) -> None:
+    existing = existing_outputs(paths)
+    if existing and not force:
+        config.error(f"{existing[0]} exists; pass --force to overwrite")
+
+
 def _cmd_generate(args: argparse.Namespace) -> int:
     from ai_models import config as ai_config
     from ai_models import music
@@ -85,9 +105,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     out = Path(args.out).expanduser()
     if out.suffix.lower() not in EXTENSIONS:
         config.error(f"--out must end in {' or '.join(EXTENSIONS)}, got {out.name}")
-    existing = [p for p in sample_paths(out, args.samples or 1) if p.exists()]
-    if existing and not args.force:
-        config.error(f"{existing[0]} exists; pass --force to overwrite")
+    _refuse_overwrite(sample_paths(out, args.samples or 1), args.force)
     try:
         images = [(Path(p).read_bytes(), image_mime(p)) for p in args.image or []]
     except OSError as e:
@@ -116,10 +134,12 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     options = {"image": args.image, "lyrics": args.lyrics, "instrumental": args.instrumental, "bpm": args.bpm,
                "seconds": args.seconds, "negative": args.negative, "seed": args.seed, "samples": args.samples}
     created = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    for i, (target, track) in enumerate(zip(sample_paths(out, len(tracks)), tracks), 1):
+    targets = sample_paths(out, len(tracks))
+    _refuse_overwrite([output_path(t, track.audio, local) for t, track in zip(targets, tracks)], args.force)
+    for i, (target, track) in enumerate(zip(targets, tracks), 1):
         path = target.with_suffix(audio_ext(track.audio))
         path.parent.mkdir(parents=True, exist_ok=True)
-        if path != target and local and target.suffix.lower() == ".mp3":
+        if output_path(target, track.audio, local) == target and path != target:
             try:
                 fit.encode(track.audio, target)
             except fit.FitError as e:

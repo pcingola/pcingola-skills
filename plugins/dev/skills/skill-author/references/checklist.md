@@ -56,11 +56,12 @@ Run every applicable item. Items marked *(CLI)* apply only to skills with script
 
 ## F. Tests *(CLI)*
 
-- F1. Tests live at `tests/{unit,integration}/<name>/` (hyphens in `<name>` become underscores), run with pytest (`unittest.TestCase` classes are collected too), and pass with `uv run --project <skill>/scripts --group dev pytest tests/unit/<name>` (the skill's `scripts/` on `PYTHONPATH`); `scripts/pyproject.toml` has a `dev` dependency group with `pytest`
-- F2. Script logic: import module functions directly and test with real inputs and the real dependency. No mocks, `patch`, `monkeypatch`, fakes or stub servers, no skipped tests, no write to `os.environ`; a test that needs a setting runs the code in a child process with an explicit environment, and a missing key, model or tool fails the test with a message
-- F3. Test data lives under `tests/data/`
-- F4. Integration tests at `tests/integration/<name>/` (same naming as F1) exercise the skill's CLI end-to-end
-- F5. Skills that call external services or models test against the real service: small local models (Ollama, tiny `diffusers` pipelines) where they exist, cloud providers when their key is set; a missing key or model fails the test with a message naming it
+- F1. Tests live at `tests/{unit,integration}/<name>/` (hyphens in `<name>` become underscores), run with pytest (`unittest.TestCase` classes are collected too), and pass with `uv run --group dev pytest tests/unit/<name>` from the repository root; `scripts/pyproject.toml` has a `dev` dependency group with `pytest`
+- F2. Every dependency of the skill's `scripts/pyproject.toml` is also in the root `dev` group, and the skill's `scripts/` is in the pytest `pythonpath` of the root `pyproject.toml`
+- F3. Script logic: import module functions directly and test with real inputs and the real dependency. No mocks, `patch`, `monkeypatch`, fakes or stub servers, no skipped tests, no write to `os.environ`; a test that needs a setting runs the code in a child process with an explicit environment, and a missing key, model or tool fails the test with a message
+- F4. Test data lives under `tests/data/`
+- F5. Integration tests at `tests/integration/<name>/` (same naming as F1) exercise the skill's CLI end-to-end
+- F6. Skills that call external services or models test against the real service: small local models (Ollama, tiny `diffusers` pipelines) where they exist, cloud providers when their key is set; a missing key or model fails the test with a message naming it
 
 ## G. Repo cross-references
 

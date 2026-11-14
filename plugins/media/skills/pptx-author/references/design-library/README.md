@@ -40,13 +40,3 @@ what the designs leave open, each loaded with the Skill tool:
    each style/layout shows the target.
 3. **Phase 4 (backport):** measure the approved image and rebuild in native pptx; the palette
    hexes and type scale come from the tokens you locked in phase 1.
-
-## Adding a design
-
-- **New layout:** add a `.md` in the shape of `layout-*.md` (when to use / center layout /
-  design tokens) plus a `.png` guide render. Name colours by their `brand.yaml` roles
-  (`accent1`, `accent2`, `accent3`, `dk1`, `lt1`), don't define hex values.
-- **New style:** add the style to `brand:style` first, then a `.md` here in the shape of
-  `style-*.md` (catalogue style name / when to use / header / subtitle / closing /
-  negative / center layout) plus a `.png` guide.
-- Keep everything brand-neutral: brand values belong in the brand folder, not in a design doc.

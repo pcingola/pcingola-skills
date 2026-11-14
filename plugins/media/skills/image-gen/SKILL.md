@@ -43,14 +43,16 @@ What each provider kind takes:
 ## When the user asks for options
 
 When the user asks for options, alternatives, variations or "a few versions",
-generate one image per tier with the same prompt and settings, running the
-calls in parallel, and name each file after its tier so the user can compare:
+generate one image per tier with the same prompt and settings, and name each
+file after its tier so the user can compare. Issue one `generate` command per
+tier as parallel tool calls in one message. One shell command with `&` and
+`wait` is not covered by the pre-approved wrapper rule and asks the user for
+permission.
 
 ```bash
-${CLAUDE_SKILL_DIR}/scripts/image-gen.sh generate --prompt '<prompt>' --out /tmp/<name>_best.png --aspect 3:2 --tier best &
-${CLAUDE_SKILL_DIR}/scripts/image-gen.sh generate --prompt '<prompt>' --out /tmp/<name>_multi-ref.png --aspect 3:2 --tier multi-ref &
-${CLAUDE_SKILL_DIR}/scripts/image-gen.sh generate --prompt '<prompt>' --out /tmp/<name>_fast.png --aspect 3:2 --tier fast &
-wait
+${CLAUDE_SKILL_DIR}/scripts/image-gen.sh generate --prompt '<prompt>' --out /tmp/<name>_best.png --aspect 3:2 --tier best
+${CLAUDE_SKILL_DIR}/scripts/image-gen.sh generate --prompt '<prompt>' --out /tmp/<name>_multi-ref.png --aspect 3:2 --tier multi-ref
+${CLAUDE_SKILL_DIR}/scripts/image-gen.sh generate --prompt '<prompt>' --out /tmp/<name>_fast.png --aspect 3:2 --tier fast
 ```
 
 The models interpret the same prompt differently, so this gives more variety

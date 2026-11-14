@@ -109,11 +109,14 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     except ValueError as e:
         config.error(str(e))
 
-    setup(
-        include_kokoro=backend.name == "kokoro",
-        include_aligner=not args.no_align,
-        include_chatterbox=backend.name == "chatterbox",
-    )
+    try:
+        setup(
+            include_kokoro=backend.name == "kokoro",
+            include_aligner=not args.no_align,
+            include_chatterbox=backend.name == "chatterbox",
+        )
+    except download.DownloadError as e:
+        config.error(str(e))
     aligner = None
     if not args.no_align:
         aligner = MMSAligner(download.weight_path(download.MMS_FA).parent).for_clip
@@ -141,13 +144,21 @@ def _cmd_voices(args: argparse.Namespace) -> int:
         backend = get_backend(args.backend)
     except ValueError as e:
         config.error(str(e))
-    for v in backend.voices():
+    try:
+        voices = backend.voices()
+    except download.DownloadError as e:
+        config.error(str(e))
+    for v in voices:
         print(f"{v}  (default)" if v == backend.default_voice else v)
     return 0
 
 
 def _cmd_setup(args: argparse.Namespace) -> int:
-    for p in setup(include_chatterbox=args.chatterbox):
+    try:
+        paths = setup(include_chatterbox=args.chatterbox)
+    except download.DownloadError as e:
+        config.error(str(e))
+    for p in paths:
         print(p)
     return 0
 

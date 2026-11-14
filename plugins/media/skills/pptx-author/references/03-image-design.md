@@ -23,7 +23,8 @@ the deliverable. It never ships as-is.
    guide, or the prior slide once one exists).
 
    Ask `media:image-gen` (loaded with the Skill tool, see "What this is" in `SKILL.md`)
-   for one image from that prompt and the reference image, aspect 16:9, size 2K, written
+   for one image with tier `multi-ref` from that prompt and the reference image, aspect 16:9,
+   size 2K, written
    to the absolute path of `<name>/images/slide1_v1.png`.
 
 3. **Present the result and stop.** Wait for explicit approval, by name, before touching

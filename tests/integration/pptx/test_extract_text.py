@@ -24,7 +24,7 @@ class TestExtractText(unittest.TestCase):
         write_readme(DIR,
             "extract-text: flat one-paragraph-per-line dumps.\n"
             "Expected outputs:\n"
-            "  dump.txt   — every paragraph of test.pptx, prefixed S01/S02/S03\n"
+            "  dump.txt   — every paragraph of test.pptx, prefixed S00/S01/S02\n"
             "  dump.json  — the same records as a JSON array\n"
             "Table cell text must appear with a TABLE[r,c] shape label.")
 
@@ -33,14 +33,14 @@ class TestExtractText(unittest.TestCase):
         cleanup_dir(DIR)
 
     def test_stdout_has_one_line_per_paragraph(self) -> None:
-        """extract-text prints one line per paragraph, prefixed S01 and carrying the layout name.
+        """extract-text prints one line per paragraph, prefixed S00 and carrying the layout name.
         Guards the flat dump format SKILL.md names as the first reader."""
         r = run_cli("extract-text", str(self.source))
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
         # 3 slides x (title + body)
         self.assertEqual(len(lines), 6)
-        self.assertTrue(lines[0].startswith("S01"))
+        self.assertTrue(lines[0].startswith("S00"))
         self.assertIn("Slide 0 Title", lines[0])
         self.assertIn("Title and Content", lines[0])  # layout name column
 
@@ -55,23 +55,24 @@ class TestExtractText(unittest.TestCase):
 
     def test_json_mode(self) -> None:
         """extract-text --json writes records with exactly slide, layout, shape and text, slide
-        1-based. Guards the JSON record format and its slide numbering."""
+        0-based like every slide index of the tool. Guards the JSON record format and its slide
+        numbering."""
         out = DIR / "dump.json"
         r = run_cli("extract-text", str(self.source), "--json", "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
         records = json.loads(out.read_text())
         self.assertEqual(len(records), 6)
         self.assertEqual(set(records[0]), {"slide", "layout", "shape", "text"})
-        self.assertEqual(records[0]["slide"], 1)  # 1-based in the dump
+        self.assertEqual(records[0]["slide"], 0)
 
     def test_single_slide_filter(self) -> None:
-        """extract-text --slide 1 returns only records of the second slide (slide 2 in the 1-based
-        dump). Guards the 0-based filter against the 1-based output."""
+        """extract-text --slide 1 returns only records of the second slide, numbered 1 in the
+        output. Guards that the filter and the output use the same 0-based index."""
         r = run_cli("extract-text", str(self.source), "--slide", "1", "--json")
         self.assertEqual(r.returncode, 0, r.stderr)
         records = json.loads(r.stdout)
         self.assertTrue(records)
-        self.assertEqual({rec["slide"] for rec in records}, {2})
+        self.assertEqual({rec["slide"] for rec in records}, {1})
 
     def test_table_cells_are_dumped(self) -> None:
         """extract-text dumps each table cell as a record with a TABLE[r,c] shape label. Guards that

@@ -25,4 +25,4 @@ Neon, glow, dark background, Greek columns, 3D, photorealism, busy or cluttered 
 
 ## Suits
 
-The house style of bespoke slide decks: the default choice unless the content calls for another style. Suits a series of decks on one subject, the explanation slides of a talk, a live demo deck and the scene images of a film explaining a process; it also works as image slides without native rebuild. Its one-central-diagram form does not suit a talk. In a film, card-and-line diagrams read as clip art, and dense documentation figures as a video background read as a slide deck.
+The default style for a designed slide deck, unless the content calls for another style. Suits a series of decks on one subject, the explanation slides of a talk, a live demo deck and the scene images of a film explaining a process; it also works as image slides without native rebuild. Its one-central-diagram form does not suit a talk. In a film, card-and-line diagrams read as clip art, and dense documentation figures as a video background read as a slide deck.

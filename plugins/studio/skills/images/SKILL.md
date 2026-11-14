@@ -34,7 +34,7 @@ A project is the request's `project` directory (absolute). Every file this skill
 
 | File | Content |
 |---|---|
-| `project.json` | `name`, `brief`, `kind` (absent in projects made before kinds, which are `image`), `created`, `autonomy` (`step` or `auto`), `settings` (the fields of the last `generate`: `brief`, `refs`, `brand`, `shape`, `model`, `count`, `style`) |
+| `project.json` | `name`, `brief`, `kind` (absent means `image`), `created`, `autonomy` (`step` or `auto`), `settings` (the fields of the last `generate`: `brief`, `refs`, `brand`, `shape`, `model`, `count`, `style`) |
 | `v<N>.png` | version N, numbered from 1 in the order made |
 | `v<N>.json` | `prompt` (the text sent to the model), `scene` (what the image shows, without style line and palette; a `change` copies it from its source), `refs` (absolute paths of the user's reference images and the brand logo, if used; the source version and the marked copy excluded; later versions made from this one keep them), `style` (style name), `brand` (name or null), `model`, `shape`, `action` (the request action that made it), `change` (`{"note", "marks"}` of a `change`, else null), `source` (N of the version it came from, else null), `created`, `invented` (`name`, `description`, `style_line`, `palette` of an invented style; absent otherwise; versions made from it keep it), `kind` (the request's `kind`) |
 | `refs/` | reference images, written by the page |
@@ -44,8 +44,7 @@ A project is the request's `project` directory (absolute). Every file this skill
 - `created` is the request's `time` field (ISO 8601, set by the Studio server).
 - `kind` in every `v<N>.json` is the request's `kind`; `project.json`'s `kind` is written by the Studio server and
   kept as found.
-- `model` is the request's image-gen tier (`best`, `fast`, `multi-ref`; older projects hold `gpt-image-2`,
-  `nano-banana-pro`, `nano-banana-2`); `shape` is `1:1`, `4:3`,
+- `model` is the request's image-gen tier (`best`, `fast`, `multi-ref`); `shape` is `1:1`, `4:3`,
   `16:9` or `9:16`.
 - Numbering: find the existing `v*.json` and `v*.png` with Glob in the project directory; the next N is one more than
   the highest N among them (1 when there is none). A request that makes several images reserves consecutive numbers
@@ -76,7 +75,7 @@ The request's fields map to the generation task given to `media:image-gen` like 
 | Request field | Task for `media:image-gen` |
 |---|---|
 | `shape` | the aspect ratio, unchanged (`1:1`, `4:3`, `16:9`, `9:16`) |
-| `model` | image-gen's tier of the same name (`best`, `fast`, `multi-ref`), which picks a model of image-gen's config; the older names map to `best` (`gpt-image-2`), `multi-ref` (`nano-banana-pro`) and `fast` (`nano-banana-2`). Ask image-gen for that tier and for no model id; record the field in `v<N>.json` as given |
+| `model` | image-gen's tier of the same name (`best`, `fast`, `multi-ref`), which picks a model of image-gen's config; a legacy value maps as the Studio server maps it (`gpt-image-2` to `best`, `nano-banana-pro` to `multi-ref`, `nano-banana-2` to `fast`). Ask image-gen for that tier and for no model id; record the field in `v<N>.json` as given |
 | `count` | that many separate generations of the same prompt, each with its own output path `v<N>.png` |
 | `refs` | reference images, passed as given |
 | `brand` | colours in the prompt; the logo is passed as a reference image only when the brief asks for it (a PNG `logo`, else `raster`); a brand with no PNG logo (for example `neutral`, or an SVG `logo` only) gets none, and the post says so |

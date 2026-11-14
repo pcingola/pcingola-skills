@@ -31,6 +31,13 @@ class TestAddImages(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cleanup_dir(DIR)
 
+    def assert_error_on_stderr(self, r) -> None:
+        """Exit 1 with one `Error:` line on stderr, none on stdout, no traceback."""
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Error:", r.stderr)
+        self.assertNotIn("Error:", r.stdout)
+        self.assertNotIn("Traceback", r.stdout + r.stderr)
+
     def test_add_single_image(self) -> None:
         """add-images with one image fills one PICTURE placeholder of the slide (the single-image
         branch, placeholder index 0). Guards that the image becomes a picture in the placeholder."""
@@ -73,33 +80,39 @@ class TestAddImages(unittest.TestCase):
         self.assertNotIn("Traceback", r.stdout + r.stderr)
 
     def test_add_image_missing_file(self) -> None:
-        """add-images exits non-zero when an image path does not exist. Guards the file check before
-        the deck is opened."""
+        """add-images exits 1 with the error on stderr when an image path does not exist. Guards the
+        file check before the deck is opened."""
         out = DIR / "img_missing.pptx"
         r = run_cli("add-images", str(self.simple), str(out), "0", "/nonexistent.png")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        self.assert_error_on_stderr(r)
 
     def test_add_image_bad_slide_index(self) -> None:
-        """add-images exits non-zero for a slide index past the last slide. Guards the slide range
-        check."""
-        out = DIR / "img_bad_slide.pptx"
-        r = run_cli("add-images", str(self.simple), str(out), "99", str(self.test_image))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        """add-images exits 1 with the error on stderr for a slide index past the last slide or
+        negative. Guards the slide range check."""
+        for slide in ("99", "-1"):
+            r = run_cli("add-images", str(self.simple), str(DIR / "img_bad_slide.pptx"), slide,
+                        str(self.test_image))
+            self.assert_error_on_stderr(r)
+
+    def test_add_image_bad_placeholder_index(self) -> None:
+        """add-images exits 1 with one error line on stderr, no traceback, for --index past the
+        PICTURE placeholders of the slide. Guards the error path of insert_image_in_placeholder."""
+        r = run_cli("add-images", str(self.with_placeholders), str(DIR / "img_bad_index.pptx"), "1",
+                    str(self.test_image), "--index", "9")
+        self.assert_error_on_stderr(r)
+        self.assertIn("out of range", r.stderr)
 
     def test_add_image_invalid_type(self) -> None:
-        """add-images exits non-zero for --type INVALID. Guards the PlaceholderType lookup that
-        lists PICTURE, OBJECT and MEDIA."""
+        """add-images exits 1 with the error on stderr for --type INVALID. Guards the PlaceholderType
+        lookup that lists PICTURE, OBJECT and MEDIA."""
         out = DIR / "img_bad_type.pptx"
         r = run_cli("add-images", str(self.simple), str(out), "0", str(self.test_image), "--type", "INVALID")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        self.assert_error_on_stderr(r)
+        self.assertIn("PICTURE, OBJECT, MEDIA", r.stderr)
 
     def test_add_image_missing_input(self) -> None:
-        """add-images exits non-zero when the input deck does not exist. Guards the input check of
-        the command."""
+        """add-images exits 1 with the error on stderr when the input deck does not exist. Guards
+        the input check of the command."""
         out = DIR / "img_no_input.pptx"
         r = run_cli("add-images", "/nonexistent.pptx", str(out), "0", str(self.test_image))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        self.assert_error_on_stderr(r)

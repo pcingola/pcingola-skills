@@ -13,8 +13,9 @@ model's provider kind:
   non-PNG format go when given. A gpt-image model always gets `dimensions`
   (default 1:1, 1K) and quality `high` unless `--quality` is given. A mask
   goes with the edit.
-- `google`: `google_image_config` with the aspect ratio and the size tier;
-  one request per image; PNG only, no transparent background.
+- `google`: `google_image_config` with `--aspect` and `--size` when given,
+  else the model's default (an edit keeps the reference's aspect); one
+  request per image; PNG only, no transparent background.
 - `diffusers` (local): `dimensions` from `models.local_size`; for an edit only
   when `--aspect` or `--size` is given, else the pipeline keeps the first
   reference image's size. One request per image; PNG only.
@@ -112,7 +113,8 @@ def settings(kind: str, model_id: str, *, aspect_ratio: str | None, image_size: 
         return s, 1
     _png_only(model_id, background, output_format)
     if kind == "google":
-        return {"google_image_config": {"aspect_ratio": aspect, "image_size": size}}, n
+        config = {k: v for k, v in (("aspect_ratio", aspect_ratio), ("image_size", image_size)) if v}
+        return ({"google_image_config": config} if config else {}), n
     if kind == "diffusers":
         if edit and aspect_ratio is None and image_size is None:
             return {}, n

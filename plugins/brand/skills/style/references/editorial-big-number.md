@@ -25,4 +25,4 @@ Content that is inherently grid-like (many parallel items, comparisons). Neon, g
 
 ## Suits
 
-One of the three styles of bespoke slide decks, with Minimal Enterprise and Bold Color Block.
+A style for a designed slide deck, alongside Minimal Enterprise and Bold Color Block.

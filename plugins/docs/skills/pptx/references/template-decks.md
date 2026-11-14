@@ -1,6 +1,6 @@
 # Filling a template deck
 
-A template deck is any `.pptx` whose slides carry the layouts and placeholders to reuse. `pptx.sh` below is `${CLAUDE_SKILL_DIR}/scripts/pptx.sh`. Slide indices are 0-based everywhere; JSON keys are `slide-N` and `shape-N`. The one exception is the file names of `extract-shapes` directory mode (`slide_N.shapes.json`, N 1-based; see step 2).
+A template deck is any `.pptx` whose slides carry the layouts and placeholders to reuse. `pptx.sh` below is `${CLAUDE_SKILL_DIR}/scripts/pptx.sh`. Slide indices are 0-based everywhere; JSON keys are `slide-N` and `shape-N`. The one exception is file names, which number slides from 1: `extract-shapes` directory mode (`slide_N.shapes.json`; see step 2), `export-slides` (`slide_NN.png`) and `extract-images` (`slide_NN_img_MM.<ext>`; the `slide` field of its `images.json` is 0-based).
 
 ## 1. Describe the template and select slides
 

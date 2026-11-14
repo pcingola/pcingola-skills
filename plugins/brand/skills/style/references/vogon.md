@@ -23,7 +23,7 @@ cream paper #FAF8F3, ink #0A161E, disc red #752222, stamp red #BF100F, skin grey
 
 ## Result
 
-No record of images generated from this style line. A slide in an earlier variant of this look (the Vogon page typography with a human caricature): a logo passed as reference was reproduced faithfully; a QR code was placed into an empty placeholder square afterwards.
+No record.
 
 ## Avoid
 
@@ -31,4 +31,4 @@ Gibberish text; a QR code or QR pattern generated inside the image.
 
 ## Suits
 
-Suits the logo, hero, comic strip and marketing images of the Vogon project and its site. The earlier variant suits one satirical slide that breaks a deck's palette on purpose.
+Suits a satirical hero image, logo or comic strip.

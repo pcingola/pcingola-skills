@@ -75,8 +75,11 @@ front matter of the style files. `catalogue.json` is a JSON array, sorted by
 name, of `name`, `description`, `tags`, `suits`, `sample` (the sample
 image's path relative to the skill directory, or `null` for a style without
 a sample image) and, when the style file has them, `title` and `links`.
-After adding, renaming or removing a style, or changing a `name`, `title`,
-`description`, `tags`, `suits` or `links`, regenerate both:
+Adding, renaming or removing a style, or changing a `name`, `title`,
+`description`, `tags`, `suits` or `links`, is a change to the source
+repository of this plugin, not to an installed copy: a plugin update
+replaces the installed files. After such a change, the source repository
+regenerates both files:
 
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/style.sh index
@@ -84,8 +87,8 @@ ${CLAUDE_SKILL_DIR}/scripts/style.sh index
 
 ## Tags
 
-Every value in a style's `tags` and `suits` comes from this list. A style
-that needs another value adds it here.
+Every value in a style's `tags` and `suits` comes from this list. A new
+value is added to this list in the source repository of this plugin.
 
 - technique: vector, 3d, clay, paper, watercolour, ink, print, collage, photographic, isometric, blueprint, comic, painting, html, typographic, glow, glass
 - mood: calm, playful, serious, technical, warm, satirical

@@ -62,7 +62,8 @@ def ensure_file(url: str, dest: Path, expected_size: int | None = None) -> Path:
 
     Streams to `dest.part`, checks the byte count against Content-Length (and
     `expected_size` when given), then renames to `dest`. A failed or short
-    download leaves no file under the final name.
+    download leaves no file under the final name. Every failure, network and
+    disk errors included, is a `DownloadError` naming `url`.
     """
     import httpx
 
@@ -94,6 +95,9 @@ def ensure_file(url: str, dest: Path, expected_size: int | None = None) -> Path:
         want = declared if declared is not None else expected_size
         if want is not None and got != want:
             raise DownloadError(f"{url}: got {got} bytes, expected {want}")
+    except (httpx.HTTPError, OSError) as e:
+        part.unlink(missing_ok=True)
+        raise DownloadError(f"cannot download {url}: {e}") from e
     except BaseException:
         part.unlink(missing_ok=True)
         raise
