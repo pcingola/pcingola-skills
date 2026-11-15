@@ -48,6 +48,12 @@ The package reads three sections; the fourth, `settings`, belongs to `plugin_set
 - `providers`: name to settings. Every provider has `kind`. A provider that needs a key holds it in `api_key`;
   `config.api_key` returns None for an entry without `api_key` and raises `ConfigError` for an empty one. `timeout`
   (seconds, default 600) applies to every request of that provider.
+- Keys come only from `api_key`. `openrouter`, `azure`, `google` and `openai` without `base_url` need it; building
+  one of them without it raises `ConfigError` before any request. A Vertex provider (`google` with `vertex: true`)
+  may instead set `project`, `location` and `credentials` (a service-account JSON file); its predict models (Lyria)
+  still need `api_key`. `ollama` and `openai` with a `base_url` need no key and send a placeholder, so no client
+  library reads its own environment variable. A 401 or 403 from a provider without `api_key` names
+  `providers.<name>.api_key` and the config file.
 - `models`: task to model id. A model id is `<provider name>:<model>`; the first colon splits it, so
   `ollama:d3:4b` is the Ollama tag `d3:4b`. A caller passes its own id (a `--model` flag) or asks for a task and gets
   `models.<task>` (`config.resolve`). The tasks the skills use: `chat`, `vision`, `system1`, `image`,
@@ -112,9 +118,9 @@ The template rows come from wall-time and quality measurements on an NVIDIA GB10
 |---|---|---|
 | `ollama` | `OllamaProvider` | `base_url` (default `http://localhost:11434/v1`) |
 | `openrouter` | `OpenRouterProvider` | `api_key` |
-| `openai` | `OpenAIProvider`; chat goes through Chat Completions (`openai-chat`), which every OpenAI-compatible server has | `base_url`, `api_key` |
+| `openai` | `OpenAIProvider`; chat goes through Chat Completions (`openai-chat`), which every OpenAI-compatible server has | `base_url`, `api_key` (required without `base_url`) |
 | `azure` | `AzureProvider` | `base_url` (the Azure endpoint), `api_version`, `api_key` |
-| `google` | `GoogleProvider`, or `GoogleCloudProvider` (Vertex) with `vertex: true` | `api_key`, `base_url` |
+| `google` | `GoogleProvider`, or `GoogleCloudProvider` (Vertex) with `vertex: true` | `api_key`, `base_url`; Vertex: `project`, `location`, `credentials` |
 | `diffusers` | none; `local` | none |
 | `kokoro` | none; `kokoro` | `model_url`, `voices_url`, `langs`, `dir` (Local speech and alignment) |
 | `chatterbox` | none; `chatterbox` | `python`, `url`, `files`, `dir` (Local speech and alignment) |
