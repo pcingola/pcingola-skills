@@ -41,18 +41,19 @@ project made with `init --json` (format: `references/storyboard.md`). Every sett
 
 ## Making a scene
 
-Each scene is a video clip timed to its narration, made by one of three
+Each scene is a video clip timed to its narration, made by one of four
 engines, chosen per scene with `Engine:`: HTML (HyperFrames and GSAP, the
-default), Manim, or a video model. The engines are equal options; for each
-scene, pick the one that can show the movement its storyboard describes.
-Storyboard, narration, music and assembly treat the three the same; an
-imported clip is a fourth source:
+default), Manim, a video model, or a presenter model. The engines are equal
+options; for each scene, pick the one that can show the movement its
+storyboard describes. Storyboard, narration, music and assembly treat the
+four the same; an imported clip is a fifth source:
 
 | method | storyboard | shows well |
 |---|---|---|
 | HTML page rendered by HyperFrames, a GSAP timeline keyed to sentence and word times (`references/scenes.md`) | `Brief:` with an optional `Image:`, or `Template:` | camera moves across a picture, layers moving over it, shapes and diagrams drawn, numbers counting, text built with the speech; without `Image:`, a diagram, chart, map or text drawn on a plain background |
 | Manim animation in the style of 3Blue1Brown (`references/manim.md`) | `Engine: manim` | mechanisms, quantities, processes, transformations of diagrams and equations |
 | video model animating the scene's image from a motion prompt (`references/video-model.md`) | `Engine: video` with `Image:` and `Brief:` | natural motion of a photographic or painted picture: water, smoke, crowds, a living cell, a slow camera move through a scene |
+| presenter model making the person in the scene's image speak the scene's narration recording (`references/video-model.md`, "Presenter scenes") | `Engine: presenter` with `Image:` (a portrait) and an optional `Brief:` | a host or narrator on screen: lips, head and hands moving with the words |
 | imported clip (see "Clip scenes") | `Engine: clip` | a morph or style change from `media:video-effects`, generated video, the user's footage |
 | HTML page over a background video ("Background video" in `references/scenes.md`) | `Image:` | a moving picture with drawn shapes, labels and camera moves on top |
 
@@ -208,8 +209,20 @@ with. Make the image with `media:image-gen` as for an HTML scene, at the
 aspect ratio of `video:`. `render --scene ID [--seed N]` calls the model of
 task `video` in the settings file `config.yaml` for the narration's length;
 a clip shorter than the narration holds its last frame to the end, a longer
-one is cut there. Its subagent gets `references/video-model.md`. `frames`,
+one is cut there. A sound track the model generates is mixed under the
+narration, `mix.ambience_relative_db` LU from the narration's loudness, unless the scene has `Ambience: off`. Its
+subagent gets `references/video-model.md`. `frames`,
 the critic and `assemble` handle it like any other scene.
+
+## Presenter scenes
+
+A scene with `Engine: presenter` has no page or prompt file: `render --scene
+ID [--seed N]` sends the scene's image (a portrait made with
+`media:image-gen`) and its voice version's `narration.wav` to the model of
+task `presenter` in `config.yaml`; the person in the image speaks the
+recording, for its whole length. The `Brief:`, when given, replaces the
+model's own prompt. `status` asks for a new render when the image or the
+recording changes. Its subagent gets `references/video-model.md`.
 
 ## Clip scenes
 
@@ -283,6 +296,8 @@ be the `brand:` value.
   scenes/<scene>/v<N>/  (Engine: manim) scene.py sv_timing.py timing.json background.png (with Image:)
                         brief.md voice_version media/ silent.mp4 scene.mp4 contact.png meta.json frames/
   scenes/<scene>/v<N>/  (Engine: video) prompt.txt background.png timing.json brief.md voice_version
+                        model.mp4 silent.mp4 scene.mp4 contact.png meta.json frames/
+  scenes/<scene>/v<N>/  (Engine: presenter) background.png timing.json brief.md voice_version
                         model.mp4 silent.mp4 scene.mp4 contact.png meta.json frames/
   scenes/<scene>/v<N>/  (Engine: clip) clip.<ext> brief.md silent.mp4 scene.mp4 contact.png meta.json frames/
   music/v<N>/           music.<ext> meta.json lyrics.txt

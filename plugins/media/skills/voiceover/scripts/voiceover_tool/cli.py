@@ -166,8 +166,9 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 VOICE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
-def add_voice(name: str, src: str | Path, force: bool = False) -> Path:
-    """Copy a reference recording to `<voices dir>/<name><suffix>`."""
+def add_voice(name: str, src: str | Path, force: bool = False, text: str | None = None) -> Path:
+    """Copy a reference recording to `<voices dir>/<name><suffix>`, and its transcript `text` (when given) to
+    `<voices dir>/<name>.txt` (a speech model of kind vllm-omni needs it)."""
     from .chatterbox import AUDIO_SUFFIXES, BUILTIN_VOICE, MIN_REFERENCE_SECONDS
 
     if not VOICE_NAME_RE.match(name) or name == BUILTIN_VOICE:
@@ -189,12 +190,17 @@ def add_voice(name: str, src: str | Path, force: bool = False) -> Path:
         p.unlink()
     dest = d / f"{name}{src.suffix.lower()}"
     shutil.copyfile(src, dest)
+    transcript = dest.with_suffix(".txt")
+    if text:
+        transcript.write_text(text.strip() + "\n")
+    else:
+        transcript.unlink(missing_ok=True)
     return dest
 
 
 def _cmd_add_voice(args: argparse.Namespace) -> int:
     try:
-        print(add_voice(args.name, args.file, force=args.force))
+        print(add_voice(args.name, args.file, force=args.force, text=args.text))
     except (ValueError, OSError, RuntimeError) as e:
         config.error(str(e))
     return 0
@@ -248,10 +254,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--chatterbox", action="store_true", help="Also download the Chatterbox weights (about 3 GB)")
     p.set_defaults(func=_cmd_setup)
 
-    p = sub.add_parser("add-voice", help="Store a reference recording as a chatterbox voice")
+    p = sub.add_parser("add-voice", help="Store a reference recording as a voice (chatterbox, vllm-omni speech models)")
     p.add_argument("name", help="Voice name, e.g. alice")
     p.add_argument("file", help="Recording of the speaker, longer than 5 s (10-20 s of clean speech)")
     p.add_argument("--force", action="store_true", help="Replace an existing voice of that name")
+    p.add_argument("--text", default=None,
+                   help="Transcript of the recording; needed to use the voice with a vllm-omni speech model")
     p.set_defaults(func=_cmd_add_voice)
 
     p = sub.add_parser("play", help="Open a media file in VLC")

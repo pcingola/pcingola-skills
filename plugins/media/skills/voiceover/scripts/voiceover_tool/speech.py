@@ -4,9 +4,14 @@
 A style goes as the model's `instructions` (OpenAI-style providers) or as a
 prefix of the text (Gemini TTS). A speed (0.25 to 4) goes to OpenAI-style
 providers, which may refuse it (Ollama does); Gemini TTS has none. The answer is
-a WAV file; raw 16-bit PCM (some OpenAI-compatible servers) is taken as
-24 kHz. The voice is checked by the provider. The default voice is the setting
+a WAV file, resampled to 24 kHz when it has another rate (Drama 3: 44.1 kHz); raw 16-bit PCM (some
+OpenAI-compatible servers) is taken as 24 kHz. The voice is checked by the provider. The default voice is the setting
 VOICEOVER_SPEECH_VOICE; `voices` lists VOICEOVER_SPEECH_VOICES when set.
+
+A model of kind vllm-omni (Fish Audio Drama 3) has no voices and no speed. Its voice is `default` (the model's
+own voice) or a reference voice of `add-voice` (a name in the voices directory, or a path) whose transcript
+`<name>.txt` lies beside it; the model clones it. A style becomes the provider's `style` format, inline tags for
+Drama 3 (`--style whisper` sends `[whisper] <sentence>`).
 """
 
 from __future__ import annotations
@@ -44,6 +49,14 @@ def decode(data: bytes) -> tuple[np.ndarray, int]:
         return samples.reshape(-1, w.getnchannels()).mean(axis=1), w.getframerate()
 
 
+def resample(samples: np.ndarray, rate: int, target: int) -> np.ndarray:
+    """`samples` at `rate` Hz resampled to `target` Hz (torchaudio's band-limited sinc interpolation)."""
+    import torch
+    import torchaudio.functional as F
+
+    return F.resample(torch.from_numpy(np.ascontiguousarray(samples)), rate, target).numpy()
+
+
 class SpeechBackend:
     """The config's `speech` model. `ValueError` when the config names none."""
 
@@ -71,7 +84,13 @@ class SpeechBackend:
         return list(self._voices)
 
     def synthesize(self, text: str, voice: str, speed: float) -> np.ndarray:
-        if speed != 1.0 and self.kind == "google":
+        from ai_models import omni
+
+        if self.kind == omni.KIND and voice != omni.DEFAULT_VOICE:
+            from .chatterbox import reference_path
+
+            voice = str(reference_path(voice))
+        if speed != 1.0 and self.kind in ("google", omni.KIND):
             raise ValueError(f"{self.model} has no speed setting; ask for the pace with --style instead")
         lo, hi = SPEED_RANGE
         if not lo <= speed <= hi:
@@ -89,7 +108,7 @@ class SpeechBackend:
             raise TTSError(f"{self.model}: {e}") from None  # the provider refused the request (a voice it lacks)
         samples, rate = decode(data)
         if rate != self.sample_rate:
-            raise TTSError(f"{self.model} returned {rate} Hz, expected {self.sample_rate} Hz")
+            samples = resample(samples, rate, self.sample_rate)
         if not samples.size:
             raise TTSError(f"{self.model} returned no audio for: {text[:80]!r}")
         return samples

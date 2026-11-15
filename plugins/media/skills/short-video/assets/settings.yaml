@@ -129,6 +129,12 @@ mix:
   loudness_tp: -1.5         # dBTP
   loudness_lra: 11.0
   music_db: -14.0           # music gain before ducking; lower it if the voice is hard to hear
+  # A video scene's own sound track (the video model's), mixed under its narration: its integrated loudness is set
+  # ambience_relative_db LU from the narration's (negative: below), with at most ambience_max_gain_db of gain so a
+  # near-silent track is not raised into noise, and faded in and out over ambience_fade seconds.
+  ambience_relative_db: -15.0
+  ambience_max_gain_db: 10.0
+  ambience_fade: 0.5
   fade_in: 1.0
   fade_out: 3.0
   duck: "sidechaincompress=threshold=0.02:ratio=10:attack=15:release=350"

@@ -12,6 +12,7 @@ class Engine(StrEnum):
     MANIM = "manim"
     CLIP = "clip"
     VIDEO = "video"
+    PRESENTER = "presenter"
 
     @classmethod
     def of(cls, scene: dict) -> Engine:

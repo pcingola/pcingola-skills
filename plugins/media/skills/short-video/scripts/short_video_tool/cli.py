@@ -41,7 +41,10 @@ directory) and reads its `settings.yaml` over the skill defaults.
 `scene.py` (`manim_scene`) instead of an HTML composition and need no
 HyperFrames. Those of a scene with `Engine: video` work on its motion prompt
 `prompt.txt` (`video_scene`): `render` sends the scene's image and the prompt
-to the video model (`render --seed N` fixes the model's seed). A scene with
+to the video model (`render --seed N` fixes the model's seed). Those of a
+scene with `Engine: presenter` (`presenter_scene`) copy its picture, and
+`render` sends it and the scene's narration recording to the presenter model
+(`--seed` too). A scene with
 `Engine: clip` has no page: `clip` imports its video (`clip`), and
 `scaffold` and `render` refuse it.
 """
@@ -57,7 +60,7 @@ import sys
 from pathlib import Path
 
 from . import audiocheck, brand, clip, config, credit, media, mix, music, narration, scenes, settings, speakers, state
-from . import manim_scene, status, storyboard, video_scene
+from . import manim_scene, presenter_scene, status, storyboard, video_scene
 
 LAYOUT = ("images", "sources", "voice", "scenes", "music", "film")
 
@@ -300,6 +303,25 @@ def _render_video(project: Path, scene: dict, seed: int | None) -> int:
     return 0
 
 
+def _scaffold_presenter(project: Path, scene: dict) -> int:
+    try:
+        out = presenter_scene.scaffold(project, scene)
+    except scenes.SceneError as e:
+        config.error(str(e))
+    print(out / "brief.md")
+    return 0
+
+
+def _render_presenter(project: Path, scene: dict, seed: int | None) -> int:
+    try:
+        out = presenter_scene.render(project, scene, seed)
+    except (scenes.SceneError, media.ToolError) as e:
+        config.error(str(e))
+    print(out)
+    print(out.parent / "contact.png")
+    return 0
+
+
 def _cmd_scaffold(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
@@ -309,6 +331,8 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
         return _scaffold_manim(project, _scene(data, args.scene))
     if storyboard.is_video(_scene(data, args.scene)):
         return _scaffold_video(project, _scene(data, args.scene))
+    if storyboard.is_presenter(_scene(data, args.scene)):
+        return _scaffold_presenter(project, _scene(data, args.scene))
     _ensure_node()
     try:
         out = scenes.scaffold(project, _scene(data, args.scene), config.NODE_DIR)
@@ -329,8 +353,10 @@ def _cmd_render(args: argparse.Namespace) -> int:
         return _render_manim(project, _scene(data, args.scene))
     if storyboard.is_video(_scene(data, args.scene)):
         return _render_video(project, _scene(data, args.scene), seed)
+    if storyboard.is_presenter(_scene(data, args.scene)):
+        return _render_presenter(project, _scene(data, args.scene), seed)
     if seed is not None:
-        config.error("--seed applies only to a video scene (`Engine: video`)")
+        config.error("--seed applies only to a video or presenter scene (`Engine: video`, `Engine: presenter`)")
     # A scene switched from manim to html has a latest version with no page.
     latest = state.latest_scene(project, args.scene)
     if latest is not None and not (latest / "index.html").is_file():

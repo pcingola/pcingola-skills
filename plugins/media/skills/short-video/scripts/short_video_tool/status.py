@@ -7,8 +7,9 @@ no rendered version, a newer version is scaffolded and not rendered, the
 render used another voice version than the latest, or what `scaffold` copied
 into the rendered version differs from what it would copy now: the image
 (`background.png`), `brief.md` (the brief, the On screen text, the image name,
-the frame size; for a manim or video scene also its engine's section) and, for a template
-scene, `card.js`. A clip scene needs a new import when `storyboard.clip_problem`
+the frame size; for a manim or video scene also its engine's section), for a template
+scene `card.js`, for a presenter scene the recording (`speech_sha256` of meta.json), and for a video scene the ambience level (`video_scene.ambience_level`: the
+scene's `ambience` or `mix.ambience_relative_db` changed). A clip scene needs a new import when `storyboard.clip_problem`
 names one. A new voice version makes the render stale only once it is
 imported, so the two are reported separately.
 """
@@ -18,7 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import manim_scene, narration, scenes, state, storyboard, video_scene
+from . import manim_scene, narration, presenter_scene, scenes, state, storyboard, video_scene
 from .engine import Engine
 
 
@@ -32,7 +33,8 @@ def voice_reasons(project: Path, data: dict, scene: dict) -> list[str]:
     return narration.recording_problems(data, scene, vdir)
 
 
-BRIEFS = {Engine.MANIM: manim_scene.manim_brief, Engine.VIDEO: video_scene.video_brief}
+BRIEFS = {Engine.MANIM: manim_scene.manim_brief, Engine.VIDEO: video_scene.video_brief,
+          Engine.PRESENTER: presenter_scene.presenter_brief}
 
 
 def render_reasons(project: Path, scene: dict) -> list[str]:
@@ -67,6 +69,15 @@ def render_reasons(project: Path, scene: dict) -> list[str]:
     brief = BRIEFS.get(Engine.of(scene), scenes.brief_markdown)(scene, timing, vname)
     if _read(sdir / "brief.md") != brief:
         out.append("brief.md differs from the storyboard (brief, On screen text, image name or frame size)")
+    model_clip = sdir / video_scene.MODEL_MP4
+    if storyboard.is_video(scene) and model_clip.is_file() and \
+            meta.get("ambience_relative_db") != (level := video_scene.ambience_level(scene, model_clip)):
+        out.append(f"rendered with ambience level {meta.get('ambience_relative_db')} LU, the storyboard and settings "
+                   f"give {level}")
+    if storyboard.is_presenter(scene) and voice is not None and meta.get("voice_version") == voice.name and \
+            (speech := voice / presenter_scene.NARRATION).is_file() and \
+            meta.get("speech_sha256") != presenter_scene.speech_digest(speech):
+        out.append(f"the recording {voice.name}/{presenter_scene.NARRATION} differs from the one the presenter spoke")
     if scene.get("template") and _card(_read(sdir / scenes.CARD_JS)) != _card(scenes.card_js(scene)):
         out.append("card.js differs from the storyboard (On screen text or author)")
     return out

@@ -1,11 +1,15 @@
 """short_video_tool.video_scene and `Engine: video` in the storyboard: parsing,
 validation errors, the fill-to-duration filter, the scaffold of a video scene
 (references/video-model.md, references/storyboard.md "Video scenes")."""
+import array
 import json
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+from tests.prereq import requires
 from short_video_tool import scenes, settings, state, status, storyboard, versions, video_scene
 from short_video_tool.engine import Engine
 
@@ -43,9 +47,9 @@ def _error(text: str) -> str:
 class TestEngine(unittest.TestCase):
 
     def test_enum(self) -> None:
-        """Engine lists the four engines, storyboard.ENGINES follows it, and Engine.of defaults to html.
+        """Engine lists the five engines, storyboard.ENGINES follows it, and Engine.of defaults to html.
         Guards one fixed set of engine names."""
-        self.assertEqual(storyboard.ENGINES, ("html", "manim", "clip", "video"))
+        self.assertEqual(storyboard.ENGINES, ("html", "manim", "clip", "video", "presenter"))
         self.assertEqual(Engine.of({}), Engine.HTML)
         self.assertEqual(Engine.of({"engine": "video"}), Engine.VIDEO)
 
@@ -85,6 +89,122 @@ class TestStoryboard(unittest.TestCase):
         for old, new, fragment in cases:
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, _error(MD.replace(old, new, 1)))
+
+
+class TestAmbienceKey(unittest.TestCase):
+
+    def setUp(self) -> None:
+        settings.use_project(None)
+
+    def test_parse(self) -> None:
+        """`Ambience: off` and `Ambience: on` in a video scene parse to `ambience` False and True; without the key
+        the scene has none. Guards a storyboard.md scene turning its ambience off."""
+        for value, parsed in (("off", False), ("on", True), ("Off", False)):
+            with self.subTest(value=value):
+                scene = storyboard.parse_markdown(MD.replace("Image: a.png\n", f"Image: a.png\nAmbience: {value}\n"))
+                self.assertIs(scene["scenes"][0]["ambience"], parsed)
+        self.assertNotIn("ambience", storyboard.parse_markdown(MD)["scenes"][0])
+
+    def test_errors(self) -> None:
+        """storyboard.md refuses an `Ambience:` other than on or off, and `Ambience:` on a scene that is not a
+        video scene; storyboard.json refuses a non-boolean `ambience`. Guards the one key both files share."""
+        self.assertIn("scene 'swim': `Ambience:` must be on or off",
+                      _error(MD.replace("Image: a.png\n", "Image: a.png\nAmbience: quiet\n")))
+        self.assertIn("scene 'swim': only an `Engine: video` scene has `Ambience:`",
+                      _error(MD.replace("Engine: video\n", "Ambience: off\n")))
+        bad = {"title": "T", "topic": "x", "scenes": [dict(JSON_SCENE, ambience="off")]}
+        with self.assertRaisesRegex(storyboard.StoryboardError, "`ambience` must be true or false"):
+            storyboard.parse_json(json.dumps(bad))
+
+
+def _ffmpeg(*args) -> None:
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *map(str, args)], check=True)
+
+
+def _samples(path: Path, start: float, end: float) -> array.array:
+    """The float samples (channels interleaved) of `path` between `start` and `end` seconds."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-af", f"atrim={start}:{end}", "-f", "f32le",
+                          "-"], capture_output=True, check=True).stdout
+    return array.array("f", raw)
+
+
+@requires(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg and ffprobe not installed")
+class TestAmbienceMix(unittest.TestCase):
+    """video_scene.mix_ambience with the real FFmpeg on a generated narration and generated clips with sound."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = d = Path(self._tmp.name)
+        settings.use_project(d)
+        (d / settings.PROJECT_FILE).write_text(
+            "mix: {ambience_relative_db: -15.0, ambience_max_gain_db: 10.0, ambience_fade: 0.1}\n")
+        self.narration = d / "narration.wav"  # 3 s of a 330 Hz tone
+        _ffmpeg("-f", "lavfi", "-i", "sine=frequency=330:sample_rate=24000:duration=3", self.narration)
+        self.clip = self._clip("model.mp4", 0)
+
+    def _clip(self, name: str, db: float) -> Path:
+        """2 s of picture with a 1 kHz tone at `db` from the sine source's level."""
+        path = self.dir / name
+        _ffmpeg("-f", "lavfi", "-i", "testsrc2=size=128x96:rate=24:duration=2", "-f", "lavfi", "-i",
+                "sine=frequency=1000:sample_rate=48000:duration=2", "-af", f"volume={db}dB", "-ac", 2,
+                "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", path)
+        return path
+
+    def tearDown(self) -> None:
+        settings.use_project(None)
+        self._tmp.cleanup()
+
+    def test_gain(self) -> None:
+        """ambience_gain puts the ambience `relative_db` LU from the narration and caps the gain. Guards a
+        near-silent model track raised into noise."""
+        self.assertEqual(video_scene.ambience_gain(-22.0, -30.0, -15.0, 10.0), -7.0)
+        self.assertEqual(video_scene.ambience_gain(-22.0, -60.0, -15.0, 10.0), 10.0)
+        self.assertEqual(video_scene.ambience_gain(-22.0, float("-inf"), -15.0, 10.0), 10.0)
+
+    def test_mix(self) -> None:
+        """mix_ambience measures narration and clip with ebur128, levels the clip's sound 15 LU under the
+        narration, writes the film's 48 kHz stereo as long as the scene, and leaves the narration alone after
+        the clip ends. Guards model tracks of different loudness reaching the scene at the same level."""
+        out = self.dir / video_scene.AUDIO_WAV
+        m = video_scene.mix_ambience(self.narration, self.clip, out, 2.0, 3.0)
+        self.assertAlmostEqual(m["ambience_lufs"] + m["ambience_gain_db"], m["narration_lufs"] - 15.0, delta=0.01)
+        louder = self._clip("louder.mp4", 6)
+        m2 = video_scene.mix_ambience(self.narration, louder, self.dir / "b.wav", 2.0, 3.0)
+        self.assertAlmostEqual(m2["ambience_gain_db"], m["ambience_gain_db"] - 6.0, delta=0.3)
+        a = next(s for s in scenes.media.probe(out)["streams"] if s["codec_type"] == "audio")
+        self.assertEqual((int(a["sample_rate"]), a["channels"]), (settings.get()["mix"]["sample_rate"], 2))
+        self.assertAlmostEqual(scenes.media.duration(out), 3.0, delta=0.02)
+        # FFmpeg's mono to stereo upmix puts the narration at -3 dB per channel, the same loudness
+        voice_tail = max(abs(x) for x in _samples(self.narration, 2.2, 3.0)) * 2 ** -0.5
+        self.assertAlmostEqual(max(abs(x) for x in _samples(out, 2.2, 3.0)), voice_tail, delta=0.002)
+
+    def test_quiet_track_capped(self) -> None:
+        """A track 60 dB under the tone gets the capped gain, `mix.ambience_max_gain_db`. Guards a near-silent
+        model track raised into noise."""
+        quiet = self._clip("quiet.mp4", -60)
+        m = video_scene.mix_ambience(self.narration, quiet, self.dir / "q.wav", 2.0, 3.0)
+        self.assertEqual(m["ambience_gain_db"], 10.0)
+
+    def test_level(self) -> None:
+        """ambience_level is `mix.ambience_relative_db` for a clip with sound, and None for `ambience` False or a
+        clip without an audio stream (a model that generates no sound, such as LTX-Video 0.9.5). Guards today's
+        narration-only scenes staying as they are, and `status` comparing the level a render recorded."""
+        silent = self.dir / "silent.mp4"
+        _ffmpeg("-i", self.clip, "-an", "-c:v", "copy", silent)
+        self.assertEqual(video_scene.ambience_level(JSON_SCENE, self.clip), -15.0)
+        self.assertIsNone(video_scene.ambience_level(dict(JSON_SCENE, ambience=False), self.clip))
+        self.assertIsNone(video_scene.ambience_level(JSON_SCENE, silent))
+
+    def test_filter(self) -> None:
+        """ambience_filter fades the ambience in and out within the shorter of clip and scene, applies the gain,
+        pads it to the scene and mixes it with the narration without normalizing. Guards a longer clip's sound
+        running past the scene and the fades ending at the clip's end."""
+        f = video_scene.ambience_filter(5.0, 3.0, -7.5)
+        self.assertIn("atrim=0:3,", f)
+        self.assertIn("afade=t=out:st=2.9:d=0.1", f)
+        self.assertIn("volume=-7.5dB", f)
+        self.assertIn("apad=whole_dur=3[amb]", f)
+        self.assertIn("amix=inputs=2:normalize=0", f)
 
 
 class TestFill(unittest.TestCase):

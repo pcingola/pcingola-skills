@@ -20,6 +20,8 @@ A video scene needs both `Image:` and `Brief:`. A template scene takes no
 - The On screen cells say what the viewer sees during each sentence, as for
   any scene. The model sees only the prompt, not the sentences or the word
   times: a video scene cannot key an event to a word.
+- `Ambience: off` keeps the model's sound track out of the scene (see
+  "Ambience"). Without it, or with `Ambience: on`, the track is mixed in.
 
 ## The version folder
 
@@ -32,8 +34,35 @@ A video scene needs both `Image:` and `Brief:`. A template scene takes no
   times, the frame size and the narration's length).
 
 After `render` the version also holds `model.mp4`, the clip the model
-returned. `meta.json` records the model, the prompt, the seed and the clip's
-length.
+returned, and `audio.wav` when its sound track was mixed in. `meta.json`
+records the model, the prompt, the seed, the clip's length,
+`ambience_relative_db` (null when the scene has no ambience) and, with
+ambience, the measured `narration_lufs` and `ambience_lufs` and the
+`ambience_gain_db` applied.
+
+## Ambience
+
+Some video models generate a sound track with the frames (waves, wind,
+birds, traffic). When `model.mp4` has one, `render` mixes it under the
+narration:
+
+- leveled to the narration: the track's integrated loudness is set
+  `mix.ambience_relative_db` LU from the narration's (default -15, below
+  it), whatever the model's own level;
+- with at most `mix.ambience_max_gain_db` of gain (default 10), so a
+  near-silent track stays quiet;
+- with a fade in and out of `mix.ambience_fade` seconds;
+- cut at the narration's end, or silent after the clip ends when the clip
+  is shorter;
+- the music of `assemble` ducks under the narration and the ambience
+  together.
+
+A model without a sound track gives the narration alone. A scene turns its
+ambience off with `Ambience: off`. Listen to `scene.mp4`: when the ambience
+covers the voice, lower `ambience_relative_db`; when the track holds speech, music
+or noise that does not fit, set `Ambience: off` or render again. Describe
+the sound in the prompt ("waves breaking, gulls calling") when the model
+takes it from there.
 
 A change to the brief, a beat, a sentence or the image goes into
 `storyboard.md`. After `Engine:` changes either way, run `scaffold` before
@@ -94,3 +123,28 @@ picture.
 5. Look at the frames for artefacts: melting shapes, extra limbs, garbled
    text, a subject changing identity. Render again with another prompt or
    seed, or switch the scene to another engine.
+
+## Presenter scenes
+
+A scene with `Engine: presenter` is the person in the scene's image speaking
+the scene's narration recording: lips, head, shoulders and hands move with
+the speech. The model is the one of task `presenter` in `config.yaml`.
+
+- `Image:` is a portrait: one person, face and hands visible, facing the
+  camera, plain or soft background, at any aspect ratio. The model renders
+  in the frame size of its own nearest the picture's aspect ratio (the
+  picture is cropped to it with the crop biased upward, to keep the head);
+  `render` scales that clip to fit inside the frame, uncropped, over a
+  blurred copy of the clip scaled to cover the frame.
+- `Brief:` is optional. Without it the model uses its own prompt, tuned for
+  a presenter speaking to the camera. Write one only to change that: a
+  gesture, a smile, a head turn.
+- The clip lasts the recording (`narration.wav`, with its pauses): the
+  presenter is still where the narration is silent.
+- `status` asks for a new render when the image, the voice version or the
+  recording changes.
+
+Procedure: `scaffold`, then `render [--seed N]`, then the motion check and
+the artefact check of steps 4 and 5 above; also check that the lips move
+with the words. A failed check changes the portrait, the `Brief:` or the
+seed.

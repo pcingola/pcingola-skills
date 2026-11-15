@@ -74,7 +74,14 @@ image from a prompt, see `video_scene`). An HTML or manim scene needs `Brief:`
 and its `Image:` is optional: an HTML scene without one draws everything on
 screen in its page. A video scene needs both: `Image:` is the still the model
 animates, `Brief:` the motion. A manim or video scene cannot be a template
-scene. The parsed scene has `engine` only when `Engine:` is given.
+scene. `Engine: presenter` (a presenter model makes the person in the scene's
+`Image:` speak the scene's narration recording, see `presenter_scene`) needs
+`Image:`; its `Brief:` is optional and, when given, replaces the model's own
+prompt; it cannot be a template scene. The parsed scene has `engine` only when
+`Engine:` is given. A video
+scene may have `Ambience: off` (or `on`, the default): the parsed `ambience`
+is False (True), and with False the model clip's sound track is not mixed
+under the narration (`video_scene.render`). No other scene takes it.
 
 `Engine: clip` marks a scene whose video is a clip made outside short-video and
 imported with `clip` (see `clip`). Its `Brief:` and
@@ -101,11 +108,16 @@ SCENE_ID_RE = re.compile(r"^[a-z0-9_]+$")
 HEADER_KEYS = ("Topic", "Source")
 # Header keys of older storyboards and where their values live now.
 MOVED_KEYS = {"Voice": "voice", "Music": "music", "Author": "author"}
-SCENE_KEYS = ("Image", "Brief", "Template", "Engine")
+SCENE_KEYS = ("Image", "Brief", "Template", "Engine", "Ambience")
+# `Ambience:` values of storyboard.md and the parsed `ambience`.
+AMBIENCE_VALUES = {"on": True, "off": False}
 # Values of a scene's `Engine:` key; a scene without one uses the first.
 ENGINES = tuple(e.value for e in Engine)
 CLIP = Engine.CLIP
 VIDEO = Engine.VIDEO
+PRESENTER = Engine.PRESENTER
+# Engines whose scene needs no `Brief:`.
+NO_BRIEF = (CLIP, PRESENTER)
 TABLE_HEADER = ["narration", "on screen"]
 # The fields of a voice: a speaker's, or a sentence's own settings.
 VOICE_KEYS = ("backend", "name", "speed", "style")
@@ -117,7 +129,8 @@ COLUMN_TITLES = {"speaker": "Speaker", "narration": "Narration", "on screen": "O
 SPEAKERS_HEADER = ["speaker", "backend", "voice", "speed", "style"]
 # Keys of the storyboard structure (storyboard.json) and of each scene.
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
-SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "preview", "narration", "beats", "speakers", "voices")
+SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
+                "voices")
 KEY_RE = re.compile(r"^([A-Z][A-Za-z]*):(?:\s+(.*))?$")
 UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
 SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
@@ -188,7 +201,9 @@ def normalize(obj):
 # How a field is named in the messages of each file.
 JSON_NAMES = {"scenes": "an entry to `scenes`", "no_speaker": "use null for the default voice",
               "narration": "sentences in `narration`", "clip_scene": "a scene with `engine` clip",
-              "video_scene": "a scene with `engine` video"}
+              "video_scene": "a scene with `engine` video", "presenter_scene": "a scene with `engine` presenter",
+              "ambience": "`ambience`",
+              "ambience_values": "true or false"}
 MD_NAMES = {
     "title": "`# <title>`", "topic": "`Topic:` paragraph", "source": "`Source:`",
     "scenes": "a `## <scene id>` section", "image": "`Image:`", "brief": "`Brief:`",
@@ -196,6 +211,8 @@ MD_NAMES = {
     "beats": "On screen", "speakers": "the speakers table in the header (`| Speaker | Backend | Voice | Speed | "
     "Style |`)", "no_speaker": "leave the cell empty for the default voice",
     "clip_scene": "an `Engine: clip` scene", "video_scene": "an `Engine: video` scene",
+    "presenter_scene": "an `Engine: presenter` scene",
+    "ambience": "`Ambience:`", "ambience_values": "on or off",
 }
 
 
@@ -297,12 +314,21 @@ def _check_scene(s, p: tuple, seen: set, speakers: dict, templates: dict, name, 
             err(p + ("engine",), f"{label}: a template scene takes no {name('engine')}")
         if "brief" in s:
             err(p + ("brief",), f"{label}: a template scene takes no {name('brief')}")
-    elif engine != CLIP and not s.get("brief"):
+    elif engine not in NO_BRIEF and not s.get("brief"):
         err(p + ("brief",), f"{label}: missing {name('brief')}")
     if s.get("image") == "":
         err(p + ("image",), f"{label}: {name('image')} is empty; name a file under images/ or leave it out")
     elif engine == VIDEO and template is None and "image" not in s:
         err(p + ("image",), f"{label}: missing {name('image')}; {name('video_scene')} animates that image")
+    elif engine == PRESENTER and template is None and "image" not in s:
+        err(p + ("image",), f"{label}: missing {name('image')}; {name('presenter_scene')} makes the person in that "
+                            "image speak")
+    if "ambience" in s:
+        if not isinstance(s["ambience"], bool):
+            err(p + ("ambience",), f"{label}: {name('ambience')} must be {name('ambience_values')}")
+        elif engine != VIDEO or template is not None:
+            err(p + ("ambience",), f"{label}: only {name('video_scene')} has {name('ambience')} (the video model's "
+                                   "sound track)")
 
     silent = engine == CLIP and template is None
     narration = s.get("narration", [] if silent else None)
@@ -595,9 +621,10 @@ def parse_markdown(text: str) -> dict:
         p = ("scenes", i)
         lines[p] = s.line
         scene: dict = {"id": s.id}
-        for key in ("Template", "Image", "Brief", "Engine"):
+        for key in ("Template", "Image", "Brief", "Engine", "Ambience"):
             if key in s.fields:
-                scene[key.lower()] = s.fields[key].value
+                value = s.fields[key].value
+                scene[key.lower()] = AMBIENCE_VALUES.get(value.lower(), value) if key == "Ambience" else value
                 lines[p + (key.lower(),)] = s.fields[key].line
         if s.preview is not None:
             scene["preview"] = s.preview
@@ -761,6 +788,10 @@ def is_clip(scene: dict) -> bool:
 
 def is_video(scene: dict) -> bool:
     return scene.get("engine") == VIDEO
+
+
+def is_presenter(scene: dict) -> bool:
+    return scene.get("engine") == PRESENTER
 
 
 def narrated(scene: dict) -> bool:

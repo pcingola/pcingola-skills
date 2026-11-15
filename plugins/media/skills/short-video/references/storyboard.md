@@ -84,7 +84,10 @@ The keys of a scene:
   an optional `Image:` (see
   "Manim scenes"). `Engine: html` is the same as no `Engine:` line.
 - Video scene: `Engine: video`, `Image:` (the picture a video model
-  animates) and `Brief:` (the motion), both required (see "Video scenes").
+  animates) and `Brief:` (the motion), both required, and an optional
+  `Ambience: off` (see "Video scenes").
+- Presenter scene: `Engine: presenter`, `Image:` (the portrait of the person
+  who speaks), required, and an optional `Brief:` (see "Presenter scenes").
 - Clip scene: `Engine: clip`, an optional `Brief:` and an optional `Image:`
   (see "Clip scenes").
 
@@ -259,6 +262,28 @@ what moves during each sentence without keying an event to a word. A
 template scene takes no `Engine:`.
 
 ```markdown
+
+## Presenter scenes
+
+`Engine: presenter` makes the scene the person in the scene's image speaking
+the scene's narration recording, made by a presenter model
+(`references/video-model.md`, "Presenter scenes"). `Image:` is a portrait,
+made with `media:image-gen`; `Brief:` is optional and, when given, replaces
+the model's own prompt. In `storyboard.json` the scene has `"engine":
+"presenter"` and `image`, and `brief` only when given. A template scene takes
+no `Engine:`; a presenter scene takes no `Ambience:`.
+
+```markdown
+## host
+
+Engine: presenter
+Image: 1_host.png
+
+| Narration | On screen |
+|---|---|
+| Welcome to the harbour at night. | The host speaks to the camera |
+```
+
 ## culture
 
 Engine: video
@@ -274,6 +299,12 @@ in on the cluster at the centre.
 The scene is narrated like any other. `render` asks the model for the
 narration's length; a shorter clip holds its last frame until the narration
 ends, a longer one is cut there.
+
+A model that generates a sound track with the clip gives the scene that
+track as ambience under the narration (`references/video-model.md`,
+"Ambience"). `Ambience: off` above the table keeps it out; `Ambience: on`
+is the default. Only a video scene takes `Ambience:`. In `storyboard.json`
+the key is `"ambience": false` (or `true`).
 
 ## Clip scenes
 

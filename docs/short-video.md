@@ -92,6 +92,17 @@ The starting `scene.py` (`assets/manim_scene.py`) is a moving skeleton (a `Value
 Manim leaves the sample aspect ratio of its H.264 stream unset, HyperFrames writes 1:1, and `assemble`'s concat needs
 them equal. `render` sets it with the `h264_metadata` bitstream filter, without re-encoding.
 
+## Presenter scenes
+
+`Engine: presenter` scenes (`presenter_scene`) call `ai_models.video.present` with the scene's image, the voice
+version's `narration.wav`, no aspect ratio (so the model's frame size is the bucket nearest the picture's), the
+`Brief:` as prompt when given, and an optional seed; the model is task `presenter` of `config.yaml`. `video_scene.fill`
+with `Fit.CONTAIN` fits the model clip into the `video:` frame uncropped, over a blurred copy of the clip scaled to
+cover the frame, and to the scene's length; `scenes.finish` muxes
+the narration. `meta.json` keeps `speech_sha256` of the recording, and `status` reports a render stale when the
+recording differs from it, besides the image and voice version checks every scene has. `Brief:` is optional for this
+engine and `Image:` required, in `storyboard.check` and in Studio's copy of the check.
+
 ## Video scenes
 
 `Engine: video` scenes call `ai_models.video.animate` with the image, the prompt, the narration length, the `video:`
@@ -105,7 +116,22 @@ scale to cover the `video:` frame and centre-crop, the `video:` fps, `setsar=1`,
 frame held (`tpad=stop_mode=clone`, the filter of clip scenes) when the clip is shorter than the narration and `-t` at
 the narration length when longer. Holding the last frame keeps the model's motion at its own speed; slowing the clip
 down or looping it would change the motion or show a jump at the loop point. `model.mp4` keeps the model's clip, and
-`meta.json` records the model, the prompt, the seed and the clip length.
+`meta.json` records the model, the prompt, the seed, the clip length, `ambience_relative_db` and the
+measured loudness and gain of the ambience mix.
+
+When `model.mp4` has an audio stream (a model that generates sound with the frames) and the scene's `ambience` is not
+False (`Ambience: off`), `video_scene.mix_ambience` writes `audio.wav`: the narration plus the clip's track, faded over `mix.ambience_fade`, both resampled to `mix.sample_rate` in the `encode:` channel layout,
+summed with `amix=normalize=0` and stored as 32-bit float so the sum cannot clip before the film's loudness pass.
+`finish` muxes `audio.wav` in place of `narration.wav`. The mix happens per scene, not in `assemble`, so the scene
+critic hears the ambience and `assemble` needs no second audio stream per scene; the cost is that the ambience also
+feeds the music's sidechain, so music under a video scene ducks a little more.
+
+The model's track has no fixed loudness: two LTX-2.5 clips of the harbour film measured -29.5 and -20.7 LUFS. So the
+level is relative, not a fixed gain like `music_db`: `video_scene.loudness` measures the integrated loudness (EBU R128,
+`ebur128`) of the narration and of the part of the track the scene uses, and `ambience_gain` sets the track
+`mix.ambience_relative_db` LU from the narration (from `mix.loudness_i` when the narration is silent), with the gain
+capped at `mix.ambience_max_gain_db` so a near-silent track (-inf LUFS included) is not raised into noise. The gain is a
+static `volume`, so the track keeps its own dynamics.
 
 ## Clip scenes
 
@@ -113,7 +139,7 @@ down or looping it would change the motion or show a jump at the loop point. `mo
 equal when both reduce to the same fraction with a denominator of at most 1001, or differ by less than 0.001 fps, so
 `fps: 29.97` matches NTSC's 30000/1001. `silent.mp4` is re-encoded with the `encode:` settings, the `video:` fps and
 `setsar=1`, and a silent clip scene gets silence at the film's sample rate and channel layout, so clip scenes join
-HTML, manim and video scenes in the concat.
+HTML, manim, video and presenter scenes in the concat.
 
 ## Assembly
 

@@ -1503,6 +1503,196 @@
      }
     ]
    }
+  },
+  {
+   "case": "valid video ambience off",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "image": "a.png",
+      "engine": "video",
+      "ambience": false
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid video ambience on",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "image": "a.png",
+      "engine": "video",
+      "ambience": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid ambience not a boolean",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "image": "a.png",
+      "engine": "video",
+      "ambience": "off"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid ambience on an html scene",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "ambience": false
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid presenter without brief",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "engine": "presenter",
+      "image": "a.png"
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid presenter with brief",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "engine": "presenter",
+      "image": "a.png",
+      "brief": "She smiles."
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid presenter without image",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "engine": "presenter"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid presenter with ambience",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "engine": "presenter",
+      "image": "a.png",
+      "ambience": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid presenter without narration",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "engine": "presenter",
+      "image": "a.png"
+     }
+    ]
+   }
   }
  ]
 }

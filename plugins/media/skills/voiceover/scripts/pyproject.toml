@@ -10,6 +10,8 @@ dependencies = [
     "num2words",
     # weight downloads
     "httpx>=0.27.0",
+    # the local-model lock and free memory of ai_models.local (speech models of kind vllm-omni)
+    "psutil",
     # speech backend: the speech model of the ai_models config (lib/ai_models, git source)
     "ai-models",
     # the settings file config.yaml (lib/plugin_settings, git source)

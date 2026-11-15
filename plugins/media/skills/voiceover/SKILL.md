@@ -17,7 +17,7 @@ its known text to get word times.
 |---|---|---|---|---|
 | `kokoro` (default) | local CPU, `kokoro-onnx` | `af_heart` | yes | no |
 | `chatterbox` | local CPU, Chatterbox-Turbo | `default` | no | no |
-| `speech` | the `speech` model of the `ai_models` config | `Kore` (Gemini TTS), `default` (Ollama), else `marin` | yes, OpenAI-style models (0.25 to 4); not Gemini TTS | yes |
+| `speech` | the `speech` model of the `ai_models` config | `Kore` (Gemini TTS), `default` (Ollama, vllm-omni), else `marin` | yes, OpenAI-style models (0.25 to 4); not Gemini TTS or vllm-omni | yes |
 
 Use `kokoro` unless the user asks for another backend. The `speech` backend
 sends each sentence to the model that the settings file `config.yaml` names
@@ -30,6 +30,14 @@ tests, `gemini-2.5-pro-tts` over-acted, or with a style became slow and flat;
 gpt-4o-mini-tts has an audible synthetic buzz in the model's own output.
 Gemini takes `--style` literally: "unhurried pace" gives long pauses. Ollama
 speech models refuse `--style` and a speed other than 1.
+
+A `speech` model of provider kind `vllm-omni` (Fish Audio Drama 3) runs on
+the local GPU: the first sentence starts its server, which loads for minutes
+and stops when the command ends, so give it the whole script in one `synth`.
+It has no speed. Its voice is `default` or a voice of `add-voice` stored with
+`--text` (the transcript), which it clones. `--style` becomes inline tags of
+the model: `--style whisper` sends `[whisper] <sentence>` (tags `whisper`,
+`excited`, `sighs`). See `references/fish-drama-3.md`.
 
 Use `chatterbox` when the narration must sound like a specific person, such
 as the user ("in my voice"): run `voices --backend chatterbox` and pass the
@@ -73,7 +81,7 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh voices [--backend kokoro|chatterbox|spe
 
 # Store a recording (.wav/.flac/.mp3/.m4a, longer than 5 s) as a chatterbox voice:
 # copied to <voices dir>/NAME.<suffix of the recording>; prints the path
-${CLAUDE_SKILL_DIR}/scripts/voiceover.sh add-voice NAME recording.wav [--force]
+${CLAUDE_SKILL_DIR}/scripts/voiceover.sh add-voice NAME recording.wav [--force] [--text "transcript"]
 
 # Listen (macOS: VLC; Linux: xdg-open, the default application)
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh play out/narration.wav
