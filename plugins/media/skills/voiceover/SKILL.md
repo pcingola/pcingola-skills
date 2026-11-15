@@ -29,7 +29,10 @@ tests, `gemini-2.5-pro-tts` over-acted, or with a style became slow and flat;
 `gemini-3.8-flash-tts` sounded natural with and without a style;
 gpt-4o-mini-tts has an audible synthetic buzz in the model's own output.
 Gemini takes `--style` literally: "unhurried pace" gives long pauses. Ollama
-speech models refuse `--style` and a speed other than 1.
+speech models refuse `--style` and a speed other than 1. Ollama's
+`lfm3-audio` has odd, uncontrolled intonation: it is for tests, not for
+narration. `kokoro` sounds calm and clear and takes about 10 s for three
+sentences.
 
 A `speech` model of provider kind `vllm-omni` (Fish Audio Drama 3) runs on
 the local GPU: the first sentence starts its server, which loads for minutes

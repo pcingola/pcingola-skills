@@ -43,9 +43,12 @@ project made with `init --json` (format: `references/storyboard.md`). Every sett
 
 Each scene is a video clip timed to its narration, made by one of four
 engines, chosen per scene with `Engine:`: HTML (HyperFrames and GSAP, the
-default), Manim, a video model, or a presenter model. The engines are equal
-options; for each scene, pick the one that can show the movement its
-storyboard describes. Storyboard, narration, music and assembly treat the
+default), Manim, a video model, or a presenter model. HTML, Manim and the
+video model are equal options; for each scene, pick the one that can show
+the movement its storyboard describes. Use `presenter` only when the user
+asks for a talking presenter, never on your own: in a viewing test its mouth
+over-articulated and lip sync had gaps, and it took about 23 min per 4 s of
+clip on a GB10. Storyboard, narration, music and assembly treat the
 four the same; an imported clip is a fifth source:
 
 | method | storyboard | shows well |
@@ -225,7 +228,8 @@ A scene with `Engine: presenter` has no page or prompt file: `render --scene
 ID [--seed N]` sends the scene's image (a portrait made with
 `media:image-gen`) and its voice version's `narration.wav` to the model of
 task `presenter` in `config.yaml`; the person in the image speaks the
-recording, for its whole length. The `Brief:`, when given, replaces the
+recording, for its whole length. A scene gets this engine only when the
+user asks for a talking presenter ("Making a scene"). The `Brief:`, when given, replaces the
 model's own prompt. `status` asks for a new render when the image or the
 recording changes. Its subagent gets `references/video-model.md`.
 

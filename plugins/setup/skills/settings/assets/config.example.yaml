@@ -88,7 +88,6 @@ models:
   film_critic: vertex:gemini-3.1-pro-preview
   # Local models on a GPU (Ollama and the diffusers section below), in place of
   # the cloud lines above:
-  #speech: ollama:lfm3-audio
   #speech: fish:drama-3
   #image_best: local:qwen-image
   #image_edit: local:qwen-image
@@ -103,7 +102,7 @@ models:
   #image_best: local:flux2-klein-4b
   #image_edit: local:flux2-klein-4b
   #image_multi_ref: local:flux2-klein-4b
-  #speech: ollama:lfm3-audio
+  #speech: ollama:lfm3-audio   # tests only: odd, uncontrolled intonation, no style or speed
   #music: local:ace-step
   #video: local:ltx-video-small
   #presenter: local:kandinsky-s2v-lite
@@ -226,7 +225,7 @@ settings:
   VOICEOVER_CHATTERBOX_FILES: t3_turbo_v1.safetensors,s3gen_meanflow.safetensors,ve.safetensors,conds.pt,vocab.json,merges.txt,tokenizer_config.json,added_tokens.json,special_tokens_map.json
   VOICEOVER_CHATTERBOX_VOICE: default
   # Default voice of the `speech` model (marin: OpenAI; Kore: Gemini TTS;
-  # default: Ollama; lfm3-audio on Ollama takes female or male, optionally
+  # default: Ollama; lfm3-audio on Ollama, for tests only, takes female or male, optionally
   # with a language: female-british-english). VOICEOVER_SPEECH_VOICES,
   # optional: the voices `voices` lists for the speech backend, comma-separated.
   VOICEOVER_SPEECH_VOICE: marin

@@ -63,7 +63,8 @@ files, brand files and style samples are read in place.
   `manim`, `video` (the config task `video` animates the scene's picture from its `brief`, the prompt) or
   `presenter` (the config task `presenter` makes the person in the scene's picture speak the scene's narration
   recording; `brief` optional, when given the model's prompt). A video or presenter scene gets a picture like an
-  image scene; a presenter's picture is a portrait of one person facing the camera. The page sets `engine`; an engine
+  image scene; a presenter's picture is a portrait of one person facing the camera. A scene gets `presenter` only
+  when the user asks for a talking presenter, never by the agent's choice. The page sets `engine`; an engine
   the user set is kept by every request except a new storyboard. The request's `models` names each task's model;
   with `models.video` null, no scene gets `engine` `video`, and with `models.presenter` null none gets `presenter`.
 - A drawn scene is an HTML scene without `image` (no `template`, `engine` absent or `html`): written where a picture

@@ -101,7 +101,9 @@ with `Fit.CONTAIN` fits the model clip into the `video:` frame uncropped, over a
 cover the frame, and to the scene's length; `scenes.finish` muxes
 the narration. `meta.json` keeps `speech_sha256` of the recording, and `status` reports a render stale when the
 recording differs from it, besides the image and voice version checks every scene has. `Brief:` is optional for this
-engine and `Image:` required, in `storyboard.check` and in Studio's copy of the check.
+engine and `Image:` required, in `storyboard.check` and in Studio's copy of the check. In a viewing test of Kandinsky
+S2V the mouth over-articulated and lip sync had gaps, at about 23 min per 4 s of clip on a GB10, so the skill uses the
+engine only when the user asks for a talking presenter.
 
 ## Video scenes
 

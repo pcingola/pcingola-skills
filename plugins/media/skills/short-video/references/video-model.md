@@ -7,7 +7,8 @@ is the `--model ID` the main agent gave for the scene, passed as
 `render --scene ID --model ID`; without one, it is the model of task `video`
 in the settings file `config.yaml` (`setup:settings`). A clip that lacks the
 motion the Brief asks for is reported to the main agent, which may give
-another model.
+another model. LTX-Video 0.9.5 (`ltx-video`) is usable only for slow,
+near-static motion: fast motion pixelates and deforms.
 
 ## The storyboard
 
@@ -133,6 +134,9 @@ A scene with `Engine: presenter` is the person in the scene's image speaking
 the scene's narration recording: lips, head, shoulders and hands move with
 the speech. The model is the `--model ID` the main agent gave for the scene
 (`render --scene ID --model ID`), else the one of task `presenter` in `config.yaml`.
+A scene gets this engine only when the user asks for a talking presenter. In
+a viewing test of Kandinsky S2V the mouth over-articulated and lip sync had
+gaps; it took about 23 min per 4 s of clip on a GB10.
 
 - `Image:` is a portrait: one person, face and hands visible, facing the
   camera, plain or soft background, at any aspect ratio. The model renders
