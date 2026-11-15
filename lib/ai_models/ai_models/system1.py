@@ -1,6 +1,6 @@
 """System-1 models: Pydantic-AI's `SystemOneModel` on `POST <base_url>/v1/systemone`
 (Ollama: http://localhost:11434/v1/systemone). Any provider with a `base_url`
-serves it; its key goes as a bearer token.
+serves it; its key goes as a bearer token (`models.provider_key`).
 
 The questions and answers are Pydantic-AI's types (`pydantic_ai.models.decision`:
 `ChoiceQuestion`, `NoulQuestion`, `ScoreQuestion`, `DecisionRequest`, ...).
@@ -13,7 +13,7 @@ from collections.abc import Mapping
 
 from . import config
 from .errors import ConfigError, explained
-from .models import base_url, http_client
+from .models import base_url, http_client, provider_key
 
 
 def system1_model(model: str | None = None, *, task: str = "system1"):
@@ -26,7 +26,7 @@ def system1_model(model: str | None = None, *, task: str = "system1"):
     url = base_url(spec)
     if not url:
         raise ConfigError(f"provider {name!r} has no base_url for System-1 models")
-    return SystemOneModel(bare, provider=SystemOneProvider(base_url=url, api_key=config.api_key(spec),
+    return SystemOneModel(bare, provider=SystemOneProvider(base_url=url, api_key=provider_key(spec, name),
                                                            http_client=http_client(spec)))
 
 

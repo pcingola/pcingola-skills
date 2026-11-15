@@ -3,15 +3,20 @@
 Provider kinds and the Pydantic-AI provider each builds:
 
     ollama      OllamaProvider (`base_url`, default http://localhost:11434/v1)
-    openrouter  OpenRouterProvider
-    openai      OpenAIProvider (`base_url` for any OpenAI-compatible server)
-    azure       AzureProvider (`base_url` is the Azure endpoint, `api_version`)
-    google      GoogleProvider, or GoogleCloudProvider (Vertex) with `vertex: true`
+    openrouter  OpenRouterProvider (`api_key`)
+    openai      OpenAIProvider (`base_url` for any OpenAI-compatible server; `api_key`
+                required without `base_url`, the OpenAI API)
+    azure       AzureProvider (`base_url` is the Azure endpoint, `api_version`, `api_key`)
+    google      GoogleProvider, or GoogleCloudProvider (Vertex) with `vertex: true` (`api_key`)
     diffusers   local images and music in process (`local`), no provider
     vllm-omni, kokoro, chatterbox   local speech (`speech`), no provider
     torchaudio  forced alignment (`align`), no provider
 
-Remote clients trust certifi's roots plus EXTRA_CA_CERT (`tls`).
+Remote clients trust certifi's roots plus EXTRA_CA_CERT (`tls`). Every value a client
+library would otherwise take from its own environment variables (`OPENAI_API_KEY`,
+`OPENAI_BASE_URL`, `AZURE_OPENAI_*`, `OPENAI_API_VERSION`, `GOOGLE_API_KEY`,
+`OLLAMA_API_KEY`, `SYSTEM_ONE_API_KEY`, ...) is passed from config.yaml: a missing
+required one is a `ConfigError`, and a provider that needs no key gets `NO_KEY`.
 """
 
 from __future__ import annotations
@@ -22,6 +27,12 @@ from . import config
 from .errors import ConfigError
 
 OLLAMA_URL = "http://localhost:11434/v1"
+OPENAI_URL = "https://api.openai.com/v1"
+# The key of a provider that needs none, so the client library does not read one from its environment
+# variable; servers that check no key ignore it.
+NO_KEY = "api-key-not-set"
+# Kinds whose service always needs a key; `openai` needs one without `base_url` (the OpenAI API).
+KEY_KINDS = ("openrouter", "azure", "google")
 DEFAULT_TIMEOUT_SECONDS = 600.0
 CONNECT_TIMEOUT_SECONDS = 10.0
 # The Pydantic-AI model prefix of a kind, where it differs; `openai` uses Chat Completions,
@@ -44,10 +55,25 @@ def base_url(spec: dict[str, Any]) -> str | None:
     return spec.get("base_url") or (OLLAMA_URL if spec["kind"] == "ollama" else None)
 
 
+def provider_key(spec: dict[str, Any], name: str) -> str:
+    """The `api_key` of provider `name`; `NO_KEY` for a provider that needs none, `ConfigError` when one that
+    needs a key has none."""
+    k = config.api_key(spec)
+    if k is not None:
+        return k
+    if spec["kind"] in KEY_KINDS or (spec["kind"] == "openai" and not spec.get("base_url")):
+        raise ConfigError(f"provider {name!r} of kind {spec['kind']} needs `api_key` in {config.path()}")
+    return NO_KEY
+
+
 def provider(name: str):
     """The Pydantic-AI provider of provider `name` in the config."""
     spec = config.provider(name)
-    kind, key, url, http = spec["kind"], config.api_key(spec), base_url(spec), http_client(spec)
+    kind, url = spec["kind"], base_url(spec)
+    if kind == "azure":
+        url = config.required(spec, "base_url", name)
+        config.required(spec, "api_version", name)
+    key, http = provider_key(spec, name), http_client(spec)
     if kind == "ollama":
         from pydantic_ai.providers.ollama import OllamaProvider
 
@@ -59,7 +85,7 @@ def provider(name: str):
     if kind == "openai":
         from pydantic_ai.providers.openai import OpenAIProvider
 
-        return OpenAIProvider(base_url=url, api_key=key, http_client=http)
+        return OpenAIProvider(base_url=url or OPENAI_URL, api_key=key, http_client=http)
     if kind == "azure":
         from pydantic_ai.providers.azure import AzureProvider
 

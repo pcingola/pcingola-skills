@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from . import config
 from .errors import AIModelsError, ConfigError, explained
-from .models import http_client, provider
+from .models import http_client, provider, provider_key
 
 VERTEX_URL = "https://aiplatform.googleapis.com"
 STREAM_ATTEMPTS = 3
@@ -102,13 +102,14 @@ def predict_instance(prompt: str, negative: str | None, seed: int | None, sample
     return instance
 
 
-async def _predict(spec: dict, model: str, prompt: str, negative: str | None, seed: int | None,
+async def _predict(spec: dict, name: str, model: str, prompt: str, negative: str | None, seed: int | None,
                    samples: int | None) -> list[Track]:
+    key = provider_key(spec, name)
     instance = predict_instance(prompt, negative, seed, samples)
     url = f"{(spec.get('base_url') or VERTEX_URL).rstrip('/')}/v1/publishers/google/models/{model}:predict"
     async with http_client(spec) as http:
         response = await http.post(url, json={"instances": [instance]},
-                                   headers={"x-goog-api-key": config.api_key(spec) or ""})
+                                   headers={"x-goog-api-key": key})
     response.raise_for_status()
     tracks = [Track(base64.b64decode(b64)) for p in response.json().get("predictions") or []
               if (b64 := p.get("bytesBase64Encoded") or p.get("audioContent"))]
@@ -176,7 +177,7 @@ async def acompose(prompt: str, *, seconds: float | None = None, lyrics: str | N
                                               lyrics=lyrics, seed=seed))]
     with explained(model_id):
         if api == "predict":
-            return await _predict(spec, bare, prompt, negative, seed, samples)
+            return await _predict(spec, name, bare, prompt, negative, seed, samples)
         return [await _stream(provider(name).client, bare, stream_prompt(prompt, seconds, lyrics), images)]
 
 

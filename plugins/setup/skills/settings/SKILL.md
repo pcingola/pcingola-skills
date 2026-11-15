@@ -122,7 +122,7 @@ The setup:settings skill describes every setting and creates the file.
 
 A value a skill rejects exits with `KEY='value' (settings.KEY in <file>) is not valid: <what is accepted>` and the line naming `setup:settings`.
 
-A model call without the file exits with `no config at <file>; the setup:settings skill creates it`. A task without a model names the missing `models.<task>`. A provider with an empty `api_key` names the provider kind and the file.
+A model call without the file exits with `no config at <file>; the setup:settings skill creates it`. A task without a model names the missing `models.<task>`. A provider with an empty `api_key` names the provider kind and the file. A provider that needs a key (`openrouter`, `azure`, `google`, `openai` without `base_url`) and has no `api_key` exits naming the provider and `api_key`; `azure` also needs `base_url` and `api_version`. A client library's own variables (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_ENDPOINT`, ...) are ignored.
 
 Required settings, per skill:
 
@@ -143,7 +143,7 @@ Provider kinds (`providers.<name>.kind`):
 |---|---|---|
 | `ollama` | chat, vision, embeddings, System-1 models, speech (Ollama on macOS) | `base_url` (default `http://localhost:11434/v1`) |
 | `openrouter` | chat, vision, audio input, embeddings, images, image edits, speech | `api_key` |
-| `openai` | any OpenAI-compatible server: chat, embeddings, images, speech | `base_url`, `api_key` |
+| `openai` | any OpenAI-compatible server: chat, embeddings, images, speech | `base_url` (default the OpenAI API), `api_key` (required without `base_url`) |
 | `azure` | Azure OpenAI: chat, images with masks, speech | `base_url` (the Azure endpoint), `api_version`, `api_key` |
 | `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint; `predict_models`, the music models served by the Vertex `:predict` endpoint (the others stream) |
 | `diffusers` | local images, image edits with masks, music, image to video, portrait and speech to video, in the skill's process on a CUDA or Apple MPS GPU | none; the models are in `diffusers` |
