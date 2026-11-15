@@ -100,9 +100,13 @@ committed. The library's own tests run against the working tree's `lib/`.
 ## Plugin data directory and settings
 
 Each plugin has a data directory outside the plugin directory. Every plugin reads its settings from the one file
-`config.yaml`: a setting is `settings.<KEY>` of the file, else the variable of the process environment
-(`docs/plugin_settings.md`). The settings that libraries and child processes read from the environment (proxies,
-`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME`, `HF_TOKEN`) are exported there by `Plugin.load`.
+`config.yaml`: a setting is `settings.<KEY>` of the file, else the caller's default (`docs/plugin_settings.md`). The
+skills' code never reads a setting from the process environment, so a setting has one place to look and a skill
+behaves the same whatever shell started Claude Code. The variables that locate files are not settings and are read
+from the environment: `CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` (Claude Code), `SKILLS_CONFIG` (the settings
+file) and `PLUGIN_ENV_DIR` (set by the wrappers). The settings that libraries and child processes read from the
+environment (proxies, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME`, `HF_TOKEN`) are exported there by
+`Plugin.load`.
 
 ## Data outside the plugin
 
@@ -181,8 +185,8 @@ into other tests; a skipped test reports nothing and hides a missing prerequisit
 
 A test that needs a setting runs the real code in a child process whose environment it states in full
 (`tests/subproc.py`: `child_env`, `run_python`, `py_value`). `tests/settings_env.py` (`isolated`) points `HOME`,
-`CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` of that child at a temporary directory with no settings file, since the
-settings file overrides the process environment. It keeps uv's cache, Python installs and configuration and git's
+`CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` of that child at a temporary directory with no settings file, so the
+user's settings do not reach the code under test. It keeps uv's cache, Python installs and configuration and git's
 global configuration. A test that needs a setting, a provider or a model writes a real `config.yaml` in a temporary
 directory (`write_config`) and passes its path to the child in `SKILLS_CONFIG`; an in-process test of `ai_models`
 names it with `config.use`. A test that needs a

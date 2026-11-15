@@ -10,8 +10,8 @@
 #     diffusers   local image, music and video models (GPU)
 #     settings    every other setting, KEY: value
 #
-# A skill reads settings.<KEY>, else the variable KEY of the process
-# environment, else the default. CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA and
+# A skill reads settings.<KEY>, else the default; a variable KEY exported in
+# the shell is ignored. CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA and
 # SKILLS_CONFIG come from the process environment only. Every setting is optional unless its comment says
 # "Required".
 

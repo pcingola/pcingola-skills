@@ -1,8 +1,9 @@
 """Unit tests for brand_tool: lookup order, BRAND_PATH parsing, the settings file, copy,
 and the bundled brands against the brand folder specification in SKILL.md.
 
-brand_tool reads BRAND_PATH from the process environment, so every lookup runs in a
-child process with HOME in a temp directory and BRAND_PATH as the test sets it."""
+brand_tool reads BRAND_PATH from config.yaml, so every lookup runs in a child process
+with HOME in a temp directory and SKILLS_CONFIG naming a config.yaml that sets
+BRAND_PATH as the test gives it."""
 import json
 import os
 import re
@@ -64,13 +65,12 @@ class TmpCase(unittest.TestCase):
         self._tmp.cleanup()
 
     def env(self, brand_path: str | None, **extra: str) -> dict[str, str]:
-        env = {"HOME": str(self.tmp / "home"), **extra}
-        if brand_path is not None:
-            env["BRAND_PATH"] = brand_path
-        return child_env(env)
+        """A child environment whose config.yaml sets BRAND_PATH to `brand_path` (no setting when None)."""
+        cfg = write_config(self.tmp / "config.yaml", {} if brand_path is None else {"BRAND_PATH": brand_path})
+        return child_env({"HOME": str(self.tmp / "home"), "SKILLS_CONFIG": str(cfg), **extra})
 
     def call(self, brand_path: str | None, expr: str) -> dict:
-        """Evaluate `expr` (cli, config and Path imported) in a child process with BRAND_PATH=brand_path;
+        """Evaluate `expr` (cli, config and Path imported) in a child process with BRAND_PATH brand_path;
         return {"ok": value with str paths} or {"error": BrandError message}."""
         done = run_python(CALL.format(expr=expr), self.env(brand_path))
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -313,7 +313,7 @@ class TestCopy(TmpCase):
 class TestCli(TmpCase):
 
     def run_cli(self, brand_path: str | None, *argv: str, **extra: str) -> subprocess.CompletedProcess:
-        """`python -m brand_tool <argv>` in a child process with BRAND_PATH=brand_path."""
+        """`python -m brand_tool <argv>` in a child process with BRAND_PATH brand_path."""
         return subprocess.run([sys.executable, "-m", "brand_tool", *argv], capture_output=True, text=True,
                               env=self.env(brand_path, **extra))
 
@@ -350,14 +350,13 @@ class TestCli(TmpCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn(["acme", str(self.a / "acme")], [line.split() for line in done.stdout.splitlines()])
 
-    def test_list_reads_brand_path_from_settings_file(self) -> None:
-        """`brand list` reads BRAND_PATH set only in config.yaml. Guards that brands outside this
-        repository are reachable through the settings file."""
+    def test_list_ignores_brand_path_in_environment(self) -> None:
+        """`brand list` ignores a process variable BRAND_PATH. Guards config.yaml as the only
+        source of the setting."""
         make_brand(self.a, "acme")
-        cfg = write_config(self.tmp / "config.yaml", {"BRAND_PATH": str(self.a)})
-        done = self.run_cli(None, "list", SKILLS_CONFIG=str(cfg))
+        done = self.run_cli(None, "list", BRAND_PATH=str(self.a))
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertIn(["acme", str(self.a / "acme")], [line.split() for line in done.stdout.splitlines()])
+        self.assertNotIn(str(self.a), done.stdout)
 
 
 # The brand.yaml keys the checks below cover; test_spec_table_matches compares

@@ -29,7 +29,7 @@ Run every applicable item. Items marked *(CLI)* apply only to skills with script
 
 - B1. `SKILL.md` exists at skill root
 - B2. No stray files at root that don't belong (see `references/structure.md`)
-- B3. No committed secrets (`config.yaml`, API keys). Code loads settings with `plugin_settings` (`Plugin.of(__file__).load()`), reads them with its `get`, and uses its `require` and `invalid` for missing and invalid values; every setting is documented in the `assets/config.example.yaml` of the settings skill of the setup plugin
+- B3. No committed secrets (`config.yaml`, API keys). Code loads settings with `plugin_settings` (`Plugin.of(__file__).load()`), reads them with its `get` (never from `os.environ`: `config.yaml` is the only source of a setting), and uses its `require` and `invalid` for missing and invalid values; every setting is documented in the `assets/config.example.yaml` of the settings skill of the setup plugin
 - B4. All files referenced in SKILL.md body exist on disk
 - B5. *(CLI)* `scripts/` dir with `<name>.sh`, `pyproject.toml`, and `<name>_tool/` package
 
@@ -58,7 +58,7 @@ Run every applicable item. Items marked *(CLI)* apply only to skills with script
 
 - F1. Tests live at `tests/{unit,integration}/<name>/` (hyphens in `<name>` become underscores), run with pytest (`unittest.TestCase` classes are collected too), and pass with `uv run --group dev pytest tests/unit/<name>` from the repository root; `scripts/pyproject.toml` has a `dev` dependency group with `pytest`
 - F2. Every dependency of the skill's `scripts/pyproject.toml` is also in the root `dev` group, and the skill's `scripts/` is in the pytest `pythonpath` of the root `pyproject.toml`
-- F3. Script logic: import module functions directly and test with real inputs and the real dependency. No mocks, `patch`, `monkeypatch`, fakes or stub servers, no skipped tests, no write to `os.environ`; a test that needs a setting runs the code in a child process with an explicit environment, and a missing key, model or tool fails the test with a message
+- F3. Script logic: import module functions directly and test with real inputs and the real dependency. No mocks, `patch`, `monkeypatch`, fakes or stub servers, no skipped tests, no write to `os.environ`; a test that needs a setting writes a `config.yaml` and runs the code in a child process with an explicit environment whose `SKILLS_CONFIG` names that file, and a missing key, model or tool fails the test with a message
 - F4. Test data lives under `tests/data/`
 - F5. Integration tests at `tests/integration/<name>/` (same naming as F1) exercise the skill's CLI end-to-end
 - F6. Skills that call external services or models test against the real service: small local models (Ollama, tiny `diffusers` pipelines) where they exist, cloud providers when their key is set; a missing key or model fails the test with a message naming it

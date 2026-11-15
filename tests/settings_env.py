@@ -1,10 +1,9 @@
 """Environment for running a skill wrapper without the user's settings file,
 and `write_config` for a test's own settings file.
 
-The settings file `<config dir>/plugins/data/config.yaml` overrides the process
-environment, so a value a test passes to a wrapper (`HF_HOME`, ...)
-would lose to the same key in the user's file. `isolated` points HOME,
-CLAUDE_CONFIG_DIR and CLAUDE_PLUGIN_DATA at a temporary directory of this
+Settings come only from the settings file `<config dir>/plugins/data/config.yaml`,
+so the user's file would set them for the code under test. `isolated` points
+HOME, CLAUDE_CONFIG_DIR and CLAUDE_PLUGIN_DATA at a temporary directory of this
 process, where no settings file exists. A test that needs a setting writes a
 config.yaml with `write_config` and passes its path in SKILLS_CONFIG. uv keeps
 its real cache, Python installs and configuration, and git its global

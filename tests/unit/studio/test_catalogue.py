@@ -205,7 +205,7 @@ def test_list_brands_with_brand_path(checkout, tmp_path):
 
 
 def test_brand_path_from_settings(checkout, tmp_path):
-    """BRAND_PATH comes from the process environment, overridden by config.yaml, as the brand CLI reads it.
+    """BRAND_PATH comes from config.yaml, as the brand CLI reads it; a process variable BRAND_PATH is ignored.
     Guards the catalogue listing the brands the brand CLI finds."""
     from_process, from_file = tmp_path / "process", tmp_path / "file"
     make_brand(from_process, "proc")
@@ -213,7 +213,7 @@ def test_brand_path_from_settings(checkout, tmp_path):
     imports = "from pathlib import Path\nfrom studio_server.catalogue import read_catalogue"
     expr = f"read_catalogue(Path({str(brand_root(checkout))!r}))[0]['brands']"
     env = child_env(CLAUDE_CONFIG_DIR=str(tmp_path / "config"), BRAND_PATH=str(from_process))
-    assert py_value(imports, expr, env) == ["acme", "neutral", "proc"]
+    assert py_value(imports, expr, env) == ["acme", "neutral"]
     cfg = write_config(tmp_path / "config.yaml", {"BRAND_PATH": str(from_file)})
     assert py_value(imports, expr, {**env, "SKILLS_CONFIG": str(cfg)}) == ["acme", "neutral", "filed"]
 

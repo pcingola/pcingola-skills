@@ -74,7 +74,7 @@ Every skill reads its settings from one file: `<config dir>/plugins/data/config.
 
 Rules:
 
-- A skill reads `settings.<KEY>`, else the variable `KEY` of the process environment, else its default.
+- A skill reads `settings.<KEY>`, else its default. A variable `KEY` exported in the shell is not a setting: skills ignore it. Put every setting in the file.
 - A key with no value (`KEY:`) is unset. An empty string (`KEY: ""`) is set but empty, and a required setting treats it as missing.
 - `true` and `false` are read as the strings `true` and `false`.
 - A value with `: ` or ` #` in it needs quotes, for example `NO_PROXY: "localhost # local only"`.
@@ -113,14 +113,14 @@ A missing required setting exits with a message like:
 
 ```
 Error: <KEY> is not set.
-Settings are read from ~/.claude/plugins/data/config.yaml (not found), section `settings`, then from the process environment.
+Settings are read from ~/.claude/plugins/data/config.yaml (not found), section `settings`.
 Add it to that file:
   settings:
     <KEY>: <value>
 The setup:settings skill describes every setting and creates the file.
 ```
 
-A value a skill rejects exits with `KEY='value' (set in settings.KEY in <file>) is not valid: <what is accepted>`, or `(set in the process environment)`, and the same line naming the file.
+A value a skill rejects exits with `KEY='value' (settings.KEY in <file>) is not valid: <what is accepted>` and the line naming `setup:settings`.
 
 A model call without the file exits with `no config at <file>; the setup:settings skill creates it`. A task without a model names the missing `models.<task>`. A provider with an empty `api_key` names the provider kind and the file.
 

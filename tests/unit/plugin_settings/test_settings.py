@@ -164,13 +164,29 @@ def test_skills_config_names_another_file(home, plugin, tmp_path):
     assert got == [str(tmp_path / "other.yaml"), "other"]
 
 
-def test_get_file_then_environment_then_default(home, plugin):
-    """get returns settings.<key> of the file over the process environment, the environment when the file
-    lacks the key or holds it empty (null), else the default. Guards the documented order."""
-    body = f"out([P.get({KEY!r}), P.get('OTHER_KEY'), P.get('NULL_KEY'), P.get('NONE_KEY', 'dflt')])"
+def test_get_file_then_default(home, plugin):
+    """get returns settings.<key> of the file, else the default when the file lacks the key or holds it empty
+    (null). Guards the documented order."""
+    body = f"out([P.get({KEY!r}), P.get('NULL_KEY', 'dflt'), P.get('NONE_KEY', 'dflt'), P.get('NONE_KEY')])"
     write(config_path(home), f"settings:\n  {KEY}: file\n  NULL_KEY:\n")
-    got = value(run(home, plugin, body, **{KEY: "env", "OTHER_KEY": "env2", "NULL_KEY": "env3"}))
-    assert got == ["file", "env2", "env3", "dflt"]
+    assert value(run(home, plugin, body)) == ["file", "dflt", "dflt", None]
+
+
+def test_environment_variable_of_a_setting_is_ignored(home, plugin):
+    """get, require and ca_cert ignore a process environment variable named like a setting, with and without
+    a config file; Plugin.load leaves an exported ENV_KEYS variable the file does not set as it is. Guards
+    config.yaml as the only source of a setting."""
+    ca = home / "ca.pem"
+    write(ca, "pem")
+    env = {KEY: "env", "NULL_KEY": "env", "EXTRA_CA_CERT": str(ca), "HF_TOKEN": "env-tok"}
+    body = (f"P.load(); from plugin_settings.ca import ca_cert\n"
+            f"out([P.get({KEY!r}), P.get('NULL_KEY', 'dflt'), ca_cert(), os.environ.get('HF_TOKEN')])")
+    assert value(run(home, plugin, body, **env)) == [None, "dflt", None, "env-tok"]
+    write(config_path(home), "settings:\n  NULL_KEY:\n")
+    assert value(run(home, plugin, body, **env)) == [None, "dflt", None, "env-tok"]
+    done = run(home, plugin, f"P.require({KEY!r})", **env)
+    assert done.returncode == 1
+    assert f"{KEY} is not set" in done.stderr
 
 
 def test_values_are_strings(home, plugin):
@@ -181,11 +197,11 @@ def test_values_are_strings(home, plugin):
 
 
 def test_no_file_no_settings(home, plugin):
-    """Without a config file, get falls back to the environment and Plugin.load changes nothing and creates
-    no file. Guards a first run before setup:settings."""
+    """Without a config file, get returns the default and Plugin.load changes nothing and creates no file.
+    Guards a first run before setup:settings."""
     before = value(run(home, plugin, "out(dict(os.environ))"))
     assert value(run(home, plugin, "P.load(); out(dict(os.environ))")) == before
-    assert value(run(home, plugin, f"out(P.get({KEY!r}))", **{KEY: "env"})) == "env"
+    assert value(run(home, plugin, f"out(P.get({KEY!r}, 'dflt'))")) == "dflt"
     assert not config_path(home).exists()
 
 
@@ -231,10 +247,10 @@ def test_require_present(home, plugin):
 
 
 def test_require_empty_value_is_missing(home, plugin):
-    """require treats an empty or blank value in the file as missing, also over an exported value. Guards that
-    `KEY: ""` does not pass as set."""
+    """require treats an empty or blank value in the file as missing. Guards that `KEY: ""` does not pass as
+    set."""
     write(config_path(home), f"settings: {{{KEY}: '  '}}\n")
-    done = run(home, plugin, f"P.require({KEY!r})", **{KEY: "env"})
+    done = run(home, plugin, f"P.require({KEY!r})")
     assert done.returncode == 1
     assert f"{KEY} is not set" in done.stderr
 
@@ -246,21 +262,17 @@ def test_require_missing_names_the_file(home, plugin):
     assert done.returncode == 1
     assert done.stderr == (
         f"Error: {KEY} is not set.\n"
-        "Settings are read from ~/.claude/plugins/data/config.yaml (not found), section `settings`, "
-        "then from the process environment.\n"
+        "Settings are read from ~/.claude/plugins/data/config.yaml (not found), section `settings`.\n"
         f"Add it to that file:\n  settings:\n    {KEY}: <value>\n"
         "The setup:settings skill describes every setting and creates the file.\n"
     )
 
 
-def test_invalid_names_where_the_value_was_set(home, plugin):
-    """invalid names `settings.<key>` of the file when the file sets the key, else the process environment.
-    Guards that the error names the place to fix."""
+def test_invalid_names_the_setting_in_the_file(home, plugin):
+    """invalid names `settings.<key>` of the config file. Guards that the error names the place to fix."""
     write(config_path(home), f"settings: {{{KEY}: b}}\n")
     done = run(home, plugin, f"P.invalid({KEY!r}, P.get({KEY!r}), 'a number')")
     assert done.returncode == 1
-    assert done.stderr.startswith(
-        f"Error: {KEY}='b' (set in settings.{KEY} in ~/.claude/plugins/data/config.yaml) is not valid: a number.\n"
-        "Settings are read from ~/.claude/plugins/data/config.yaml (found)")
-    done = run(home, plugin, "P.invalid('OTHER_KEY', 'x', 'a number')", OTHER_KEY="x")
-    assert "OTHER_KEY='x' (set in the process environment) is not valid" in done.stderr
+    assert done.stderr == (
+        f"Error: {KEY}='b' (settings.{KEY} in ~/.claude/plugins/data/config.yaml) is not valid: a number.\n"
+        "The setup:settings skill describes every setting and creates the file.\n")

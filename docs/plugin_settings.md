@@ -21,22 +21,20 @@ with an error naming the file.
 
 ## Reading a setting
 
-`get(key, default)` returns `settings.<key>` of the file, else the variable `key` of the process environment, else
-`default`. The environment stays a source so that a variable exported in the user's shell (`HF_TOKEN`,
-`SSL_CERT_FILE`) and the variables the tests pass to a child process still apply; the file wins over it. Skills read
-every setting through `get` (or `Plugin.get`), never from `os.environ`.
+`get(key, default)` returns `settings.<key>` of the file, else `default`. A process environment variable with the
+name of a setting is ignored. Skills read every setting through `get` (or `Plugin.get`), never from `os.environ`.
 
-`require(key)` returns the value stripped of whitespace and treats an empty or blank value as missing, so `KEY: ""`
-in the file unsets an exported key for the skill. A missing key exits with a message that names the file (with `~`
-for the home directory), says whether it exists, and shows the two lines to add. `invalid(key, value, expected)`
-exits naming `settings.<key>` of the file, or the process environment, as the place the value came from. Both end
-with a line naming `setup:settings`. `Plugin.require`, `Plugin.invalid` and `Plugin.get` are the same calls.
+`require(key)` returns the value stripped of whitespace and treats an empty or blank value as missing. A missing key
+exits with a message that names the file (with `~` for the home directory), says whether it exists, and shows the two
+lines to add. `invalid(key, value, expected)` exits naming `settings.<key>` of the file. Both end with a line naming
+`setup:settings`. `Plugin.require`, `Plugin.invalid` and `Plugin.get` are the same calls.
 
 ## Export to the environment
 
 `Plugin.load()` reads the file, exits on a malformed one, and copies the settings of `ENV_KEYS` that the file sets
 into `os.environ`, over a process value. These are the settings that code outside the skills reads from the
-environment:
+environment. A variable of `ENV_KEYS` that the file does not set keeps its process value for those libraries; the
+skills' own code does not read it.
 
 | Setting | Read there by |
 |---|---|

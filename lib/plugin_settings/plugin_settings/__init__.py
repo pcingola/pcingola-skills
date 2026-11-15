@@ -6,8 +6,8 @@ The file is `$SKILLS_CONFIG` when set, else `<config dir>/plugins/data/config.ya
     providers, models, diffusers   the model layer (ai_models)
     settings                        every other setting, `KEY: value`
 
-`get(key)` returns `settings.<key>` of the file, else the variable `key` of the
-process environment, else the default. A missing file has no settings.
+`get(key)` returns `settings.<key>` of the file, else the default; a setting is
+never read from the process environment. A missing file has no settings.
 `Plugin.load()` exports the settings of ENV_KEYS to the process environment,
 because libraries and child processes read them there (proxies, TLS, Hugging
 Face). The file never sets CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA or
@@ -23,10 +23,10 @@ the `.claude-plugin/marketplace.json` of the nearest directory above the plugin
 
 A skill binds to its plugin with `Plugin.of(__file__)`.
 
-`require(key)` returns a setting or exits when it is missing; `invalid(key,
-value, expected)` exits for a value the caller rejects, naming where the value
-was set. Both name the config file and whether it exists, with home-directory
-paths shown as `~`. `error()` is for errors that are not about a setting.
+`require(key)` returns a setting or exits naming the config file and whether it
+exists; `invalid(key, value, expected)` exits for a value the caller rejects,
+naming `settings.<key>` of the file. Both show home-directory paths as `~`.
+`error()` is for errors that are not about a setting.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ ENV_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE
             "HF_HOME", "HF_TOKEN")
 SETUP_LINE = "The setup:settings skill describes every setting and creates the file."
 
-# The file set by `use`; it wins over the environment.
+# The file set by `use`; it wins over SKILLS_CONFIG.
 _used: Path | None = None
 
 
@@ -123,10 +123,8 @@ def settings() -> dict[str, str]:
 
 
 def get(key: str, default: str | None = None) -> str | None:
-    """`settings.<key>` of the config file, else the process environment, else `default`."""
+    """`settings.<key>` of the config file, else `default`."""
     v = settings().get(key)
-    if v is None:
-        v = os.environ.get(key)
     return default if v is None else v
 
 
@@ -180,8 +178,7 @@ def _display(path: Path) -> str:
 def _where() -> str:
     """The line of a settings error that names the config file."""
     p = config_file()
-    return (f"Settings are read from {_display(p)} ({'found' if p.is_file() else 'not found'}), "
-            "section `settings`, then from the process environment.")
+    return f"Settings are read from {_display(p)} ({'found' if p.is_file() else 'not found'}), section `settings`."
 
 
 def require(key: str) -> str:
@@ -195,10 +192,8 @@ def require(key: str) -> str:
 
 
 def invalid(key: str, value: str, expected: str) -> NoReturn:
-    """Exit with an error saying that `value` of `key` is not valid (`expected`
-    says what is), naming where it was set."""
-    where = f"settings.{key} in {_display(config_file())}" if key in settings() else "the process environment"
-    error(f"{key}={value!r} (set in {where}) is not valid: {expected}.\n{_where()}\n{SETUP_LINE}")
+    """Exit with an error saying that `value` of `key` is not valid (`expected` says what is)."""
+    error(f"{key}={value!r} (settings.{key} in {_display(config_file())}) is not valid: {expected}.\n{SETUP_LINE}")
 
 
 @dataclass(frozen=True)

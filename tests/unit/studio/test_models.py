@@ -27,7 +27,7 @@ def server(tmp_path: Path, config: Path):
     """`python -m studio_server` with SKILLS_CONFIG `config`; yields its URL."""
     parent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     env = {**child_env({"HOME": str(tmp_path / "home"), "CLAUDE_PLUGIN_DATA": str(tmp_path / "pd"),
-                        "SKILLS_CONFIG": str(config), "STUDIO_DIR": str(tmp_path / "Studio")}),
+                        "SKILLS_CONFIG": str(config)}),
            "PYTHONPATH": str(SERVER_DIR)}
     proc = subprocess.Popen([sys.executable, "-m", "studio_server", "--parent-pid", str(parent.pid)],
                             stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, env=env, text=True)
