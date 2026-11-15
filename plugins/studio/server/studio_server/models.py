@@ -11,7 +11,7 @@ from plugin_settings import ConfigFileError, read_config
 TIERS = {"best": ("image_best", "image_best"), "multi-ref": ("image_multi_ref", "image_multi_ref"),
          "fast": ("image", "image_edit")}
 # The image tasks, then the tasks the Videos tab names: the online voice, made music, the `video` scene engine.
-TASKS = ("image", "image_edit", "image_best", "image_multi_ref", "speech", "music", "video")
+TASKS = ("image", "image_edit", "image_best", "image_multi_ref", "speech", "music", "video", "presenter")
 
 
 def read_models() -> dict:

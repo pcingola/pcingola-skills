@@ -37,9 +37,10 @@ PICTURE_FILE = re.compile(r"^v([1-9][0-9]*)\.(?:png|json)$")
 
 # The storyboard structure, as media:short-video's storyboard check has it.
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
-SCENE_KEYS = ("id", "template", "image", "brief", "engine", "preview", "narration", "beats", "speakers", "voices")
+SCENE_KEYS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
+              "voices")
 VOICE_KEYS = ("backend", "name", "speed", "style")
-ENGINES = ("html", "manim", "video", "clip")
+ENGINES = ("html", "manim", "video", "presenter", "clip")
 # The template names of media:short-video's default settings, which Studio's settings.yaml does not change.
 TEMPLATES = ("title", "summary", "end")
 
@@ -189,12 +190,19 @@ def _check_scene(s: object, i: int, seen: set, speakers: dict, err) -> None:
             err(f"{label}: a template scene takes no `engine`")
         if "brief" in s:
             err(f"{label}: a template scene takes no `brief`")
-    elif engine != "clip" and not s.get("brief"):
+    elif engine not in ("clip", "presenter") and not s.get("brief"):
         err(f"{label}: missing `brief`")
     if s.get("image") == "":
         err(f"{label}: `image` is empty; name a file under images/ or leave it out")
     elif engine == "video" and template is None and "image" not in s:
         err(f"{label}: missing `image`; a scene with `engine` video animates that image")
+    elif engine == "presenter" and template is None and "image" not in s:
+        err(f"{label}: missing `image`; a scene with `engine` presenter makes the person in that image speak")
+    if "ambience" in s:
+        if not isinstance(s["ambience"], bool):
+            err(f"{label}: `ambience` must be true or false")
+        elif engine != "video" or template is not None:
+            err(f"{label}: only a scene with `engine` video has `ambience` (the video model's sound track)")
     silent = engine == "clip" and template is None
     narration = s.get("narration", [] if silent else None)
     if not isinstance(narration, list) or not all(_text(x) for x in narration):

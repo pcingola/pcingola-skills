@@ -106,7 +106,9 @@ so it inherits none of its files. A scene has `narration` (its sentences), `beat
 sentence), optionally per-sentence `speakers` and `voices`, and the keys of its form: a template scene (`title`,
 `summary`, `end`), an HTML scene with a picture, a drawn scene (an HTML scene without `image`, whose page draws a
 diagram or text), a `manim` scene, a `video` scene (the config task `video` animates its picture from its
-`brief`) or a `clip` scene. The page sets a scene's `engine` (`html`, `manim` or `video`). A scene's picture is the version its `image` names.
+`brief`), a `presenter` scene (the config task `presenter` makes the person in its picture speak its narration
+recording; `brief` optional) or a `clip` scene. The page sets a scene's `engine` (`html`, `manim`, `video` or
+`presenter`; the last two only for a scene with a picture). A scene's picture is the version its `image` names.
 
 The film settings, `film` in `project.json`:
 
@@ -165,7 +167,8 @@ a short-video body its `scene` where the endpoint acts on one. Errors answer `{"
 
 `/api/models` resolves image-gen's tiers as `media:image-gen` does: `fast` takes the task `image`, `image_edit` with
 reference images; `best` takes `image_best` and `multi-ref` `image_multi_ref`, with and without them. `tasks` also
-holds `speech` (the online voice), `music` (made music) and `video` (the `video` scene engine). A task that
+holds `speech` (the online voice), `music` (made music), `video` (the `video` scene engine) and `presenter` (the
+`presenter` scene engine). A task that
 `config.yaml` does not name, or a missing or broken `config.yaml`, gives null. The page labels each choice with its model
 and disables a choice without one. `POST /api/request` adds the same `tasks` to each request as `models`, and the
 agent records the model id that made a picture in its sidecar (`model_id`).

@@ -28,7 +28,7 @@
   /** The line of each backend's card in the voice step (the online one's is made by cardLine). */
   const BACKEND_LINES = { kokoro: "Made on this computer.", chatterbox: "Copied from a 20-second recording of you reading aloud." };
   const backendLabel = b => (BACKENDS.find(x => x[0] === b) || [b, b || ""])[1];
-  /** The model id of a config.yaml task (speech, music, video), or null. */
+  /** The model id of a config.yaml task (speech, music, video, presenter), or null. */
   const taskModel = task => Studio.models().tasks[task] || null;
   /** A backend's short name; the online one with its speech model. */
   const backendName = b => (b === "speech" ? Studio.withModel("Speech model", taskModel("speech")) : backendLabel(b).split(",")[0]);
@@ -50,11 +50,14 @@
     auto: { icon: "auto", title: "Choose for me", line: "3 styles picked to suit the brief", asked: "3 catalogue styles to choose from" },
     invent: { icon: "invent", title: "Invent new styles", line: "3 new styles made for this film", asked: "3 new styles to choose from" },
   };
-  const KIND_WORDS = { title: "title card", summary: "summary card", end: "closing card", manim: "animation", video: "video model", clip: "video clip" };
+  const KIND_WORDS = { title: "title card", summary: "summary card", end: "closing card", manim: "animation", video: "video model", presenter: "presenter", clip: "video clip" };
   /** The engines of a scene that is neither a template nor a clip: [engine, label, config task or null]. `html` is the
    *  storyboard without `engine`. */
   const ENGINES = [["html", "Animated page (HyperFrames)", null], ["manim", "Manim animation", null],
-    ["video", "Video model, from the scene's picture", "video"]];
+    ["video", "Video model, from the scene's picture", "video"],
+    ["presenter", "Presenter: the person in the scene's picture speaks the narration", "presenter"]];
+  /** Engines that animate the scene's picture, so they need one; the presenter takes no brief. */
+  const NEEDS_PICTURE = ["video", "presenter"];
   const STATES = { ready: ["st-ready", "Ready"], voice: ["st-voice", "Needs voice"], render: ["st-render", "Needs render"] };
   const AUDIO = [".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"];
   const SOURCES = [".pdf", ".txt", ".md", ".docx", ".pptx", ".xlsx", ".csv", ".html", ...AUDIO];
@@ -248,9 +251,10 @@
       if (!s.narration.length && !clip) return `Scene ${i + 1} needs a sentence.`;
       if (s.narration.some(t => !t.trim()) || s.beats.some(t => !t.trim()))
         return `Scene ${i + 1}: write what is said and what is on screen in every sentence; it is saved once both are filled in.`;
-      if (!s.template && s.engine !== "clip" && !(s.brief || "").trim())
+      if (!s.template && s.engine !== "clip" && s.engine !== "presenter" && !(s.brief || "").trim())
         return `Scene ${i + 1}: write ${drawn(s) ? "what the scene draws and how it moves" : "how the picture moves"}; it is saved once that is filled in.`;
       if (s.engine === "video" && !s.image) return `Scene ${i + 1}: a video model animates the scene's picture; add a picture first.`;
+      if (s.engine === "presenter" && !s.image) return `Scene ${i + 1}: the presenter is the person in the scene's picture; add a picture first.`;
     }
     return null;
   }
@@ -1398,6 +1402,7 @@
       s.template || s.engine === "clip" ? null : enginePart(s),
       s.template ? null : [h("label", { class: "f" }, drawn(s) ? "What the scene draws and how it moves"
         : s.engine === "manim" ? "What moves and transforms" : s.engine === "video" ? "What the video model animates (its prompt)"
+        : s.engine === "presenter" ? "How the presenter moves (optional; empty uses the model's own prompt)"
         : "How the picture moves"),
         textField("textarea", `brief-${view}`, s.brief || "", t => { s.brief = t; }, { class: "sv-brief" })],
       h("dl", { class: "facts", style: "margin-top:12px" },
@@ -1410,9 +1415,10 @@
   function enginePart(s) {
     const select = h("select", { onchange: e => {
       if (e.target.value === "html") delete s.engine; else s.engine = e.target.value;
+      if (s.engine !== "video") delete s.ambience;  // only a video scene has a model sound track
       commit();
     } }, ENGINES.map(([v, label, task]) => h("option", { value: v,
-      disabled: s.engine !== v && ((!!task && !taskModel(task)) || (v === "video" && !s.image)) },
+      disabled: s.engine !== v && ((!!task && !taskModel(task)) || (NEEDS_PICTURE.includes(v) && !s.image)) },
       task ? Studio.withModel(label, taskModel(task)) : label)));
     select.value = s.engine || "html";
     return h("div", { style: "margin-bottom:12px;max-width:420px" }, h("label", { class: "f" }, "Animated by"), select);
