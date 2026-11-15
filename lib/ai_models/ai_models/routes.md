@@ -7,6 +7,6 @@ wall time per output on an NVIDIA GB10 (128 GB unified memory).
 
 | task | when | model | why |
 |---|---|---|---|
-| image | only when the image holds text that must be spelled correctly (posters, titles, labels) | local:qwen-image | the only tested model that spelled a poster's text right; about 2.3 min per 2K image, 9x FLUX.2 klein |
-| image | only when the user asks for the highest quality and accepts the wait | local:qwen-image | small gain over FLUX.2 klein in photoreal and illustration tests; 9x slower |
-| video | only when the clip needs a specific motion that the default failed to produce | local:kandinsky-6 | best prompt following of the tested models; about 14 min per 5 s clip |
+| image | only when the image must contain legible, correctly spelled text (posters, titles, labels, signs) | local:qwen-image | spells short text correctly where FLUX.2 klein and Z-Image-Turbo misspell it; about 2.3 min per 2K image, 9x FLUX.2 klein |
+| image | only when the user asks for the highest image quality and accepts a longer wait | local:qwen-image | slightly more detail than FLUX.2 klein in photoreal and illustration; 9x slower |
+| video | only when the clip has fast or complex motion (turbulent water, moving animals or people, objects interacting) and a long render is acceptable | local:kandinsky-6 | follows motion prompts more closely than LTX-2.5, which tends to slow fast motion down and smear fast-moving areas; about 14 min per 5 s clip, 9x LTX-2.5; can add stray objects; animals over water deform in every tested model |
