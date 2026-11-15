@@ -9,9 +9,11 @@ Fish Audio Drama 3 (`fishaudio/drama-3`) is a local speech model served by vLLM-
   stops when the command ends. A command per sentence loads the model per sentence.
 - The server takes the local-model lock, so a short-video render or another local model waits for it, and it
   waits for them.
-- The server takes `memory` GB of the provider (Drama 3: 70). With less memory free, `synth` fails in about a
-  second, before the load, with an error that names what holds the memory: Ollama models with the time Ollama
-  unloads each, and the largest processes. Models of other programs are theirs to unload.
+- The server takes `memory` GB of the provider (Drama 3: 70) plus `overhead` GB outside it (default 22). When less
+  memory is free and local Ollama models that Ollama unloads within 15 minutes hold the shortfall, `synth` prints
+  the time it waits until and starts after they unload. Otherwise it fails in about a second, before the load,
+  with an error that names what holds the memory: Ollama models with the time Ollama unloads each, and the largest
+  processes. Models of other programs are theirs to unload.
 - It has no speed (`--speed` other than 1 fails).
 
 ## Voices

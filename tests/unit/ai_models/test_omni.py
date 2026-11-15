@@ -52,6 +52,21 @@ def test_memory_bytes_and_device_share():
         omni.device_share(150 * 10**9, 140 * 10**9, "fish")
 
 
+def test_memory_share_names_its_replacement():
+    """A config written for the former `memory_share` gets an error that names `memory` and the Drama 3 value."""
+    old = {k: v for k, v in SPEC.items() if k != "memory"} | {"memory_share": 0.6}
+    with pytest.raises(ConfigError, match=r"`memory_share` was replaced by `memory`.*Drama 3: 70"):
+        omni.memory_bytes(old, "fish")
+
+
+def test_overhead_defaults_to_the_measured_value():
+    """Without `overhead` the server's memory outside `memory` is `OVERHEAD_GB`; the provider's key replaces it."""
+    assert omni.overhead_bytes(SPEC, "fish") == int(omni.OVERHEAD_GB * 10**9)
+    assert omni.overhead_bytes({**SPEC, "overhead": 3}, "fish") == 3 * 10**9
+    with pytest.raises(ConfigError, match="overhead must be"):
+        omni.overhead_bytes({**SPEC, "overhead": 0}, "fish")
+
+
 def test_deploy_path_takes_an_existing_file(tmp_path):
     """A `deploy` that names a file is used as it is, without asking the server environment."""
     f = tmp_path / "d.yaml"
@@ -188,11 +203,24 @@ OOM_FAILURE = "torch.AcceleratorError: CUDA error: out of memory"
 STARTED = "(APIServer pid=1) INFO 11-15 08:53:13 [launcher.py:47] Application startup complete."
 
 
-def test_memory_failure_recognizes_out_of_memory_logs():
-    """A log with no KV cache memory or a CUDA out-of-memory error is a memory failure; a started server is not."""
-    assert omni.memory_failure(f"...\n{KV_FAILURE}\n...")
-    assert omni.memory_failure(OOM_FAILURE)
-    assert not omni.memory_failure(STARTED)
+def test_start_failure_kinds_and_advice():
+    """No KV cache memory is `KV_CACHE`, whose advice raises `memory`; a CUDA out-of-memory error is
+    `OUT_OF_MEMORY`, whose advice frees memory or lowers `memory`; a started server is neither."""
+    assert omni.start_failure(f"...\n{KV_FAILURE}\n...") is omni.StartFailure.KV_CACHE
+    assert omni.start_failure(OOM_FAILURE) is omni.StartFailure.OUT_OF_MEMORY
+    assert omni.start_failure(STARTED) is None
+    assert "raise `memory`" in omni.failure_advice(omni.StartFailure.KV_CACHE, "fish")
+    advice = omni.failure_advice(omni.StartFailure.OUT_OF_MEMORY, "fish")
+    assert "lower `memory`" in advice and "raise" not in advice
+
+
+def test_start_failure_reads_the_whole_log(tmp_path):
+    """A failure line followed by more than `LOG_TAIL` characters of shutdown output is still found: the log is
+    classified whole, while `tail` quotes only its end."""
+    log = tmp_path / "server.log"
+    log.write_text(f"{KV_FAILURE}\n" + "shutting down a stage worker\n" * (omni.LOG_TAIL // 10))
+    assert KV_FAILURE not in omni.tail(log)
+    assert omni.start_failure(omni.read_log(log)) is omni.StartFailure.KV_CACHE
 
 
 def test_context_out_of_memory_becomes_a_memory_error():

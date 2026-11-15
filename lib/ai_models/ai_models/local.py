@@ -33,6 +33,7 @@ import itertools
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -43,7 +44,7 @@ import wave
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -229,6 +230,49 @@ def free_memory(dev: str) -> int:
     return torch.cuda.mem_get_info()[0]
 
 
+PAGE_CACHE_MIN_BYTES = 64 * 2**20  # `drop_page_cache` skips files smaller than this
+
+
+def repo_dir(repo: str) -> Path:
+    """The directory that holds the files of model `repo`: itself when it is a local directory, else its folder of
+    the Hugging Face hub cache (`HF_HUB_CACHE`)."""
+    from huggingface_hub import constants
+
+    local_dir = Path(repo).expanduser()
+    if local_dir.is_dir():
+        return local_dir
+    return Path(constants.HF_HUB_CACHE) / f"models--{repo.replace('/', '--')}"
+
+
+def drop_page_cache(dirs: Iterable[Path], min_bytes: int = PAGE_CACHE_MIN_BYTES) -> int:
+    """Ask Linux to drop the clean page cache of every regular file of at least `min_bytes` under `dirs`
+    (`posix_fadvise` `POSIX_FADV_DONTNEED`; symlinks are not followed); the bytes of the files advised. It changes
+    no file and needs no privilege; pages a process has mapped or dirty pages stay. A no-op (0) without
+    `posix_fadvise` (macOS, Windows)."""
+    if not hasattr(os, "posix_fadvise"):
+        return 0
+    done = 0
+    for top in dirs:
+        for root, _subdirs, files in os.walk(top):
+            for f in files:
+                p = os.path.join(root, f)
+                try:
+                    st = os.lstat(p)
+                    if not stat.S_ISREG(st.st_mode) or st.st_size < min_bytes:
+                        continue
+                    fd = os.open(p, os.O_RDONLY)
+                except OSError:
+                    continue
+                try:
+                    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                    done += st.st_size
+                except OSError:
+                    pass
+                finally:
+                    os.close(fd)
+    return done
+
+
 def integrated(dev: str) -> bool:
     """True for an integrated CUDA GPU under Linux (one that allocates system memory)."""
     import torch
@@ -280,6 +324,30 @@ class _Ps(BaseModel):
 
 
 @dataclass
+class OllamaModel:
+    """A model loaded in an `ollama` provider of the config on this machine: `provider:model`, its bytes and the
+    time Ollama unloads it (None when it has none)."""
+
+    name: str
+    size: int
+    expires_at: datetime | None
+
+
+@dataclass
+class GpuProcess:
+    """A process on an NVIDIA GPU: its PID, executable path and bytes of GPU memory."""
+
+    pid: int
+    name: str
+    size: int
+
+    @property
+    def ollama(self) -> bool:
+        """True for an Ollama runner (an executable of an `ollama` directory, or `ollama` itself)."""
+        return "ollama" in Path(self.name).parts or Path(self.name).name == "ollama"
+
+
+@dataclass
 class Holder:
     """A holder of memory that a memory error names: what it is, its bytes, and how it frees them."""
 
@@ -293,6 +361,8 @@ class Holder:
 
 HOLDER_MIN_BYTES = 1 * GB  # `memory_holders` names no process below this
 HOLDER_PROCESSES = 5  # `memory_holders` names at most this many processes
+OLLAMA_WAIT_SECONDS = 15 * 60  # `wait_for_ollama` waits only for models Ollama unloads within this
+OLLAMA_POLL_SECONDS = 5.0
 
 
 def memory_error(repo: str, sizes: str, advice: str = "free memory and retry") -> AIModelsError:
@@ -303,48 +373,81 @@ def memory_error(repo: str, sizes: str, advice: str = "free memory and retry") -
 
 
 def memory_holders() -> list[Holder]:
-    """What holds the memory a local model needs: the models of each `ollama` provider of the config
-    (`resident_ollama_models`), then the processes that hold the most GPU memory (`gpu_processes`) and, on an
-    integrated GPU, whose CPU memory comes from the same pool, the processes with the largest resident set; at most
-    `HOLDER_PROCESSES` processes, none below `HOLDER_MIN_BYTES`, this process excluded."""
+    """What holds the memory a local model needs: the models of each `ollama` provider on this machine
+    (`resident_ollama_models`), then the processes that hold the most memory of this device (`gpu_processes`) and,
+    on an integrated GPU, whose CPU memory comes from the same pool, the processes with the largest resident set; at
+    most `HOLDER_PROCESSES` processes, none below `HOLDER_MIN_BYTES`. This process and, when an Ollama model is
+    listed, Ollama's runners are left out."""
     import psutil
 
     try:
-        shared = integrated(device())
+        dev = device()
+        shared = integrated(dev)
     except (AIModelsError, RuntimeError):  # no GPU, or CUDA out of memory as this process starts
-        shared = False
-    procs = {pid: (name, size) for pid, name, size in gpu_processes()}
+        dev, shared = None, False
+    models = resident_ollama_models()
+    procs = {p.pid: (p.name, p.size) for p in gpu_processes(device_uuid(dev)) if not (models and p.ollama)}
     if shared:
-        for p in psutil.process_iter(["pid", "name", "memory_info"]):
-            if p.info["memory_info"] and p.info["pid"] not in procs:
-                procs[p.info["pid"]] = (p.info["name"], p.info["memory_info"].rss)
+        for p in psutil.process_iter(["pid", "name", "exe", "memory_info"]):
+            exe = p.info["exe"] or p.info["name"] or ""
+            if p.info["memory_info"] and p.info["pid"] not in procs and not (models and GpuProcess(0, exe, 0).ollama):
+                procs[p.info["pid"]] = (exe, p.info["memory_info"].rss)
     procs.pop(os.getpid(), None)
-    top = sorted(((size, pid, name) for pid, (name, size) in procs.items() if size >= HOLDER_MIN_BYTES), reverse=True)
-    return [*resident_ollama_models(),
+    top = sorted(((size, pid, Path(name).name) for pid, (name, size) in procs.items() if size >= HOLDER_MIN_BYTES),
+                 reverse=True)
+    return [*(Holder(f"Ollama model {m.name}", m.size, unload_text(m)) for m in models),
             *(Holder(f"process {pid} {name}", size, "until it exits") for size, pid, name in top[:HOLDER_PROCESSES])]
 
 
-def gpu_processes() -> list[tuple[int, str, int]]:
-    """(PID, name, bytes of GPU memory) of each process on an NVIDIA GPU (`nvidia-smi --query-compute-apps`); none
-    without `nvidia-smi` or when it fails. A process without a reading (`[N/A]`) is left out."""
+def unload_text(m: OllamaModel) -> str:
+    """When Ollama unloads `m` and the command that unloads it now."""
+    when = f"Ollama unloads it at {m.expires_at.astimezone():%H:%M}, " if m.expires_at else ""
+    return f"{when}`ollama stop {m.name.split(':', 1)[1]}` unloads it now"
+
+
+def device_uuid(dev: str | None) -> str | None:
+    """The UUID of the current CUDA device as `nvidia-smi` prints it (`GPU-...`); None for another device."""
+    if dev != "cuda":
+        return None
+    import torch
+
+    return f"GPU-{torch.cuda.get_device_properties(torch.cuda.current_device()).uuid}"
+
+
+def gpu_processes(uuid: str | None = None) -> list[GpuProcess]:
+    """Each process on an NVIDIA GPU (`nvidia-smi --query-compute-apps`), only those of the GPU `uuid` when given;
+    none without `nvidia-smi` or when it fails. A process without a reading (`[N/A]`) is left out."""
     exe = shutil.which("nvidia-smi")
     if not exe:
         return []
     try:
-        out = subprocess.run([exe, "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"],
-                             capture_output=True, text=True, timeout=10, check=True).stdout
+        out = subprocess.run([exe, "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
+                              "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10,
+                             check=True).stdout
     except (OSError, subprocess.SubprocessError):
         return []
-    procs = []
-    for pid, name, mib in csv.reader(io.StringIO(out), skipinitialspace=True):
-        if pid.isdigit() and mib.isdigit():
-            procs.append((int(pid), Path(name).name, int(mib) * 2**20))
-    return procs
+    return [GpuProcess(int(pid), name, int(mib) * 2**20)
+            for gpu, pid, name, mib in csv.reader(io.StringIO(out), skipinitialspace=True)
+            if pid.isdigit() and mib.isdigit() and (uuid is None or gpu == uuid)]
 
 
-def resident_ollama_models() -> list[Holder]:
-    """Each model loaded in an `ollama` provider of the config (`GET /api/ps`), with the time Ollama unloads it; a
-    missing config or a server that does not answer contributes nothing."""
+def loopback(url: str) -> bool:
+    """True when `url`'s host is this machine (`localhost` or a loopback address)."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    host = urlparse(url).hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def resident_ollama_models() -> list[OllamaModel]:
+    """Each model loaded in an `ollama` provider of the config whose server runs on this machine (`loopback`;
+    `GET /api/ps`); a missing config or a server that does not answer contributes nothing."""
     from .models import base_url
     from .tls import ssl_verify
 
@@ -357,6 +460,8 @@ def resident_ollama_models() -> list[Holder]:
         if not isinstance(spec, dict) or spec.get("kind") != "ollama":
             continue
         url = base_url(spec).rstrip("/").removesuffix("/v1") + "/api/ps"
+        if not loopback(url):
+            continue
         req = urllib.request.Request(url)
         if key := spec.get("api_key"):
             req.add_header("Authorization", f"Bearer {key}")
@@ -365,10 +470,43 @@ def resident_ollama_models() -> list[Holder]:
                 ps = _Ps.model_validate(json.load(r))
         except (OSError, ValueError):
             continue
-        for m in ps.models:
-            when = f"Ollama unloads it at {m.expires_at.astimezone():%H:%M}, " if m.expires_at else ""
-            out.append(Holder(f"Ollama model {name}:{m.name}", m.size, f"{when}`ollama stop {m.name}` unloads it now"))
+        out.extend(OllamaModel(f"{name}:{m.name}", m.size, m.expires_at) for m in ps.models)
     return out
+
+
+def ollama_release(dev: str, need: int, free: int, cap: datetime) -> datetime | None:
+    """The time by which local Ollama models free `need - free` bytes of `dev` when Ollama unloads them, None when
+    the models it unloads by `cap` hold less: their sizes, or the memory of Ollama's runners on `dev` when every
+    loaded model unloads by then."""
+    models = resident_ollama_models()
+    soon = [m for m in models if m.expires_at and m.expires_at <= cap]
+    if not soon:
+        return None
+    release = sum(m.size for m in soon)
+    if len(soon) == len(models):
+        release = max(release, sum(p.size for p in gpu_processes(device_uuid(dev)) if p.ollama))
+    return max(m.expires_at for m in soon) if free + release >= need else None
+
+
+def wait_for_ollama(dev: str, need: int) -> int:
+    """The device's free memory, after waiting for local Ollama models to unload when that frees enough
+    (`ollama_release`): it prints a line on stderr and reads the free memory every `OLLAMA_POLL_SECONDS`, and the
+    models again, while they still free enough by `OLLAMA_WAIT_SECONDS` from the call (a model another program uses
+    moves its unload time), until the free memory reaches `need` bytes or `SETTLE_SECONDS` after the last unload
+    time. Otherwise it returns at once. It unloads nothing."""
+    free = free_memory(dev)
+    cap = datetime.now(timezone.utc) + timedelta(seconds=OLLAMA_WAIT_SECONDS)
+    until = ollama_release(dev, need, free, cap) if free < need else None
+    if until is None:
+        return free
+    print(f"ai_models: {need / GB:.1f} GB needed, {free / GB:.1f} GB free; waiting until Ollama unloads models "
+          f"(at {until.astimezone():%H:%M:%S}, at most until {cap.astimezone():%H:%M:%S})", file=sys.stderr, flush=True)
+    while until is not None and datetime.now(timezone.utc) < until + timedelta(seconds=SETTLE_SECONDS):
+        time.sleep(OLLAMA_POLL_SECONDS)
+        if (free := free_memory(dev)) >= need:
+            break
+        until = ollama_release(dev, need, free, cap) or until
+    return free
 
 
 def _modular(cls, repo: str, skip: Sequence[str]):

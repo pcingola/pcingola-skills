@@ -232,6 +232,9 @@ def test_memory_error_names_a_process_that_holds_gpu_memory(tmp_path):
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     try:
         assert holder.stdout.readline().strip() == "ready"
+        uuid = local.device_uuid("cuda")
+        assert any(p.pid == holder.pid for p in local.gpu_processes(uuid))
+        assert not any(p.pid == holder.pid for p in local.gpu_processes("GPU-00000000-0000-0000-0000-000000000000"))
         held = {h.what: h.size for h in local.memory_holders()}
         name = next((w for w in held if w.startswith(f"process {holder.pid} ")), None)
         assert name, held
@@ -247,3 +250,53 @@ def test_holder_text_has_size_and_release():
     """A holder reads as what it is, its GB and how it frees them."""
     assert str(local.Holder("process 7 python", int(2.5e9), "until it exits")) == "process 7 python (2.5 GB, until it exits)"
     assert str(local.Holder("process 7 python", int(2.5e9))) == "process 7 python (2.5 GB)"
+
+
+def test_ollama_runner_and_loopback_hosts():
+    """An executable of an `ollama` directory, or `ollama` itself, is an Ollama runner; only loopback hosts count
+    as this machine's Ollama."""
+    assert local.GpuProcess(1, "/usr/local/lib/ollama/llama-server", 0).ollama
+    assert local.GpuProcess(1, "/usr/bin/ollama", 0).ollama
+    assert not local.GpuProcess(1, "/usr/bin/python3", 0).ollama
+    for url in ("http://localhost:11434/api/ps", "http://127.0.0.1:11434/api/ps", "http://[::1]:11434/api/ps"):
+        assert local.loopback(url), url
+    for url in ("http://gpu-box.example.com:11434/api/ps", "http://10.0.0.5:11434/api/ps"):
+        assert not local.loopback(url), url
+
+
+@requires(torch.cuda.is_available(), "a CUDA GPU")
+def test_wait_for_ollama_returns_at_once_when_memory_is_free():
+    """With the need below the free memory, `wait_for_ollama` returns the free memory without waiting."""
+    dev = local.device()
+    started = time.monotonic()
+    assert local.wait_for_ollama(dev, 1) >= 1
+    assert time.monotonic() - started < local.OLLAMA_POLL_SECONDS
+
+
+def _cached_file(tmp_path, size: int):
+    """A file of `size` random bytes under `tmp_path`, read once so its pages are in the page cache."""
+    p = tmp_path / "weights.bin"
+    p.write_bytes(os.urandom(size))
+    assert len(p.read_bytes()) == size
+    return p
+
+
+def test_drop_page_cache_advises_large_files_and_changes_none(tmp_path):
+    """Guards the vLLM-Omni start on an integrated GPU (the weights a stage read): files of at least the threshold are advised, smaller ones
+    and symlinks are skipped, and no file changes; without `posix_fadvise` (macOS, Windows) it is a no-op."""
+    big = _cached_file(tmp_path, 64 * 2**20)
+    data = big.read_bytes()
+    (tmp_path / "small.json").write_text("{}")
+    (tmp_path / "link.bin").symlink_to(big)
+    advised = local.drop_page_cache([tmp_path], min_bytes=64 * 2**20)
+    assert advised == (64 * 2**20 if hasattr(os, "posix_fadvise") else 0)
+    assert big.read_bytes() == data
+    assert (tmp_path / "small.json").read_text() == "{}"
+
+
+def test_repo_dir_is_a_local_directory_or_the_hub_cache_folder(tmp_path):
+    """A `repo` that is a directory is its own model directory; a Hugging Face id maps to its hub cache folder."""
+    from huggingface_hub import constants
+
+    assert local.repo_dir(str(tmp_path)) == tmp_path
+    assert local.repo_dir("org/tts") == local.Path(constants.HF_HUB_CACHE) / "models--org--tts"

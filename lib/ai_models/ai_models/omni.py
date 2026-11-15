@@ -40,6 +40,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -152,15 +153,39 @@ def overlay(base: Path, share: float) -> dict[str, Any]:
             "platforms": {"cuda": {"cuda_mps": False}}}
 
 
-def memory_bytes(spec: dict[str, Any], name: str) -> int:
-    """The bytes the server's stages take together: the provider's `memory` in GB."""
+# GB the server takes outside `memory` when the provider has no `overhead`: the host memory of the API server and
+# the stage processes, and device memory past the stages' budgets (CUDA contexts and, with the estimate off,
+# `INTEGRATED_ENV`, the CUDA graph pool). On the GB10, Drama 3 with `memory: 70` took 18.7 to 19.9 GB more than
+# `memory` at its peak over a start and two requests (docs/ai_models.md); the default adds 2 GB to the largest.
+OVERHEAD_GB = 22.0
+DRAMA3_MEMORY_GB = 70  # the `memory` the config template gives Fish Audio Drama 3
+
+
+def gb_setting(spec: dict[str, Any], name: str, key: str, default: float | None = None) -> int:
+    """The provider's `key` in GB as bytes (`default` when absent and given); a `ConfigError` when it is not a
+    positive number."""
+    value = spec.get(key, default) if default is not None else required(spec, key, name)
     try:
-        gb = float(required(spec, "memory", name))
+        gb = float(value)
     except (TypeError, ValueError) as e:
-        raise ConfigError(f"provider {name!r}: memory must be a number of GB, got {spec.get('memory')!r}") from e
+        raise ConfigError(f"provider {name!r}: {key} must be a number of GB, got {value!r}") from e
     if gb <= 0:
-        raise ConfigError(f"provider {name!r}: memory must be positive GB, got {gb}")
+        raise ConfigError(f"provider {name!r}: {key} must be positive GB, got {gb}")
     return int(gb * local.GB)
+
+
+def memory_bytes(spec: dict[str, Any], name: str) -> int:
+    """The bytes the server's stages take together: the provider's `memory` in GB. A config with the former
+    `memory_share` is a `ConfigError` that names its replacement."""
+    if "memory_share" in spec and "memory" not in spec:
+        raise ConfigError(f"provider {name!r}: `memory_share` was replaced by `memory`, the GB the server's stages "
+                          f"take together (Fish Audio Drama 3: {DRAMA3_MEMORY_GB})")
+    return gb_setting(spec, name, "memory")
+
+
+def overhead_bytes(spec: dict[str, Any], name: str) -> int:
+    """The bytes the server takes outside `memory`: the provider's `overhead` in GB, default `OVERHEAD_GB`."""
+    return gb_setting(spec, name, "overhead", OVERHEAD_GB)
 
 
 def device_share(need: int, total: int, name: str) -> float:
@@ -205,20 +230,43 @@ def die_with_parent() -> None:
 
 
 def tail(log: Path) -> str:
+    """The last `LOG_TAIL` characters of the server log, for an error to quote."""
+    return read_log(log)[-LOG_TAIL:]
+
+
+class StartFailure(Enum):
+    """How a server start ran out of memory, read from its log (`start_failure`)."""
+
+    KV_CACHE = "kv-cache"  # the stage's budget left no KV cache
+    OUT_OF_MEMORY = "out-of-memory"  # a CUDA or torch out-of-memory error, or vLLM's free memory check
+
+
+# Log lines of each `StartFailure`, checked in this order.
+FAILURE_LINES = {
+    StartFailure.KV_CACHE: ("No available memory for the cache blocks",),
+    StartFailure.OUT_OF_MEMORY: ("CUDA error: out of memory", "torch.OutOfMemoryError",
+                                 "Decrease GPU memory utilization or reduce GPU memory used by other processes"),
+}
+
+
+def start_failure(text: str) -> StartFailure | None:
+    """The `StartFailure` the whole server log `text` shows, None when it shows none."""
+    return next((f for f, lines in FAILURE_LINES.items() if any(line in text for line in lines)), None)
+
+
+def failure_advice(failure: StartFailure, name: str) -> str:
+    """What to do after `failure` of provider `name`'s server."""
+    if failure is StartFailure.KV_CACHE:
+        return f"raise `memory` of provider {name!r} (the budget left no KV cache) and retry"
+    return f"free memory, or lower `memory` of provider {name!r}, and retry"
+
+
+def read_log(log: Path) -> str:
+    """The whole server log; empty when it cannot be read."""
     try:
-        return log.read_text(errors="replace")[-LOG_TAIL:]
+        return log.read_text(errors="replace")
     except OSError:
         return ""
-
-
-# Lines of a server log that mean a stage ran out of memory during the start.
-MEMORY_FAILURES = ("No available memory for the cache blocks", "CUDA error: out of memory", "torch.OutOfMemoryError",
-                   "Decrease GPU memory utilization or reduce GPU memory used by other processes")
-
-
-def memory_failure(text: str) -> bool:
-    """True when the server log `text` shows a stage that ran out of memory (`MEMORY_FAILURES`)."""
-    return any(m in text for m in MEMORY_FAILURES)
 
 
 @contextmanager
@@ -245,43 +293,49 @@ def server(name: str, spec: dict[str, Any], model: str) -> Server:
     base = deploy_path(python, str(required(spec, "deploy", name)))
     exit_on_sigterm()
     need = memory_bytes(spec, name)
+    overhead = overhead_bytes(spec, name)
     waited = local.hold_lock() or name in _servers
     started = time.monotonic()
     with context_out_of_memory(repo):
         dev = local.device()
         free = local.wait_for_settled_memory(dev) if waited else local.free_memory(dev)
         share = device_share(need, torch.cuda.mem_get_info()[1] if dev == "cuda" else free, name)
-        if need > free and waited:
-            free = local.wait_for_memory(dev, need)
-    if need > free:
+        if need + overhead > free and waited:
+            free = local.wait_for_memory(dev, need + overhead)
+        if need + overhead > free:
+            free = local.wait_for_ollama(dev, need + overhead)
+    if need + overhead > free:
         raise local.memory_error(repo, f"the vLLM-Omni server needs {need / local.GB:.1f} GB (`memory` of provider "
-                                 f"{name!r}) and the device has {free / local.GB:.1f} GB free",
+                                 f"{name!r}) plus {overhead / local.GB:.1f} GB outside it (`overhead`) and the "
+                                 f"device has {free / local.GB:.1f} GB free",
                                  f"free memory, or lower `memory` of provider {name!r} (vLLM sizes the KV cache from "
                                  "it), and retry")
+    shared = local.integrated(dev)
     work = Path(tempfile.mkdtemp(prefix="ai-models-omni-"))
     deploy = work / "deploy.yaml"
     deploy.write_text(yaml.safe_dump(overlay(base, share)))
     log = work / "server.log"
     port = free_port()
-    print(f"ai_models: starting {repo} with vLLM-Omni ({need / local.GB:.1f} GB of {free / local.GB:.1f} GB free, "
+    print(f"ai_models: starting {repo} with vLLM-Omni ({need / local.GB:.1f} GB plus {overhead / local.GB:.1f} GB "
+          f"outside it, of {free / local.GB:.1f} GB free, "
           f"log {log})", file=sys.stderr, flush=True)
     with log.open("wb") as out:
         proc = subprocess.Popen(command(python, repo, deploy, port, model, spec.get("args") or []), stdout=out, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True, preexec_fn=die_with_parent,
-                                env=server_env(spec, local.integrated(dev)))
+                                env=server_env(spec, shared))
     srv = Server(proc, f"http://127.0.0.1:{port}", log, model)
     atexit.register(srv.stop)
     deadline = started + float(spec.get("start_timeout", START_TIMEOUT))
     while True:
+        if shared:  # the weights a stage just read stay cached and take the free pages a later stage's CUDA start needs
+            local.drop_page_cache([local.repo_dir(repo)])
         if proc.poll() is not None:
             srv.stop()
-            if memory_failure(text := tail(log)):
-                raise local.memory_error(repo, f"a stage of the vLLM-Omni server ran out of memory during the start, "
-                                         f"with a budget of {need / local.GB:.1f} GB (`memory` of provider {name!r}); "
-                                         f"log {log}",
-                                         "free what loaded during the start, or raise `memory` of provider "
-                                         f"{name!r}, and retry")
-            raise AIModelsError(f"vLLM-Omni server of {repo} exited with code {proc.returncode}:\n{text}")
+            if failure := start_failure(read_log(log)):
+                raise local.memory_error(repo, f"a stage of the vLLM-Omni server ran out of memory during the start "
+                                         f"({failure.value}), with a budget of {need / local.GB:.1f} GB (`memory` "
+                                         f"of provider {name!r}); log {log}", failure_advice(failure, name))
+            raise AIModelsError(f"vLLM-Omni server of {repo} exited with code {proc.returncode}:\n{tail(log)}")
         try:
             if httpx.get(f"{srv.url}/health", timeout=5, trust_env=False).status_code == 200:
                 break

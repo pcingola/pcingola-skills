@@ -49,8 +49,10 @@ providers:
   #   uv venv <env dir> --python 3.12
   #   uv pip install --python <env dir>/bin/python "vllm==0.32.*" vllm-omni==0.32.0 --torch-backend=cu130
   # The server's stages take memory GB together (Drama 3: over 56; 70 leaves
-  # a 13 GB KV cache); a start with less memory free is refused and names what
-  # holds it. The server stops after the command. style puts voiceover --style
+  # a 13 GB KV cache), and the server overhead GB more (optional, default 22).
+  # With less free, a start waits for local Ollama models that unload within
+  # 15 min, else is refused and names what holds the memory. The server stops
+  # after the command. style puts voiceover --style
   # into the text as inline tags. args:
   # more server arguments (eager: the weights load in 34 s instead of 4.5 min
   # on a unified-memory GPU); env: server environment variables (FlashInfer's
