@@ -38,26 +38,7 @@ dev = [
     "torchaudio==2.11.*",
     "torchvision==0.26.*",
     "num2words",
-    "chatterbox-tts==0.1.7",
     "soundfile",
-    "setuptools<81",
-]
-
-[tool.uv]
-# chatterbox-tts pins exact versions. It runs on torch 2.11 (torchaudio's last release, needed by the MMS_FA
-# aligner) and its torchvision 0.26, numpy 2 (needed by kokoro-onnx), and the diffusers, transformers and safetensors of lib/'s diffusers extra.
-# Its demo UI and its Chinese and Japanese tokenisers are not needed.
-override-dependencies = [
-    "torch==2.11.*",
-    "torchaudio==2.11.*",
-    "torchvision==0.26.*",
-    "numpy>=2",
-    "diffusers>=0.43",
-    "transformers>=5",
-    "safetensors>=0.8",
-    "gradio; sys_platform == 'never'",
-    "spacy-pkuseg; sys_platform == 'never'",
-    "pykakasi; sys_platform == 'never'",
 ]
 
 [tool.uv.sources]
