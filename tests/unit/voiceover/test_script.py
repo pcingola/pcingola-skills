@@ -17,6 +17,17 @@ class TestScript(unittest.TestCase):
         )
 
 
+def test_line_of_a_tag_model():
+    """For a model that takes inline tags, `@name` gives the speaker, and bracket and speaker tags anywhere are
+    sent and left out of the aligned text."""
+    from voiceover_tool.script import Line, strip_tags
+
+    line = Line.of("@anna [sighs] Fine. <|speaker:1|> [laughs] Well.", styles=False, tags=True)
+    assert (line.speaker, line.text, line.said) == ("anna", "Fine. Well.", "[sighs] Fine. <|speaker:1|> [laughs] Well.")
+    assert Line.of("@Anna hi", styles=False, tags=True).speaker is None  # not a speaker name: literal
+    assert strip_tags("a [b]c  <|speaker:2|>d") == "a c d"
+
+
 def test_line_style():
     """A line that starts with `[style]` gives that style and the sentence without it; any other line no style."""
     from voiceover_tool.script import split_style

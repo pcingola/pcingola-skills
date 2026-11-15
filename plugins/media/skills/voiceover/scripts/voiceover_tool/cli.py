@@ -12,6 +12,7 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import json
 import platform
 import subprocess
 import sys
@@ -51,16 +52,19 @@ def synthesize_to_dir(
 ) -> tuple[Path, Path]:
     """Synthesize sentence by sentence, join, align, write WAV + timing.json.
 
-    A `[style] sentence` line of a model that takes styles is spoken with its own style (`Narrator.lines`). With `aligner=None` only sentence times are written (`words` is empty and `aligned` is false).
+    Each line is read as the model takes it (`Narrator.lines`): speakers and inline tags, or a leading `[style]`.
+    The aligner sees each sentence without its tags. With `aligner=None` only sentence times are written (`words`
+    is empty and `aligned` is false). The first take of each `default`-voice speaker of a vllm-omni model is written
+    as `voice.wav` (the narrator) or `voice-<speaker>.wav`, with its transcript in a `.txt` file of the same stem.
     """
     if not sentences:
         raise ValueError("script has no sentences")
-    styled = narrator.lines(list(sentences))
-    sentences = [text for _, text in styled]
+    lines = narrator.lines(list(sentences))
+    sentences = [line.text for line in lines]
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     sr = narrator.sample_rate
-    clips = [trim_silence(narrator.synthesize(text, voice, style), sr) for style, text in styled]
+    clips = [trim_silence(narrator.synthesize(line, voice), sr) for line in lines]
     audio, spans = join(clips, sr, lead, gap, tail)
 
     timings: list[SentenceTiming] = []
@@ -69,7 +73,8 @@ def synthesize_to_dir(
             words, aligned = [], False
         else:
             words, aligned = sentence_words(text, start, end, aligner(clip, sr), index=i)
-        timings.append(SentenceTiming(i, text, start, end, aligned, words, styled[i - 1][0]))
+        line = lines[i - 1]
+        timings.append(SentenceTiming(i, text, start, end, aligned, words, line.style, line.said, line.speaker))
 
     wav_path = write_wav(out_dir / WAV_NAME, audio, sr)
     timing = build_timing(
@@ -81,11 +86,14 @@ def synthesize_to_dir(
         speed=narrator.speed,
         sentences=timings,
         style=narrator.style,
+        speaker_voices={**narrator.speakers, **{s: "default" for s in narrator.made_up}},
+        params=narrator.params,
     )
     timing_path = write_timing(out_dir / TIMING_NAME, timing)
-    if take := narrator.first_take():
-        (out_dir / VOICE_NAME).write_bytes(take[0])
-        (out_dir / VOICE_NAME).with_suffix(".txt").write_text(take[1] + "\n")
+    for speaker, (wav, said) in narrator.first_takes().items():
+        path = out_dir / (VOICE_NAME if speaker is None else f"voice-{speaker}.wav")
+        path.write_bytes(wav)
+        path.with_suffix(".txt").write_text(said + "\n")
     return wav_path, timing_path
 
 
@@ -97,7 +105,9 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     if not sentences:
         config.error(f"{args.script}: no sentences (one sentence per line, blank lines skipped)")
     try:
-        narrator = Narrator(args.model, style=args.style, speed=args.speed)
+        narrator = Narrator(args.model, style=args.style, speed=args.speed, speakers=_pairs(args.speaker, "--speaker"),
+                            params=_params(args.param))
+        narrator.lines(sentences)  # a line of a tag model that holds only tags fails before the aligner loads
         aligner = None if args.no_align else clip_aligner()
         wav, timing = synthesize_to_dir(
             narrator,
@@ -114,6 +124,28 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     print(wav)
     print(timing)
     return 0
+
+
+def _pairs(items: list[str] | None, flag: str) -> dict[str, str]:
+    """`NAME=VALUE` items as a mapping; `ValueError` for an item without `=`."""
+    out: dict[str, str] = {}
+    for item in items or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            raise ValueError(f"{flag} {item!r}: expected NAME=VALUE")
+        out[key.strip()] = value
+    return out
+
+
+def _params(items: list[str] | None) -> dict:
+    """`--param KEY=VALUE` items as request fields: a VALUE that parses as JSON is that value, else the string."""
+    out: dict = {}
+    for key, value in _pairs(items, "--param").items():
+        try:
+            out[key] = json.loads(value)
+        except ValueError:
+            out[key] = value
+    return out
 
 
 def _cmd_voices(args: argparse.Namespace) -> int:
@@ -176,6 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--speed", type=float, default=1.0, help="Pace, for models with a speed setting")
     p.add_argument("--style", default=None, help="Delivery instruction, e.g. 'calm documentary narrator', for "
                    "models that take instructions")
+    p.add_argument("--speaker", action="append", metavar="NAME=VOICE",
+                   help="The voice of the `@NAME` lines (a voice of add-voice or a recording path), for a model that "
+                   "takes inline tags; repeatable; a speaker without one gets a made-up voice, kept for all its lines")
+    p.add_argument("--param", action="append", metavar="KEY=VALUE",
+                   help="One more request field sent to the model as is (VALUE as JSON when it parses, else a string), "
+                   "for models that take request fields; repeatable")
     p.add_argument("--lead", type=float, default=DEFAULT_LEAD, help=f"Silence before the first sentence, s (default {DEFAULT_LEAD})")
     p.add_argument("--gap", type=float, default=DEFAULT_GAP, help=f"Silence between sentences, s (default {DEFAULT_GAP})")
     p.add_argument("--tail", type=float, default=DEFAULT_TAIL, help=f"Silence after the last sentence, s (default {DEFAULT_TAIL})")

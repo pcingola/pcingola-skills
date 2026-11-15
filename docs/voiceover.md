@@ -47,11 +47,19 @@ among them `%` as "percent" and hyphenated words split into their parts).
 When alignment of a sentence fails, its words are spread over the sentence in proportion to their character length and
 the sentence is marked `"aligned": false`; a wrong word time is preferred to a failed run.
 
-`timing.json` records `model` (the speech model id) and `style` when one is given. For a model that takes a style, a
-script line that starts with `[<style>]` is that sentence's style (`Narrator.lines`, `script.split_style`): the
-narrator passes it instead of `--style`, and the sentence in `timing.json` has the text without it and a `style` key.
-A model that takes a style takes any style, so a line style is never refused. For a model that takes no style the
-line is literal text.
+`timing.json` records `model` (the speech model id), `style` when one is given, `speaker_voices` (each `@speaker`'s
+voice; `default` for a made-up one) and `params` (the request fields of `--param`) when set. `Narrator.lines` reads
+each line as the model takes it (`script.Line.of`):
+
+- A model that takes inline tags (`Traits.tags`: vllm-omni): `@<name> ` at the start names the speaker; the rest
+  goes to the model as written. The sentence aligned and written as `text` is the line without bracket tags and
+  speaker tags (`strip_tags`); `said` holds the line as sent when it differs, `speaker` the speaker. A line of only
+  tags is refused before the aligner loads. A speaker without `--speaker NAME=VOICE` is made up: its first take is
+  the reference of its later lines (`omni.speak` keeps one take per speaker) and is written as `voice-<name>.wav`.
+- A model that takes a style but no tags: a line that starts with `[<style>]` is that sentence's style
+  (`split_style`), passed instead of `--style`, with a `style` key in `timing.json`. Such a model takes any style.
+- Any other model: the line is literal text; `--speaker` is refused, and `--param` for a kind without request
+  fields (`Traits.params`: Kokoro, Chatterbox, Gemini).
 
 `load_settings` refuses every `VOICEOVER_*` setting of the file other than `VOICEOVER_VOICES_DIR` (the model settings
 of an earlier version), naming the template's provider entries and models that replace them; when

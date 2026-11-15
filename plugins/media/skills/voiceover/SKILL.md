@@ -47,9 +47,16 @@ which it clones. With `default` the model picks a new speaker per request, so
 `synth` uses the first sentence's take as the reference for the rest and
 writes it to the output directory as `voice.wav` and `voice.txt`. For
 several commands in one voice (the scenes of one film), voice the first, then
-pass `--voice <its out dir>/voice.wav` to the others. `--style` becomes
-inline tags of the model: `--style whisper` sends `[whisper] <sentence>`
-(tags `whisper`, `excited`, `sighs`). See `references/fish-drama-3.md`.
+pass `--voice <its out dir>/voice.wav` to the others. It clones any
+recording that has a transcript. Tags in square brackets anywhere in a line
+(`Fine. [laughs] Well.`; `whisper`, `excited`, `sighs`, `laughs`) direct the
+delivery at that point; `--style whisper` sends `[whisper] <sentence>` for
+every line. It voices dialogue: `@<name>` at the start of a line names its
+speaker, `--speaker NAME=VOICE` clones a voice for that speaker, and a
+speaker without one gets a made-up voice kept for all its lines.
+`--param KEY=VALUE` sends more request fields (`seed`, `max_new_tokens`,
+sampling in `extra_params`). Read `references/fish-drama-3.md` before using
+any of these.
 
 When the narration must sound like a specific person, such as the user ("in
 my voice"), use a model that clones a voice (the routes name one), run
@@ -84,14 +91,20 @@ split further: sentence `n` in `timing.json` is the `n`-th non-blank line.
 Write numbers the way they should be read; `1995` alone is read as a year,
 `42%` as "forty-two percent".
 
-With a model that takes a style, a line may start with its own style in
-square brackets: `[whisper] Keep it quiet.` speaks "Keep it quiet." with the
-style `whisper` instead of `--style`, so one `synth` (one model load) voices
-several styles. The bracket is not part of the sentence in `timing.json`,
-which records the sentence's `style`. With a Fish model the style becomes
-the inline tag (`[whisper] Keep it quiet.` is sent as is). With a model that
-takes no style (Kokoro, Chatterbox) the line is plain text, brackets
-included.
+What else a line may carry depends on the model:
+
+- A model that takes inline tags (Fish): `@<name> ` at the start names the
+  speaker; tags in square brackets (`[laughs]`) and speaker tags
+  (`<|speaker:1|>`) anywhere are sent as written and left out of the
+  aligned text, so one `synth` (one model load) voices several speakers and
+  directions. `timing.json` gives each sentence its `speaker` and, when the
+  line had tags, `said` (the line as sent).
+- A model that takes a style but no tags (OpenAI, Gemini): a line may start
+  with its own style in square brackets, `[whisper] Keep it quiet.`, spoken
+  with the style `whisper` instead of `--style`; `timing.json` records the
+  sentence's `style`.
+- Any other model (Kokoro, Chatterbox): the line is plain text, brackets and
+  `@` included; `--speaker` and `--param` are refused.
 
 ## Commands
 
@@ -109,6 +122,8 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out
 #                    clones a voice also a voice of add-voice or a path
 #   --speed 1.0      models with a speed setting
 #   --style TEXT     delivery instruction, models that take one
+#   --speaker NAME=VOICE   voice of the `@NAME` lines (models that take tags)
+#   --param KEY=VALUE      one more request field, VALUE as JSON (repeatable)
 #   --lead 0.25      silence before the first sentence (s)
 #   --gap 0.35       silence between sentences (s)
 #   --tail 0.6       silence after the last sentence (s)

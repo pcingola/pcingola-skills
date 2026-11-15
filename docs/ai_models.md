@@ -306,9 +306,18 @@ request without a reference. A fixed `seed` (the request field exists) does not 
 sentences with seed 7 had median F0 184, 146 and 135 Hz, with seed 11 203, 146 and 208 Hz, without a seed 110,
 184 and 191 Hz. With `default`, `omni.speak` therefore keeps the process's first answer (`first_take`: WAV and
 the text sent) and sends it as `ref_audio`/`ref_text` with every later `default` request; three sentences then
-had 138, 138 and 148 Hz and a mean log-mel profile within cosine 0.975 of the first. Instructions go through the provider's
-`style`, a format string with `{instructions}` and `{text}` (Drama 3: `"[{instructions}] {text}"`, its inline
-tags); a provider without `style` refuses instructions. There is no speed.
+had 138, 138 and 148 Hz and a mean log-mel profile within cosine 0.975 of the first. The first take is kept per
+`speaker` (a caller's name for who speaks; None for one voice), so each speaker of a dialogue keeps its own voice.
+Instructions go through the provider's `style`, a format string with `{instructions}` and `{text}` (Drama 3:
+`"[{instructions}] {text}"`, its inline tags); a provider without `style` refuses instructions. There is no speed.
+
+The text goes to the server as given, with its inline tags (`Traits.tags`): point tags in square brackets anywhere
+and speaker tags `<|speaker:0|>` to `<|speaker:15|>`, which the Drama 3 prompt keeps (the reference is speaker 0).
+`params` are more request fields merged over the built body (`Traits.params`; the OpenAI kinds get them as
+`extra_body`). vLLM-Omni 0.32's speech request reads `seed`, `max_new_tokens` and `extra_params` (its
+`temperature`, `top_p` and `top_k` set the sampling of stage 0) and ignores unknown fields. Its Drama 3 adapter
+takes one reference per request (`ref_audio` and `ref_text`, or `ref_audio_codes`); the model card's
+`previous_takes` and several references belong to SGLang-Omni's `/v1/tts`.
 
 ## Video
 

@@ -13,10 +13,11 @@
     chatterbox                          Chatterbox Turbo in a worker of its own environment (`chatterbox`);
                                         24 kHz WAV; voice cloning; no speed, no instructions
 
-`traits` gives what each kind takes (`Traits`): its default voice, speed range, instructions and whether a voice
-may be a reference recording. A provider's `voice` replaces the kind's default voice and its `voices` (a list)
+`TRAITS` gives what each kind takes (`Traits`): its default voice, speed range, instructions, whether a voice
+may be a reference recording, whether the text may carry inline tags, and whether more request fields (`params`)
+pass through to the server (the OpenAI kinds as `extra_body`, vllm-omni in the request body). A provider's `voice` replaces the kind's default voice and its `voices` (a list)
 are what `voices` lists; without it `voices` lists the Kokoro voices of a `kokoro` model, else the default voice.
-`check` refuses a speed or instructions the model does not take, before any request or model load.
+`check` refuses a speed, instructions or `params` the model does not take, before any request or model load.
 """
 
 from __future__ import annotations
@@ -39,21 +40,24 @@ OPENAI_KINDS = ("ollama", "openrouter", "openai", "azure")
 @dataclass(frozen=True)
 class Traits:
     """What a provider kind's speech models take: the default `voice` when the provider sets none, the `speed`
-    range (None: only 1), whether they take `instructions` (vllm-omni: when the provider has `style`) and whether a
-    voice may be a reference recording (`clones`)."""
+    range (None: only 1), whether they take `instructions` (vllm-omni: when the provider has `style`), whether a
+    voice may be a reference recording (`clones`), whether the text may carry inline tags (`tags`) and whether more
+    request fields pass through (`params`)."""
 
     voice: str
     speed: tuple[float, float] | None
     instructions: bool
     clones: bool = False
+    tags: bool = False  # inline tags in the text (point tags such as [laughs], speaker tags)
+    params: bool = False  # more request fields pass through (`params`)
 
 
-OPENAI_TRAITS = Traits("marin", (0.25, 4.0), True)
+OPENAI_TRAITS = Traits("marin", (0.25, 4.0), True, params=True)
 TRAITS: dict[str, Traits] = {
     **{k: OPENAI_TRAITS for k in ("openrouter", "openai", "azure")},
-    "ollama": Traits("default", (0.25, 4.0), True),
+    "ollama": Traits("default", (0.25, 4.0), True, params=True),
     "google": Traits("Kore", None, True),
-    omni.KIND: Traits(omni.DEFAULT_VOICE, None, False, clones=True),
+    omni.KIND: Traits(omni.DEFAULT_VOICE, None, False, clones=True, tags=True, params=True),
     kokoro.KIND: Traits("af_heart", (0.5, 2.0), False),
     chatterbox.KIND: Traits(chatterbox.DEFAULT_VOICE, None, False, clones=True),
 }
@@ -99,8 +103,9 @@ def model_of(model: str | None = None) -> SpeechModel:
     return m
 
 
-def check(model: str | None = None, *, speed: float = 1.0, instructions: str | None = None) -> SpeechModel:
-    """The `SpeechModel`; `AIModelsError` for a speed or instructions it does not take."""
+def check(model: str | None = None, *, speed: float = 1.0, instructions: str | None = None,
+          params: dict[str, Any] | None = None) -> SpeechModel:
+    """The `SpeechModel`; `AIModelsError` for a speed, instructions or request parameters it does not take."""
     m = model_of(model)
     rng = m.traits.speed
     if rng is None and speed != 1.0:
@@ -110,6 +115,8 @@ def check(model: str | None = None, *, speed: float = 1.0, instructions: str | N
         raise AIModelsError(f"{m.id}: speed must be between {rng[0]:g} and {rng[1]:g}")
     if instructions and not m.instructions:
         raise AIModelsError(f"{m.id} takes no instructions (style)")
+    if params and not m.traits.params:
+        raise AIModelsError(f"{m.id} takes no request parameters")
     return m
 
 
@@ -146,12 +153,12 @@ def wav(pcm: bytes, rate: int) -> bytes:
 
 
 async def _openai(client, model: str, text: str, voice: str, instructions: str | None, fmt: str,
-                  speed: float) -> bytes:
+                  speed: float, params: dict[str, Any] | None = None) -> bytes:
     from openai import omit
 
     response = await client.audio.speech.create(model=model, input=text, voice=voice, response_format=fmt,
                                                 instructions=instructions or omit,
-                                                speed=speed if speed != 1.0 else omit)
+                                                speed=speed if speed != 1.0 else omit, extra_body=params or None)
     return response.content
 
 
@@ -176,15 +183,17 @@ async def _google(client, model: str, text: str, voice: str, instructions: str |
 
 
 async def aspeak(text: str, *, voice: str | None = None, model: str | None = None,
-                 instructions: str | None = None, response_format: str = "wav", speed: float = 1.0) -> bytes:
+                 instructions: str | None = None, response_format: str = "wav", speed: float = 1.0,
+                 speaker: str | None = None, params: dict[str, Any] | None = None) -> bytes:
     """The audio of `text` by `model` (else `models.speech`) in `voice` (else the model's default voice).
-    `instructions` set the style, `speed` the pace, as far as `check` allows. Google, vLLM-Omni, Kokoro and
-    Chatterbox return WAV whatever `response_format` says."""
-    m = check(model, speed=speed, instructions=instructions)
+    `instructions` set the style, `speed` the pace, `params` more request fields sent as they are (kinds with
+    `Traits.params`), as far as `check` allows. `speaker` names who speaks, for a vllm-omni model with the voice
+    `default` (`omni.speak`). Google, vLLM-Omni, Kokoro and Chatterbox return WAV whatever `response_format` says."""
+    m = check(model, speed=speed, instructions=instructions, params=params)
     model_id, name, bare, kind, spec = m.id, m.provider, m.bare, m.kind, m.spec
     voice = voice or m.default_voice
     if kind == omni.KIND:
-        return omni.speak(name, spec, bare, text, voice, instructions, speed)
+        return omni.speak(name, spec, bare, text, voice, instructions, speed, speaker, params)
     if kind == kokoro.KIND:
         return kokoro.speak(spec, name, bare, text, voice, speed)
     if kind == chatterbox.KIND:
@@ -192,7 +201,7 @@ async def aspeak(text: str, *, voice: str | None = None, model: str | None = Non
     p = provider(name)
     with explained(model_id):
         if kind in OPENAI_KINDS:
-            audio = await _openai(p.client, bare, text, voice, instructions, response_format, speed)
+            audio = await _openai(p.client, bare, text, voice, instructions, response_format, speed, params)
         else:
             audio = await _google(p.client, bare, text, voice, instructions)
     if not audio:

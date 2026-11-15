@@ -56,7 +56,8 @@ STOP_POLL_SECONDS = 0.2
 LOG_TAIL = 4000  # characters of the server log an error quotes
 
 _servers: dict[str, "Server"] = {}
-_takes: dict[str, tuple[bytes, str]] = {}  # provider -> (WAV, text) of its first `DEFAULT_VOICE` answer
+# (provider, speaker) -> (WAV, text) of the first `DEFAULT_VOICE` answer for that speaker (None: the narrator)
+_takes: dict[tuple[str, str | None], tuple[bytes, str]] = {}
 
 
 @dataclass
@@ -288,25 +289,30 @@ def request_body(model: str, text: str, voice: str, take: tuple[bytes, str] | No
     return body
 
 
-def first_take(name: str) -> tuple[bytes, str] | None:
-    """(WAV, text) of provider `name`'s first answer with `DEFAULT_VOICE` in this process, None before it."""
-    return _takes.get(name)
+def first_take(name: str, speaker: str | None = None) -> tuple[bytes, str] | None:
+    """(WAV, text) of provider `name`'s first answer with `DEFAULT_VOICE` for `speaker` in this process, None
+    before it."""
+    return _takes.get((name, speaker))
 
 
 def speak(name: str, spec: dict[str, Any], model: str, text: str, voice: str, instructions: str | None,
-          speed: float) -> bytes:
-    """A WAV file of `text` at the model's own rate from the provider's server (Drama 3 refuses `sample_rate`)."""
+          speed: float, speaker: str | None = None, params: dict[str, Any] | None = None) -> bytes:
+    """A WAV file of `text` at the model's own rate from the provider's server (Drama 3 refuses `sample_rate`).
+    With `DEFAULT_VOICE`, `speaker`'s first take is the reference of its later requests, so each speaker keeps one
+    voice. `params` are more request fields, over the ones built here (Drama 3: `seed`, `max_new_tokens`,
+    `extra_params` with `temperature`, `top_p`, `top_k`); the server ignores fields it does not know."""
     import httpx
 
     if speed != 1.0:
         raise AIModelsError(f"{name}:{model} has no speed setting")
     said = styled(spec, name, text, instructions)
-    body = request_body(model, said, voice, _takes.get(name) if voice == DEFAULT_VOICE else None)
+    body = request_body(model, said, voice, _takes.get((name, speaker)) if voice == DEFAULT_VOICE else None)
+    body.update(params or {})
     srv = server(name, spec, model)
     r = httpx.post(f"{srv.url}/v1/audio/speech", json=body, timeout=float(spec.get("timeout", 600)),
                    trust_env=False)
     if r.status_code != 200:
         raise AIModelsError(f"{name}:{model} answered {r.status_code}: {r.text[:500]}")
     if voice == DEFAULT_VOICE:
-        _takes.setdefault(name, (r.content, said))
+        _takes.setdefault((name, speaker), (r.content, said))
     return r.content

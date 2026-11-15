@@ -24,16 +24,51 @@ Fish Audio Drama 3 (`fishaudio/drama-3`) is a local speech model served by vLLM-
   says"` stores the recording and its transcript; `--voice NAME` (or a path to a recording with a `.txt`
   transcript of the same name beside it) clones it.
 
-## Direction
+## Direction: point tags
 
-The model has no style field. Direction goes into the text as inline tags in square brackets. `--style TAG`
-sends `[TAG] <sentence>` for every sentence (the provider's `style` format in `config.yaml`). Tags of the model
-card: `whisper`, `excited`, `sighs`. The model card reports that a tag at the start of a line more often gives a
-silence after the first word. A plain-word style ("calm documentary narrator") becomes one bracketed tag; how
-the model reads such a tag is not measured.
+The model has no style field. Direction goes into the text as tags in square brackets, at the place in the line
+where the event should land: `Fine. [laughs] Well, maybe that's fair.` Tags of the model card: `sighs`, `laughs`,
+`whisper`, `excited`. `synth` sends every line to the model as written, tags included, anywhere in the line, and
+aligns the line without them (`timing.json` keeps the text without tags as `text` and the line as sent as
+`said`). The model card reports that a tag at the start of a line more often gives a silence after the first word.
 
-A tag at the start of a script line, `[whisper] Keep it quiet.`, is that sentence's style (with a model that takes
-styles, as Fish with `style` in its provider does): `synth` sends the
-sentence with that tag instead of `--style` and aligns the sentence without it, so one command (one model load)
-voices several tags. A tag inside a line is spoken as direction too, but the word aligner then looks for the tag
-words in the audio, and the alignment of that sentence fails unless `--no-align` is given.
+`--style TAG` sends `[TAG] <sentence>` for every sentence (the provider's `style` format in `config.yaml`). A
+plain-word style ("calm documentary narrator") becomes one bracketed tag; how the model reads such a tag is not
+measured.
+
+## Dialogue: several speakers
+
+A line that starts with `@<name> ` (lowercase letters, digits, `-`, `_`) is spoken by that speaker; a line without
+it by the narrator (`--voice`). Each line is one request.
+
+- A speaker with a voice: `--speaker NAME=VOICE`, VOICE a voice of `add-voice` stored with `--text` or the path of
+  any recording with its transcript in a `.txt` file of the same stem. The model clones it for every line of that
+  speaker.
+- A made-up speaker: no `--speaker` for it. Its first line gets a new voice from the model, and that take is the
+  reference of all its later lines, so the speaker keeps one voice for the command. `synth` writes the take as
+  `voice-<name>.wav` with `voice-<name>.txt`; `--speaker NAME=<out dir>/voice-<name>.wav` keeps the voice in
+  later commands.
+
+```
+@host Welcome back to the show.
+@guest Thanks for having me. [laughs] I have waited years for this.
+```
+
+On the GB10, four lines of two made-up speakers took 314 s, 281 s of them the server load; the host's lines had
+median F0 192 and 176 Hz, the guest's 255 and 248 Hz, and all four aligned with their tags left out.
+
+The model also takes speaker tags inside one line, `<|speaker:0|>` to `<|speaker:15|>`: `synth` sends them as
+written and leaves them out of the aligned text. In one request the reference (the line's voice) is speaker 0;
+the other indexes get made-up voices for that request only.
+
+## Request fields
+
+`--param KEY=VALUE` (repeatable) adds a field to every request, VALUE as JSON when it parses. The vLLM-Omni speech
+endpoint of this version reads, for Drama 3: `seed` (an integer), `max_new_tokens`, and `extra_params`, an object
+whose `temperature`, `top_p` and `top_k` set the sampling (`--param 'extra_params={"temperature": 0.8,
+"top_p": 0.9}'`); the model card's benchmark used temperature 1.0, top_p 0.9, top_k 30. The server ignores a
+field it does not know. A fixed `seed` does not keep the speaker without a reference (see Voices).
+
+Not available through vLLM-Omni 0.32: `previous_takes` (editing as continuation) and several references in one
+request. The model card shows both on SGLang-Omni's `/v1/tts`, not on vLLM-Omni's `/v1/audio/speech`, whose Drama 3
+adapter takes one reference (`ref_audio`, `ref_text`) or its codec codes (`ref_audio_codes`).

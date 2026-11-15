@@ -20,7 +20,7 @@ import wave
 import numpy as np
 
 from . import voices
-from .script import split_style
+from .script import Line
 
 SAMPLE_RATE = 24_000
 
@@ -56,27 +56,32 @@ def resample(samples: np.ndarray, rate: int, target: int) -> np.ndarray:
 
 
 class Narrator:
-    """Speech model `model` (else `models.speech`) with `style` and `speed`; `ValueError` when the config names no
-    such model or the model does not take the style or speed."""
+    """Speech model `model` (else `models.speech`) with `style`, `speed`, the voice of each named speaker
+    (`speakers`, a name of `@name` lines to a voice) and more request fields (`params`); `ValueError` when the config
+    names no such model or the model does not take the style, speed, speakers or parameters."""
 
     sample_rate = SAMPLE_RATE
 
-    def __init__(self, model: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
+    def __init__(self, model: str | None = None, style: str | None = None, speed: float = 1.0,
+                 speakers: dict[str, str] | None = None, params: dict | None = None) -> None:
         from ai_models import AIModelsError
         from ai_models import speech
 
         try:
-            m = speech.check(model, speed=speed, instructions=style)
+            m = speech.check(model, speed=speed, instructions=style, params=params)
         except AIModelsError as e:
             raise ValueError(str(e)) from None
         self.model, self.kind, self.default_voice = m.id, m.kind, m.default_voice
-        self.clones, self.instructions = m.traits.clones, m.instructions
-        self.style, self.speed = style, speed
+        self.clones, self.instructions, self.tags = m.traits.clones, m.instructions, m.traits.tags
+        if speakers and not self.tags:
+            raise ValueError(f"{m.id} takes no speakers (`@speaker` lines are for a model that takes inline tags)")
+        self.style, self.speed, self.speakers, self.params = style, speed, dict(speakers or {}), dict(params or {})
+        self.made_up: list[str] = []  # the speakers of `@name` lines without a voice, in order of first line
 
-    def lines(self, sentences: list[str]) -> list[tuple[str | None, str]]:
-        """(own style, sentence) of each script line. A line starting with `[style]` gives that style only when the
-        model takes styles (`split_style`), which then takes any style; for other models the line is literal text."""
-        return [split_style(s) for s in sentences] if self.instructions else [(None, s) for s in sentences]
+    def lines(self, sentences: list[str]) -> list[Line]:
+        """Each script line as the model takes it (`Line.of`): speakers and inline tags for a model that takes tags,
+        a leading `[style]` for one that takes styles, else literal text."""
+        return [Line.of(s, styles=self.instructions, tags=self.tags) for s in sentences]
 
     def voices(self) -> list[str]:
         """The model's voices, then the reference recordings when the model clones a voice."""
@@ -85,21 +90,35 @@ class Narrator:
         own = speech.voices(self.model)
         return own + [v for v in voices.names() if v not in own] if self.clones else own
 
-    def first_take(self) -> tuple[bytes, str] | None:
-        """(WAV, text) of the first `default`-voice sentence of a vllm-omni model in this process, else None."""
+    def first_takes(self) -> dict[str | None, tuple[bytes, str]]:
+        """Per speaker (None: the narrator), (WAV, text) of its first `default`-voice sentence of a vllm-omni model in
+        this process; empty for other kinds."""
         from ai_models import omni
 
-        return omni.first_take(self.model.partition(":")[0]) if self.kind == omni.KIND else None
+        if self.kind != omni.KIND:
+            return {}
+        name = self.model.partition(":")[0]
+        return {s: t for s in (None, *self.made_up) if (t := omni.first_take(name, s))}
 
-    def synthesize(self, text: str, voice: str, style: str | None = None) -> np.ndarray:
-        """Mono float32 samples of `text` at `sample_rate`, with `style` (else the narrator's)."""
+    def voice_of(self, line: Line, voice: str) -> str:
+        """The voice of `line`: its speaker's (`speakers`, else `default`, a made-up speaker), else `voice`."""
+        if line.speaker is None:
+            return voice
+        if line.speaker not in self.speakers and line.speaker not in self.made_up:
+            self.made_up.append(line.speaker)
+        return self.speakers.get(line.speaker, voices.DEFAULT_VOICE)
+
+    def synthesize(self, line: Line, voice: str) -> np.ndarray:
+        """Mono float32 samples of `line` at `sample_rate`, in its speaker's voice (else `voice`), with its own
+        style (else the narrator's)."""
         from ai_models import AIModelsError, speech
 
+        voice = self.voice_of(line, voice)
         if self.clones and voice != voices.DEFAULT_VOICE:
             voice = str(voices.reference_path(voice))
         try:
-            data = speech.speak(text, voice=voice, model=self.model, instructions=style or self.style,
-                                speed=self.speed)
+            data = speech.speak(line.said, voice=voice, model=self.model, instructions=line.style or self.style,
+                                speed=self.speed, speaker=line.speaker, params=self.params or None)
         except AIModelsError as e:
             msg = str(e)
             raise TTSError(msg if msg.startswith(self.model) else f"{self.model}: {msg}") from None
@@ -111,5 +130,5 @@ class Narrator:
         if rate != self.sample_rate:
             samples = resample(samples, rate, self.sample_rate)
         if not samples.size:
-            raise TTSError(f"{self.model} returned no audio for: {text[:80]!r}")
+            raise TTSError(f"{self.model} returned no audio for: {line.said[:80]!r}")
         return samples

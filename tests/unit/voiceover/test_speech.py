@@ -77,17 +77,53 @@ def test_timing_records_the_model_and_style_only_when_set():
     assert build_timing(style="calm", **kw)["style"] == "calm"
 
 
-def test_line_styles_only_for_a_model_that_takes_styles(tmp_path):
-    """`Narrator.lines` splits a leading `[style]` off a line for a model that takes styles and keeps the line as
-    literal text for one that does not (Kokoro)."""
+def test_lines_as_the_model_takes_them(tmp_path):
+    """`Narrator.lines` reads speakers and inline tags for a model that takes tags (vllm-omni), a leading `[style]`
+    for one that takes styles (OpenAI), and literal text for one that takes neither (Kokoro)."""
     config = write_config(tmp_path / "config.yaml",
-                          providers={"oai": OAI, "k": {"kind": "kokoro", "langs": {"af_": "en-us"}}},
+                          providers={"oai": OAI, "k": {"kind": "kokoro", "langs": {"af_": "en-us"}},
+                                     "f": {"kind": "vllm-omni", "python": "/nonexistent"}},
                           models={"speech": "oai:tts-1"})
     imports = "from voiceover_tool.speech import Narrator"
-    lines = ["[whisper] Keep it quiet.", "Hello."]
+    lines = ["[whisper] Keep it quiet.", "@guest Well [laughs] maybe that's fair."]
+    expr = "[[l.text, l.said, l.style, l.speaker] for l in Narrator({m}).lines({lines!r})]"
     env = child_env(SKILLS_CONFIG=str(config))
-    assert py_value(imports, f"Narrator().lines({lines!r})", env) == [["whisper", "Keep it quiet."], [None, "Hello."]]
-    assert py_value(imports, f"Narrator('k:kokoro-v1.0').lines({lines!r})", env) == [[None, l] for l in lines]
+    assert py_value(imports, expr.format(m="", lines=lines), env) == [
+        ["Keep it quiet.", "Keep it quiet.", "whisper", None], [lines[1]] * 2 + [None, None]]
+    assert py_value(imports, expr.format(m="'k:kokoro-v1.0'", lines=lines), env) == [[l, l, None, None] for l in lines]
+    assert py_value(imports, expr.format(m="'f:drama-3'", lines=lines), env) == [
+        ["Keep it quiet.", "[whisper] Keep it quiet.", None, None],
+        ["Well maybe that's fair.", "Well [laughs] maybe that's fair.", None, "guest"]]
+
+
+def test_speakers_and_params_refused_by_a_model_that_takes_none(tmp_path):
+    """`--speaker` with a model that takes no inline tags and `--param` with one that takes no request fields are
+    refused before any request; a `--param` that is not KEY=VALUE is refused; a line of only tags is refused."""
+    config = write_config(tmp_path / "config.yaml",
+                          providers={"k": {"kind": "kokoro", "langs": {"af_": "en-us"}},
+                                     "f": {"kind": "vllm-omni", "python": "/nonexistent"}},
+                          models={"speech": "k:kokoro-v1.0"})
+    script = tmp_path / "s.txt"
+    script.write_text("@host Hello.\n")
+    synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
+    p = voiceover(*synth, "--speaker", "host=alice", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "takes no speakers" in p.stderr, p.stderr
+    p = voiceover(*synth, "--param", "seed=7", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "takes no request parameters" in p.stderr, p.stderr
+    p = voiceover(*synth, "--model", "f:drama-3", "--param", "seed", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "expected NAME=VALUE" in p.stderr, p.stderr
+    script.write_text("@host [laughs]\n")
+    p = voiceover(*synth, "--model", "f:drama-3", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "has only tags" in p.stderr, p.stderr
+    assert not (tmp_path / "o").exists()
+
+
+def test_params_parse_as_json_else_string():
+    """`--param` values that parse as JSON are sent as that value, others as strings."""
+    from voiceover_tool.cli import _params
+
+    assert _params(["seed=7", 'extra_params={"temperature": 0.8}', "language=English"]) == {
+        "seed": 7, "extra_params": {"temperature": 0.8}, "language": "English"}
 
 
 def test_earlier_model_settings_refused(tmp_path):
