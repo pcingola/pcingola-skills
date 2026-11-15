@@ -327,8 +327,6 @@ def server(name: str, spec: dict[str, Any], model: str) -> Server:
     atexit.register(srv.stop)
     deadline = started + float(spec.get("start_timeout", START_TIMEOUT))
     while True:
-        if shared:  # the weights a stage just read stay cached and take the free pages a later stage's CUDA start needs
-            local.drop_page_cache([local.repo_dir(repo)])
         if proc.poll() is not None:
             srv.stop()
             if failure := start_failure(read_log(log)):

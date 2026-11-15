@@ -313,8 +313,9 @@ model (`repo`). `omni.aspeak`:
    of 50 and 83 GiB. With `memory: 70` the first stage gets 57.8 GiB and a KV cache of 11.3 to 13.1 GiB.
 
    Results on the GB10 with `memory: 70`, an `overhead` of 19 to 22 GB and the Ollama wait: of 8 starts with no
-   Ollama model loaded at the start (one with 113 GB of page cache), 7 came up; the first, before the page cache
-   drop of step 3, failed at the second stage's first CUDA call (step 3). In one of the 7, another program loaded
+   Ollama model loaded at the start (one with 113 GB of page cache), 7 came up and 1 failed at the second stage's
+   first CUDA call (step 3). The 7, and the 3 below, ran with the page cache of the model files dropped every 2 s
+   during the start, which this code does not do. In one of the 7, another program loaded
    38 GB of Ollama models during the start and `MemAvailable` fell to 5.4 GB. 3 starts began while Ollama held
    models: 2 with 38 GB of another program's models (one with 76 GB of page cache), 1 with a 35 GB model on a
    3 min keep-alive; each waited 3 to 5 min for Ollama to unload them and came up. With the 35 GB model kept for
@@ -327,14 +328,10 @@ model (`repo`). `omni.aspeak`:
    the estimate the graph pool is allocated outside the budget and counts in `overhead`.
 3. Starts `vllm serve <repo> --omni --deploy-config <overlay>` plus the provider's `args` on a free loopback port,
    with the provider's `env` added to the environment, in its own process group with `PR_SET_PDEATHSIG`, and polls
-   `/health` every 2 s until `start_timeout` (default 1800 s). On an integrated GPU each poll drops the page cache
-   of the model's files (`local.drop_page_cache` over `local.repo_dir(repo)`, `posix_fadvise(POSIX_FADV_DONTNEED)`,
-   no privilege, no file changed): the first stage reads the weights (37 GB for Drama 3) through the cache, and
-   the second stage starts after it. One start failed with a CUDA out-of-memory error at the second stage's first
-   CUDA call (`mem_get_info()` in `MemorySnapshot`) while `MemAvailable` stayed at or above 57.7 GB, so that error
-   does not come from the overhead; its cause is not known, and dropping the cache restores free pages that
-   `MemAvailable` counts but `MemFree` does not. CUDA allocations reclaim the page cache: with 108 GB of cache and
-   10.5 GB `MemFree`, a 90 GB allocation succeeded.
+   `/health` every 2 s until `start_timeout` (default 1800 s). One start failed with a CUDA out-of-memory error at
+   the second stage's first CUDA call (`mem_get_info()` in `MemorySnapshot`) while `MemAvailable` stayed at or
+   above 57.7 GB, so that error does not come from the overhead; its cause is not known. CUDA allocations reclaim
+   the page cache: with 108 GB of cache and 10.5 GB `MemFree`, a 90 GB allocation succeeded.
 
    When the server exits during the start, its whole log is classified (`omni.start_failure`; the error quotes
    only the last `LOG_TAIL` characters). `StartFailure.KV_CACHE` (no memory for the cache blocks) gives

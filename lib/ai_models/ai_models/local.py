@@ -33,7 +33,6 @@ import itertools
 import json
 import os
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -228,49 +227,6 @@ def free_memory(dev: str) -> int:
     if integrated(dev):
         return psutil.virtual_memory().available
     return torch.cuda.mem_get_info()[0]
-
-
-PAGE_CACHE_MIN_BYTES = 64 * 2**20  # `drop_page_cache` skips files smaller than this
-
-
-def repo_dir(repo: str) -> Path:
-    """The directory that holds the files of model `repo`: itself when it is a local directory, else its folder of
-    the Hugging Face hub cache (`HF_HUB_CACHE`)."""
-    from huggingface_hub import constants
-
-    local_dir = Path(repo).expanduser()
-    if local_dir.is_dir():
-        return local_dir
-    return Path(constants.HF_HUB_CACHE) / f"models--{repo.replace('/', '--')}"
-
-
-def drop_page_cache(dirs: Iterable[Path], min_bytes: int = PAGE_CACHE_MIN_BYTES) -> int:
-    """Ask Linux to drop the clean page cache of every regular file of at least `min_bytes` under `dirs`
-    (`posix_fadvise` `POSIX_FADV_DONTNEED`; symlinks are not followed); the bytes of the files advised. It changes
-    no file and needs no privilege; pages a process has mapped or dirty pages stay. A no-op (0) without
-    `posix_fadvise` (macOS, Windows)."""
-    if not hasattr(os, "posix_fadvise"):
-        return 0
-    done = 0
-    for top in dirs:
-        for root, _subdirs, files in os.walk(top):
-            for f in files:
-                p = os.path.join(root, f)
-                try:
-                    st = os.lstat(p)
-                    if not stat.S_ISREG(st.st_mode) or st.st_size < min_bytes:
-                        continue
-                    fd = os.open(p, os.O_RDONLY)
-                except OSError:
-                    continue
-                try:
-                    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
-                    done += st.st_size
-                except OSError:
-                    pass
-                finally:
-                    os.close(fd)
-    return done
 
 
 def integrated(dev: str) -> bool:
