@@ -57,17 +57,24 @@ name prefix the setting `VOICEOVER_KOKORO_LANGS` maps to an espeak language
 
 ## Model routes
 
-Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/voiceover.sh routes`.
-It prints, per task of this skill, `| task | when | model | why |` rows:
-first the task's default row (its model in `config.yaml`), then the user's
-escalation rows, then the shipped ones, without the rows whose model
-`config.yaml` lacks. Use the default row and pass no `--model`. Take a
-later row, and pass its `model` with `--model`, only when its `when`
-condition holds for the request; the first such row wins. A model that
-the user or a calling skill names is passed as given, without the table.
+Before each model call, run
+`${CLAUDE_SKILL_DIR}/scripts/voiceover.sh routes`. It prints, per task of
+this skill, `| task | model | when | why |` rows from the user's
+`routes.md` beside `config.yaml`: first the task's default row (`when` is
+`default`, the model is the task's model in `config.yaml`, and `why` names
+the table's recommended model when it differs), then the escalation rows,
+without the rows whose model `config.yaml` lacks. Without the file it
+prints only the default rows. Use the default row and pass no `--model`.
+Take a later row, and pass its `model` with `--model`, only when its
+`when` condition holds for the request; the first such row wins. A model
+that the user or a calling skill names is passed as given, without the
+table.
 
-The routes cover the `speech` task. A matching escalation row selects
-`--backend speech --model <model>`; otherwise the backend choice above holds.
+The routes cover the `speech` task. A row whose model is a backend name
+(`kokoro`, `chatterbox`) selects `--backend <name>` instead of `--model`.
+A row with a `<provider>:<model>` id selects `--backend speech`, with
+`--model <model>` for an escalation row and no `--model` for the default
+row. Without a matching escalation row, the backend choice above holds.
 `synth` refuses a `--model` whose provider kind differs from that of
 `models.speech` without `--voice`, because the voice settings name voices of
 the configured model. Then run `voices --backend speech --model <model>` and

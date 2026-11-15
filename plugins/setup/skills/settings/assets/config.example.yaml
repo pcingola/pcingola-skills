@@ -82,7 +82,8 @@ models:
   image_best: azure:gpt-image-2
   image_multi_ref: openrouter:google/gemini-3-pro-image
   speech: azure:gpt-4o-mini-tts
-  music: vertex:lyria-002
+  music: local:ace-step
+  #music: vertex:lyria-002
   audio: vertex:gemini-3.1-pro-preview
   video: local:ltx-2.5
   film_critic: vertex:gemini-3.1-pro-preview
@@ -92,7 +93,6 @@ models:
   #image_best: local:qwen-image
   #image_edit: local:qwen-image
   #image_multi_ref: local:qwen-image
-  #music: local:ace-step
   #video: local:ltx-video
   #video: local:kandinsky-6
   #presenter: local:kandinsky-s2v

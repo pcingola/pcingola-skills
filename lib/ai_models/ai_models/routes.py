@@ -1,12 +1,15 @@
-"""Model routes: the default model of a task and the escalations from it, as Markdown tables
-`| task | when | model | why |`.
+"""Model routes: per task a default row and the escalations from it, as one Markdown table
+`| task | model | when | why |` in the user's `routes.md`, in the directory of the config file
+(`config.path().parent`). `setup:settings` creates it from its template.
 
-The default of a task is `models.<task>` of the config file, its one home. The escalation rows come from two
-files: the user's `routes.md` in the directory of the config file (`config.path().parent`), then the rows
-shipped with this package (`routes.md` beside this module). An escalation's `when` begins with `only when`.
-`table` returns, per task, a generated default row, the user's rows, then the shipped rows, without the rows
-whose model is not configured: a provider missing from `providers`, or a `diffusers` provider's model missing
-from `diffusers`. No code matches `when`; the agent reads it. `command` adds the `routes` command to a skill's CLI.
+A row's `when` is `default` (the recommended default model of the task, at most one per task) or begins with
+`only when` (an escalation). The model in use is `models.<task>` of the config file, its one home: `table` prints
+each task's default row with that model, and when it differs from the table's default model, says so in `why`. The
+escalation rows follow, without the rows whose model is not configured: a provider missing from `providers`, or a
+`diffusers` provider's model missing from `diffusers`. A task in `BACKENDS` may name one of its backends as `model`
+instead of a `<provider>:<model>` id; such a model needs no configuration and is not replaced by `models.<task>`,
+which names a model of another backend. Without the file, `table` has only the defaults of `models.<task>`. No code
+matches `when`; the agent reads it. `command` adds the `routes` command to a skill's CLI.
 """
 
 from __future__ import annotations
@@ -22,12 +25,14 @@ from . import config
 from .errors import AIModelsError, ConfigError
 
 FILE_NAME = "routes.md"
-SHIPPED = Path(__file__).with_name(FILE_NAME)
-COLUMNS = ("task", "when", "model", "why")
-# Every escalation row's `when` starts with this; the generated default row's `when` is DEFAULT.
-ESCALATION = "only when"
+COLUMNS = ("task", "model", "when", "why")
+# A default row's `when`; every other row's `when` starts with ESCALATION.
 DEFAULT = "default"
-DEFAULT_WHY = "the task's model in config.yaml"
+ESCALATION = "only when"
+# The `why` of a default row from `models.<task>` when the table has no default row for the task.
+DEFAULT_WHY = "set in config.yaml"
+# Per task, the backend names a row may give as `model` (media:voiceover's local TTS backends).
+BACKENDS: dict[str, tuple[str, ...]] = {"speech": ("kokoro", "chatterbox")}
 
 
 @dataclass(frozen=True)
@@ -35,9 +40,17 @@ class Route:
     """One row of a routes table: the model for requests of `task` that `when` describes."""
 
     task: str
-    when: str
     model: str
+    when: str
     why: str
+
+    @property
+    def is_default(self) -> bool:
+        return self.when.lower() == DEFAULT
+
+    @property
+    def is_backend(self) -> bool:
+        return self.model in BACKENDS.get(self.task, ())
 
 
 def user_path() -> Path:
@@ -45,19 +58,26 @@ def user_path() -> Path:
     return config.path().parent / FILE_NAME
 
 
+def missing_message(path: Path) -> str:
+    """The note `command` prints when the routes file `path` is missing."""
+    return (f"no routes table at {path}; the default rows are models.<task> of config.yaml only. "
+            "The setup:settings skill creates the table.")
+
+
 def _cells(line: str) -> list[str]:
     return [c.strip() for c in line.strip().strip("|").split("|")]
 
 
 def parse(path: Path) -> list[Route]:
-    """The escalation rows of the table in `path` (empty when the file is missing); `ConfigError` naming the
-    file and line for a header other than `| task | when | model | why |`, a row of another width, an empty
-    cell among task, when and model, a `when` that does not begin with `only when`, or a model that is not
-    `<provider>:<model>`."""
+    """The rows of the table in `path` (empty when the file is missing); `ConfigError` naming the file and line
+    for a header other than `| task | model | when | why |`, a row of another width, an empty cell among task,
+    model and when, a `when` that is neither `default` nor begins with `only when`, a second default row of a
+    task, or a model that is neither `<provider>:<model>` nor a backend of the task (`BACKENDS`)."""
     if not path.is_file():
         return []
     rows: list[Route] = []
     header = False
+    defaults: set[str] = set()
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.lstrip().startswith("|"):
             continue
@@ -73,15 +93,19 @@ def parse(path: Path) -> list[Route]:
         if len(cells) != len(COLUMNS):
             raise ConfigError(f"{where}: a row has {len(COLUMNS)} cells ({', '.join(COLUMNS)}), not {len(cells)}")
         route = Route(*cells)
-        if not (route.task and route.when and route.model):
-            raise ConfigError(f"{where}: task, when and model must not be empty")
-        if not route.when.lower().startswith(ESCALATION):
-            raise ConfigError(f"{where}: `when` must begin with {ESCALATION!r}; the default of a task is "
-                              f"`models.{route.task}` of {config.path()}")
-        try:
-            config.split_id(route.model)
-        except ConfigError as e:
-            raise ConfigError(f"{where}: {e}") from None
+        if not (route.task and route.model and route.when):
+            raise ConfigError(f"{where}: task, model and when must not be empty")
+        if route.is_default:
+            if route.task in defaults:
+                raise ConfigError(f"{where}: a second {DEFAULT!r} row of task {route.task}")
+            defaults.add(route.task)
+        elif not route.when.lower().startswith(ESCALATION):
+            raise ConfigError(f"{where}: `when` must be {DEFAULT!r} or begin with {ESCALATION!r}")
+        if not route.is_backend:
+            try:
+                config.split_id(route.model)
+            except ConfigError as e:
+                raise ConfigError(f"{where}: {e}") from None
         rows.append(route)
     return rows
 
@@ -95,37 +119,58 @@ def configured(model_id: str, cfg: dict[str, Any]) -> bool:
     return spec["kind"] != "diffusers" or model in (cfg.get("diffusers") or {})
 
 
+def _default(task: str, recommended: Route | None, cfg: dict[str, Any]) -> Route | None:
+    """The default row of `task`: the table's backend row as is, else the model of `models.<task>` (none when
+    unset), with the table's `why` when the models agree and the table's recommendation when they differ."""
+    if recommended and recommended.is_backend:
+        return recommended
+    model = (cfg.get("models") or {}).get(task)
+    if not model:
+        return None
+    model = str(model)
+    if recommended is None:
+        return Route(task, model, DEFAULT, DEFAULT_WHY)
+    if recommended.model == model:
+        return Route(task, model, DEFAULT, recommended.why)
+    return Route(task, model, DEFAULT,
+                 f"{DEFAULT_WHY}; the table recommends {recommended.model}: {recommended.why}")
+
+
 def table(tasks: Iterable[str]) -> list[Route]:
-    """Per task of `tasks`, in order: the default row (`models.<task>`, left out when unset), then the user's
-    escalation rows, then the shipped ones, configured models only."""
+    """Per task of `tasks`, in order: the default row (`_default`), then the table's escalation rows,
+    configured models and backends only."""
     cfg = config.load()
-    rows = parse(user_path()) + parse(SHIPPED)
+    rows = parse(user_path())
     out: list[Route] = []
     for task in tasks:
-        default = (cfg.get("models") or {}).get(task)
+        mine = [r for r in rows if r.task == task]
+        default = _default(task, next((r for r in mine if r.is_default), None), cfg)
         if default:
-            out.append(Route(task, DEFAULT, str(default), DEFAULT_WHY))
-        out += [r for r in rows if r.task == task and configured(r.model, cfg)]
+            out.append(default)
+        out += [r for r in mine if not r.is_default and (r.is_backend or configured(r.model, cfg))]
     return out
 
 
 def markdown(routes: Sequence[Route]) -> str:
     """`routes` as a Markdown table with the header row."""
     lines = [f"| {' | '.join(COLUMNS)} |", "|" + "---|" * len(COLUMNS)]
-    lines += [f"| {r.task} | {r.when} | {r.model} | {r.why} |" for r in routes]
+    lines += [f"| {r.task} | {r.model} | {r.when} | {r.why} |" for r in routes]
     return "\n".join(lines) + "\n"
 
 
 def command(sub: argparse._SubParsersAction, tasks: Sequence[str]) -> argparse.ArgumentParser:
-    """Add `routes [--task T]` to a CLI's subcommands: it prints the table of `tasks` (or of T) and returns
-    0, or prints the error and returns 1. The handler is `func` of the parsed arguments."""
-    p = sub.add_parser("routes", help="Print the model routes of this skill's tasks: per task the default "
-                                      "(models.<task>), then the user's and the shipped escalations")
+    """Add `routes [--task T]` to a CLI's subcommands: it prints the table of `tasks` (or of T), and the note of
+    `missing_message` on stderr when the user's file is missing, and returns 0; or prints the error and returns 1.
+    The handler is `func` of the parsed arguments."""
+    p = sub.add_parser("routes", help="Print the model routes of this skill's tasks from routes.md beside "
+                                      "config.yaml: per task the default row (models.<task>), then the escalations")
     p.add_argument("--task", choices=list(tasks), help="only the rows of this task")
 
     def run(args: argparse.Namespace) -> int:
         try:
             print(markdown(table([args.task] if args.task else tasks)), end="")
+            if not user_path().is_file():
+                print(missing_message(user_path()), file=sys.stderr)
         except AIModelsError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1

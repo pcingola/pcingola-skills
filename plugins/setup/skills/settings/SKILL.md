@@ -88,6 +88,7 @@ When the user asks to set up the skills, or a skill reports a missing config, se
 
 1. Find the file: `$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`. Read it when it exists.
 2. When it does not exist, read `${CLAUDE_SKILL_DIR}/assets/config.example.yaml`. Ask the user's level (below), then write the file from the template: the `providers` and `models` of that level, `diffusers` only for the GPU level, and the whole commented `settings` section. Create the directory when it is missing.
+   Then write `routes.md` in the same directory as a copy of `${CLAUDE_SKILL_DIR}/assets/routes.md` (Model routes below), unless it exists.
 3. Ask for each key the chosen providers need and write it as `api_key` of the provider. Never echo a key back in the reply.
 4. Ask for the settings of the skills the user wants (the table of required settings below), and uncomment or add them under `settings`.
 5. Tell the user to run `chmod 600 <file>`.
@@ -176,19 +177,30 @@ The `audio` task is optional; without it `music analyze` skips the model section
 
 ## Model routes: routes.md
 
-The default model of a task is `models.<task>`. A route row is an escalation from it: another model for the requests of that task that its condition names. Rows come from the user's file, then from the rows shipped with the skills. The user's file is `routes.md` in the directory of `config.yaml` (beside `$SKILLS_CONFIG` when that is set). It is optional, holds only the user's own rows, and no plugin update changes it. Each model-calling skill's `routes` command prints, per task, the default row, then the user's rows, then the shipped ones.
+A route row names the model for some requests of a task. Per task, a `default` row names the recommended default model with its strengths and limits, and the other rows are escalations: another model for the requests their condition names. The table is `routes.md` in the directory of `config.yaml` (beside `$SKILLS_CONFIG` when that is set); no plugin update changes it. Its template is `${CLAUDE_SKILL_DIR}/assets/routes.md`, with wall times and quality notes measured on an NVIDIA GB10 for the `local` models of `config.example.yaml`.
+
+The model in use is still `models.<task>`. Each model-calling skill's `routes` command prints, per task, the default row with the model of `models.<task>`, then the escalation rows. When `models.<task>` differs from the table's default model, the default row's `why` is `set in config.yaml; the table recommends <model>: <its why>`. Without `routes.md` the command prints only the defaults of `models.<task>` and says that the table is missing.
 
 The file holds one Markdown table; text outside the table is ignored:
 
 ```markdown
-| task | when | model | why |
+| task | model | when | why |
 |---|---|---|---|
-| image | only when the image is an architecture diagram | local:qwen-image | labels spelled right |
+| image | local:flux2-klein-4b | default | about 16 s per 2K image; misspells text |
+| image | local:qwen-image | only when the image is an architecture diagram | labels spelled right |
 ```
 
 - `task`: a task of the `models` section (`image`, `video`, `speech`, ...).
-- `when`: the condition, beginning with `only when`. The agent uses the task's default and takes a row only when its condition holds for the request; the first such row wins, so a user row comes before a shipped one. A row for every request of a task is refused: change `models.<task>` instead.
-- `model`: `<provider name>:<model>` of `config.yaml`. A row whose provider is not in `providers`, or whose `diffusers` model is not in `diffusers`, is left out.
-- `why`: the reason (quality, wall time).
+- `model`: `<provider name>:<model>` of `config.yaml`. A row whose provider is not in `providers`, or whose `diffusers` model is not in `diffusers`, is left out. A `speech` row may name a voiceover backend, `kokoro` or `chatterbox`, instead.
+- `when`: `default`, or a condition beginning with `only when`. A task has at most one `default` row. To change the model in use, change `models.<task>`. The agent uses the default row and takes an escalation row only when its condition holds for the request; the first such row wins.
+- `why`: strengths and limits (quality, wall time).
 
-To add a row, create the file with the header when it is missing and add the row with Edit; put a more specific row above a general one of the same task. A malformed row makes the `routes` command fail with the file and line.
+To add a row, create the file from the template when it is missing and add the row with Edit; put a more specific row above a general one of the same task. A malformed row makes the `routes` command fail with the file and line.
+
+### Update routes.md from the template
+
+When the user asks to update the routes, for example after a plugin update:
+
+1. Read `${CLAUDE_SKILL_DIR}/assets/routes.md` and the user's `routes.md`.
+2. List the template rows that the user's file lacks or holds with another `model`, `when` or `why`, matched by task and `when`. Show each to the user next to the user's row of that task and `when`, if any.
+3. For each row the user accepts, Edit the user's file: replace the matched row, or add the row after the last row of its task. Keep every other user row as it is, including rows the template lacks.

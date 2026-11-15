@@ -33,13 +33,16 @@ is `--timeout`, else the provider's `timeout` in `config.yaml`.
 ## Model routes
 
 Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/classify.sh routes`.
-It prints, per task of this skill, `| task | when | model | why |` rows:
-first the task's default row (its model in `config.yaml`), then the user's
-escalation rows, then the shipped ones, without the rows whose model
-`config.yaml` lacks. Use the default row and pass no `--model`. Take a
-later row, and pass its `model` with `--model`, only when its `when`
-condition holds for the request; the first such row wins. A model that
-the user or a calling skill names is passed as given, without the table.
+It prints, per task of this skill, `| task | model | when | why |` rows
+from the user's `routes.md` beside `config.yaml`: first the task's default
+row (`when` is `default`, the model is the task's model in `config.yaml`,
+and `why` names the table's recommended model when it differs), then the
+escalation rows, without the rows whose model `config.yaml` lacks. Without
+the file it prints only the default rows. Use the default row and pass no
+`--model`. Take a later row, and pass its `model` with `--model`, only
+when its `when` condition holds for the request; the first such row wins.
+A model that the user or a calling skill names is passed as given, without
+the table.
 
 The task of the call is `system1` for `--backend system1` and `chat` for
 `--backend chat`.

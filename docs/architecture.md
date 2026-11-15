@@ -10,8 +10,7 @@ model routes file `routes.md` in the settings file's directory, a brand folder r
 place) and files another skill wrote as its output. It reads no repo-root path, no repo-root `data/` and no file of
 another plugin. The user's `routes.md` sits beside the settings file for the same reason the settings file sits
 outside every plugin: a plugin update or uninstall leaves it in place, and every plugin finds it through one path
-rule (`plugin_settings.config_file`). The shipped routes are package data of `lib/ai_models`, which every skill that
-calls a model installs, so no skill reads them from another plugin.
+rule (`plugin_settings.config_file`). Its template is an asset of `setup:settings`, which copies it there.
 
 Claude Code reads a plugin installed from a directory marketplace in place, and a plugin installed from a git or
 remote marketplace from a copy under `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. That copy holds the
@@ -56,10 +55,11 @@ Each concern has one location, and every other skill reaches it through that loc
   `vision`, `system1`, `image`, `image_edit`, `speech`, `music`, `audio`) or passes the user's `--model`.
 - Reading the settings file and the plugin data directory: `lib/plugin_settings`. `ai_models` reads the file through
   it.
-- Model routes, the escalations from a task's default model to another model for some requests: `ai_models.routes`,
-  with the shipped rows in `lib/ai_models/ai_models/routes.md` and the user's rows in `routes.md` beside the settings
-  file (`docs/ai_models.md`, Model routes). The default of a task stays `models.<task>` of the settings file. Each
-  skill that calls a model prints the table with its `routes` command.
+- Model routes, per task the recommended default model and the escalations from it to another model for some
+  requests: `ai_models.routes` reads the user's `routes.md` beside the settings file (`docs/ai_models.md`, Model
+  routes); setup:settings creates it from its template `assets/routes.md`. The model in use for a task stays
+  `models.<task>` of the settings file; a table's default row is a recommendation. Each skill that calls a model
+  prints the table with its `routes` command.
 - Brands (logos, colours, fonts, guidelines, PowerPoint templates): `brand:brand`. Callers get a brand folder
   from it, locate each file through its `brand.yaml` key and read it in place without keeping a copy.
 - Visual styles: `brand:style`. A brand's `styles` key restricts the styles a branded image may use.

@@ -14,7 +14,7 @@ per concern). It has three parts:
 | Module | Contents |
 |---|---|
 | `config` | the config file, `<provider>:<model>` ids, `model_for(task)`, `resolve(model, task)` |
-| `routes` | the model routes tables: `Route`, `parse`, `table`, `markdown`, `command` (Model routes) |
+| `routes` | the model routes table: `Route`, `parse`, `table`, `markdown`, `command` (Model routes) |
 | `models` | the Pydantic-AI provider of each kind; `chat_model`, `agent`, `embedder` |
 | `images` | `image_generator`, `MaskedOpenAIImageModel` |
 | `system1` | `system1_model`, `decide` |
@@ -57,39 +57,48 @@ The image-gen, music and short-video wrappers install the extra when the config 
 
 ## Model routes
 
-A model route says which model serves a request of a task. The default of a task is `models.<task>` of the config;
-a route row is an escalation from it, for the requests its condition names. `routes` reads the escalation rows from
-two Markdown tables with the columns `| task | when | model | why |`:
+A model route says which model serves a request of a task. `routes` reads one Markdown table with the columns
+`| task | model | when | why |`: the user's `routes.md`, in the directory of the config file (`routes.user_path()`:
+`config.path().parent`, so it follows `SKILLS_CONFIG`). No plugin update writes it. setup:settings creates it from
+its template `assets/routes.md`, next to `config.example.yaml`, and merges template changes that the user accepts.
 
-- The user's `routes.md`, in the directory of the config file (`routes.user_path()`: `config.path().parent`, so it
-  follows `SKILLS_CONFIG`). It is optional and holds only that user's rows. No plugin update writes it.
-- The shipped rows, `ai_models/routes.md`, package data of this package, so they reach every skill environment with
-  the relock that brings a new `ai-models`.
+`task` is a task of the `models` section. `model` is a `<provider>:<model>` id; for a task in `routes.BACKENDS`
+(`speech`: `kokoro`, `chatterbox`) it may instead be a backend name of media:voiceover. `when` is `default` (the
+recommended default model of the task) or a condition beginning with `only when` (an escalation). `why` gives the
+model's strengths and limits (quality, wall time). Lines outside the table are ignored. The first table line is the
+header; a wrong header, a row of another width, an empty `task`, `model` or `when`, any other `when`, a second
+`default` row of a task, and a model that is neither `<provider>:<model>` nor a backend of the task are each a
+`ConfigError` naming the file and line.
 
-`task` is a task of the `models` section, `when` the condition, beginning with `only when`, `model` a
-`<provider>:<model>` id and `why` the reason (quality, wall time). Lines outside the table are ignored. The first
-table line is the header; a wrong header, a row of another width, an empty `task`, `when` or `model`, a `when`
-without `only when` (a catch-all row would replace `models.<task>`) and a model that is not `<provider>:<model>` are
-each a `ConfigError` naming the file and line.
+`table(tasks)` returns, per task in order:
 
-`table(tasks)` returns, per task in order: a generated default row (`when` `default`, the model of `models.<task>`;
-left out when the task has none), the user's rows, then the shipped rows, without the rows whose model is not
-configured: the provider is missing from `providers`, or, for a provider of kind `diffusers`, the model is missing
-from `diffusers`. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud provider
-serves a model shows only at the call. No code reads `when`: the agent uses the default row, and takes a later row
-only when its condition holds for the request, the first such row, so a user row comes before a shipped one.
-`markdown` prints the rows as a table. `command(subparsers, tasks)` adds `routes [--task T]` to a skill's CLI; it
-prints the table of the skill's tasks and returns 0, or prints the error and returns 1.
+1. The default row. The model in use stays `models.<task>` of the config, so the row has that model. The table's
+   default row gives the `why` when its model is the same; when it differs, `why` is
+   `set in config.yaml; the table recommends <model>: <its why>`. Without a table default row, `why` is
+   `set in config.yaml`; without `models.<task>`, there is no default row. A table default row whose model is a
+   backend is returned as is: `models.speech` names the model of voiceover's `speech` backend, not the default
+   backend.
+2. The escalation rows in file order, without the rows whose model is not configured: the provider is missing from
+   `providers`, or, for a provider of kind `diffusers`, the model is missing from `diffusers`. A backend needs no
+   configuration. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud provider
+   serves a model shows only at the call.
+
+Without the file, `table` returns only the default rows of `models.<task>`. No code reads `when`: the agent uses the
+default row, and takes a later row only when its condition holds for the request, the first such row. `markdown`
+prints the rows as a table. `command(subparsers, tasks)` adds `routes [--task T]` to a skill's CLI; it prints the
+table of the skill's tasks and returns 0, with a note on stderr when the file is missing (`missing_message`: the
+path, and that setup:settings creates it), or prints the error and returns 1.
 
 The skills with the command and their tasks: image-gen (`image`, `image_edit`, `image_best`, `image_multi_ref`),
 music (`music`, `audio`), short-video (`video`, `presenter`), voiceover (`speech`), classify (`system1`, `chat`),
 second-opinion (`chat`, `vision`). Each `SKILL.md` has a "Model routes" section with the same rule; the chosen model
-goes to the call as `--model`. Skills that load image-gen (infographic, pptx-author, studio, video-effects) route
+goes to the call as `--model` (a voiceover backend as `--backend`). Skills that load image-gen (infographic, pptx-author, studio, video-effects) route
 through image-gen, by the tier they ask for.
 
-The shipped rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
-`config.example.yaml`, whose defaults are `local:flux2-klein-4b` for `image` and `local:ltx-2.5` for `video`; a user
-without one of the row models has that row dropped.
+The template rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
+`config.example.yaml`. Each template default row other than `speech` names the config template's `models.<task>`
+(`local:flux2-klein-4b` for `image`, `local:ltx-2.5` for `video`, `local:ace-step` for `music`); the `speech` default
+is the backend `kokoro`, voiceover's default. A user without one of the escalation models has that row dropped.
 
 ## Provider kinds
 
