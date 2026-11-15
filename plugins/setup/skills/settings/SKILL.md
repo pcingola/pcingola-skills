@@ -35,7 +35,7 @@ claude plugin uninstall <plugin>@pcingola-skills --keep-data
 claude plugin install <plugin>@pcingola-skills --scope user
 ```
 
-The data directory is outside the plugin directory, so updates keep it. Without `--keep-data`, `uninstall` deletes the plugin's data directory. That directory holds the plugin's Python environments under `env/`. The media data directory also holds the voiceover weights and voices, and the image-gen and music environments, which hold torch and diffusers when `config.yaml` has a `diffusers` provider.
+The data directory is outside the plugin directory, so updates keep it. Without `--keep-data`, `uninstall` deletes the plugin's data directory. That directory holds the plugin's Python environments under `env/`. The media data directory also holds the voiceover weights and voices, the image-gen and music environments, which hold torch and diffusers when `config.yaml` has a `diffusers` provider, and html-animation's pinned JavaScript libraries and headless Chromium.
 
 `config.yaml` is outside every plugin data directory, so an uninstall keeps it. The weights of local `diffusers` models are in the Hugging Face cache (`HF_HOME`, default `~/.cache/huggingface`), also kept.
 
@@ -48,7 +48,7 @@ A skill installed as part of a plugin loads as `<plugin>:<skill>`. A skill that 
 | Plugin | Contents |
 |---|---|
 | docs | raw PowerPoint (.pptx) operations: inspect, fill, shapes with measured text, overflow checks, slide copy between decks; offline reveal.js slideshows |
-| media | image, music and voiceover generation, narrated short videos, image-to-image video effects, infographics, slide deck authoring |
+| media | image, music and voiceover generation, narrated short videos, image-to-image video effects, infographics, slide deck authoring, standalone HTML animations with an editor |
 | dev | implementation plans, Agent Skill authoring and review |
 | brand | brand folders (logos, colours, fonts, guidelines, PowerPoint templates) and a catalogue of visual styles |
 | ai | text classification with a System-1 model (class probabilities) or a chat model; file review by a second model |

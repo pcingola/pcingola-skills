@@ -5,7 +5,7 @@ This repository is a Claude Code marketplace, `pcingola-skills` (`.claude-plugin
 | Plugin | Skills | `dependencies` |
 |---|---|---|
 | docs | pptx, revealjs-slideshow | brand, setup |
-| media | image-gen, infographic, music, pptx-author, short-video, video-effects, voiceover | ai, brand, docs, setup |
+| media | html-animation, image-gen, infographic, music, pptx-author, short-video, video-effects, voiceover | ai, brand, docs, setup |
 | dev | plan, skill-author | setup |
 | brand | brand, style | setup |
 | ai | classify, second-opinion | setup |
