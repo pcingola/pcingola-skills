@@ -3,6 +3,7 @@ Local models). Each case that sets a cap or takes the lock runs in a child proce
 life of the process."""
 
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -211,35 +212,38 @@ def test_free_memory_comes_back_after_the_holder_exits(tmp_path):
         first.wait()
 
 
-def _cached_file(tmp_path, size: int):
-    """A file of `size` random bytes under `tmp_path`, read once so its pages are in the page cache."""
-    p = tmp_path / "weights.bin"
-    p.write_bytes(os.urandom(size))
-    assert len(p.read_bytes()) == size
-    return p
-
-
-def test_drop_page_cache_advises_large_files_and_changes_none(tmp_path):
-    """Guards the vLLM-Omni start on an integrated GPU: files of at least the threshold are advised, smaller ones
-    and symlinks are skipped, and no file changes; without `posix_fadvise` (macOS, Windows) it is a no-op."""
-    big = _cached_file(tmp_path, 64 * 2**20)
-    data = big.read_bytes()
-    (tmp_path / "small.json").write_text("{}")
-    (tmp_path / "link.bin").symlink_to(big)
-    advised = local.drop_page_cache([tmp_path], min_bytes=64 * 2**20)
-    assert advised == (64 * 2**20 if hasattr(os, "posix_fadvise") else 0)
-    assert big.read_bytes() == data
-    assert (tmp_path / "small.json").read_text() == "{}"
-
-
-DROP_SLACK = 32 * 2**20  # bytes other processes may allocate between the two readings
+PLAIN_GPU_HOLDER = """
+    import sys
+    import torch
+    x = torch.empty(int(2e9), dtype=torch.uint8, device="cuda")
+    x.fill_(1)
+    torch.cuda.synchronize()
+    print("ready", flush=True)
+    sys.stdin.read()
+"""
 
 
 @requires(torch.cuda.is_available(), "a CUDA GPU")
-def test_drop_page_cache_does_not_lower_cuda_free(tmp_path):
-    """After dropping the cache of a 64 MB file just read, `torch.cuda.mem_get_info`'s free bytes are not lower
-    (on an integrated GPU they rise, because that figure counts the page cache as used)."""
-    _cached_file(tmp_path, 64 * 2**20)
-    before = torch.cuda.mem_get_info()[0]
-    local.drop_page_cache([tmp_path], min_bytes=64 * 2**20)
-    assert torch.cuda.mem_get_info()[0] >= before - DROP_SLACK
+@requires(shutil.which("nvidia-smi"), "nvidia-smi (NVIDIA driver)")
+def test_memory_error_names_a_process_that_holds_gpu_memory(tmp_path):
+    """Guards the message of a refused load: a process that holds 2 GB of GPU memory is named in `memory_error`
+    with its PID and size, and this process is not."""
+    holder = subprocess.Popen([sys.executable, "-c", textwrap.dedent(PLAIN_GPU_HOLDER)], env=child_env(),
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "ready"
+        held = {h.what: h.size for h in local.memory_holders()}
+        name = next((w for w in held if w.startswith(f"process {holder.pid} ")), None)
+        assert name, held
+        assert held[name] >= 2e9
+        assert not any(w.startswith(f"process {os.getpid()} ") for w in held)
+        assert f"process {holder.pid} " in str(local.memory_error("some/model", "it needs 9 GB"))
+    finally:
+        holder.stdin.close()
+        holder.wait(30)
+
+
+def test_holder_text_has_size_and_release():
+    """A holder reads as what it is, its GB and how it frees them."""
+    assert str(local.Holder("process 7 python", int(2.5e9), "until it exits")) == "process 7 python (2.5 GB, until it exits)"
+    assert str(local.Holder("process 7 python", int(2.5e9))) == "process 7 python (2.5 GB)"

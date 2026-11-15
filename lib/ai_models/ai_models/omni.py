@@ -3,18 +3,18 @@
 vLLM-Omni pins its own torch and transformers, so it runs in a separate Python environment (`python` of the
 provider) and the skill process talks to it over HTTP. The server serves one model (`repo`) for the life of the
 calling process: the first `aspeak` takes the local-model lock (`local.hold_lock`), reads the free memory
-(`local.free_memory`; after waiting for the lock, once it settles, `local.wait_for_settled_memory`; on an
-integrated GPU at most `torch.cuda.mem_get_info`'s free bytes, `vllm_free_memory`, after dropping the page cache of
-the model files, `local.drop_page_cache`, because `mem_get_info` counts that cache as used), writes a deploy overlay and
-starts `vllm serve <repo> --omni` on a free loopback port. `atexit` stops the server's process group, also after a
-SIGTERM (`exit_on_sigterm`), and the kernel stops its main process when the caller dies (`PR_SET_PDEATHSIG`).
-`args` (optional) lists more server arguments, `env` (optional) environment variables of the server. So no memory
-stays held after the command.
+(`local.free_memory`, the figure vLLM checks its budget against; after waiting for the lock, once it settles,
+`local.wait_for_settled_memory`), refuses the start with `local.memory_error` when the provider's `memory` (GB) exceeds
+it, writes a deploy overlay and starts `vllm serve <repo> --omni` on a free loopback port. `atexit` stops the
+server's process group, also after a SIGTERM (`exit_on_sigterm`), and the kernel stops its main process when the
+caller dies (`PR_SET_PDEATHSIG`). `args` (optional) lists more server arguments, `env` (optional) environment
+variables of the server. So no memory stays held after the command.
 
 The overlay (`overlay`) inherits the model's deploy config (`deploy`: a file of vLLM-Omni's `deploy/` directory or
 a path), turns the CUDA MPS daemon off and scales every stage's `gpu_memory_utilization` so that together they
-take `memory_share` of the memory free before the start, in the stages' original proportions. Without MPS the
-stages share the GPU by time-slicing.
+take `memory` GB, in the stages' original proportions. A fixed budget gives each stage the same memory on every
+start, whatever else is loaded; vLLM sizes the KV cache as the stage's budget minus its weights, activations and
+other allocations, and fails when that is not positive. Without MPS the stages share the GPU by time-slicing.
 
 A request is `POST /v1/audio/speech`. The voice is `default` (the model's own voice) or a reference recording
 (`reference`): an audio file with its transcript in a `.txt` file of the same stem, sent as `ref_audio` (a
@@ -37,6 +37,8 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -150,22 +152,23 @@ def overlay(base: Path, share: float) -> dict[str, Any]:
             "platforms": {"cuda": {"cuda_mps": False}}}
 
 
-def memory_share(spec: dict[str, Any], name: str, free: int, total: int) -> float:
-    """The share of the device memory the server may take: `memory_share` of the free bytes, over the total."""
-    share = float(required(spec, "memory_share", name))
-    if not 0 < share <= 1:
-        raise ConfigError(f"provider {name!r}: memory_share must be in (0, 1], got {share}")
-    return share * free / total
+def memory_bytes(spec: dict[str, Any], name: str) -> int:
+    """The bytes the server's stages take together: the provider's `memory` in GB."""
+    try:
+        gb = float(required(spec, "memory", name))
+    except (TypeError, ValueError) as e:
+        raise ConfigError(f"provider {name!r}: memory must be a number of GB, got {spec.get('memory')!r}") from e
+    if gb <= 0:
+        raise ConfigError(f"provider {name!r}: memory must be positive GB, got {gb}")
+    return int(gb * local.GB)
 
 
-def vllm_free_memory(free: int, dev: str) -> int:
-    """The free bytes the vLLM share is sized from: `free` (`local.free_memory`), on an integrated GPU at most
-    `torch.cuda.mem_get_info`'s free bytes, the figure vLLM checks its share against at start."""
-    if not local.integrated(dev):
-        return free
-    import torch
-
-    return min(free, torch.cuda.mem_get_info()[0])
+def device_share(need: int, total: int, name: str) -> float:
+    """`need` bytes as a share of the device's `total`; a `ConfigError` above the whole device."""
+    if need > total:
+        raise ConfigError(f"provider {name!r}: memory {need / local.GB:.1f} GB exceeds the device's "
+                          f"{total / local.GB:.1f} GB")
+    return need / total
 
 
 def command(python: str, repo: str, deploy: Path, port: int, model: str, args: list[str] = ()) -> list[str]:
@@ -174,9 +177,17 @@ def command(python: str, repo: str, deploy: Path, port: int, model: str, args: l
             "--host", "127.0.0.1", "--port", str(port), "--served-model-name", model, *map(str, args)]
 
 
-def server_env(spec: dict[str, Any]) -> dict[str, str]:
-    """This process's environment plus the provider's `env` mapping (variables vLLM reads)."""
-    return {**os.environ, **{str(k): str(v) for k, v in (spec.get("env") or {}).items()}}
+# Set in the server's environment on an integrated GPU unless the provider's `env` sets it. vLLM estimates the CUDA
+# graph pool from `mem_get_info` deltas, which there also move with the page cache and other processes: on the GB10,
+# Drama 3 starts measured 0.2 to 3.3 GiB, and one 17.7 GiB, which left no KV cache (docs/ai_models.md).
+INTEGRATED_ENV = {"VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS": "0"}
+
+
+def server_env(spec: dict[str, Any], shared: bool = False) -> dict[str, str]:
+    """This process's environment, `INTEGRATED_ENV` when `shared` (an integrated GPU), then the provider's `env`
+    mapping (variables vLLM reads)."""
+    return {**os.environ, **(INTEGRATED_ENV if shared else {}),
+            **{str(k): str(v) for k, v in (spec.get("env") or {}).items()}}
 
 
 def free_port() -> int:
@@ -200,6 +211,28 @@ def tail(log: Path) -> str:
         return ""
 
 
+# Lines of a server log that mean a stage ran out of memory during the start.
+MEMORY_FAILURES = ("No available memory for the cache blocks", "CUDA error: out of memory", "torch.OutOfMemoryError",
+                   "Decrease GPU memory utilization or reduce GPU memory used by other processes")
+
+
+def memory_failure(text: str) -> bool:
+    """True when the server log `text` shows a stage that ran out of memory (`MEMORY_FAILURES`)."""
+    return any(m in text for m in MEMORY_FAILURES)
+
+
+@contextmanager
+def context_out_of_memory(repo: str) -> Iterator[None]:
+    """Turn a CUDA out-of-memory error of this process's first CUDA calls into `local.memory_error`. On the GB10
+    one start failed so, with 59 GB `MemAvailable` and 4 GB `MemFree`, while an Ollama model had just loaded."""
+    try:
+        yield
+    except RuntimeError as e:
+        if "out of memory" not in str(e):
+            raise
+        raise local.memory_error(repo, f"CUDA ran out of memory as this process started ({e})") from e
+
+
 def server(name: str, spec: dict[str, Any], model: str) -> Server:
     """The server of provider `name`, started on the first call of the process."""
     if name in _servers and _servers[name].proc.poll() is None:
@@ -211,30 +244,44 @@ def server(name: str, spec: dict[str, Any], model: str) -> Server:
     repo = str(required(spec, "repo", name))
     base = deploy_path(python, str(required(spec, "deploy", name)))
     exit_on_sigterm()
+    need = memory_bytes(spec, name)
     waited = local.hold_lock() or name in _servers
     started = time.monotonic()
-    dev = local.device()
-    if local.integrated(dev):
-        local.drop_page_cache(local.model_dirs())  # mem_get_info, which vLLM checks, counts the page cache as used
-    free = vllm_free_memory(local.wait_for_settled_memory(dev) if waited else local.free_memory(dev), dev)
-    share = memory_share(spec, name, free, torch.cuda.mem_get_info()[1] if dev == "cuda" else free)
+    with context_out_of_memory(repo):
+        dev = local.device()
+        free = local.wait_for_settled_memory(dev) if waited else local.free_memory(dev)
+        share = device_share(need, torch.cuda.mem_get_info()[1] if dev == "cuda" else free, name)
+        if need > free and waited:
+            free = local.wait_for_memory(dev, need)
+    if need > free:
+        raise local.memory_error(repo, f"the vLLM-Omni server needs {need / local.GB:.1f} GB (`memory` of provider "
+                                 f"{name!r}) and the device has {free / local.GB:.1f} GB free",
+                                 f"free memory, or lower `memory` of provider {name!r} (vLLM sizes the KV cache from "
+                                 "it), and retry")
     work = Path(tempfile.mkdtemp(prefix="ai-models-omni-"))
     deploy = work / "deploy.yaml"
     deploy.write_text(yaml.safe_dump(overlay(base, share)))
     log = work / "server.log"
     port = free_port()
-    print(f"ai_models: starting {repo} with vLLM-Omni ({share:.0%} of the device memory, log {log})",
-          file=sys.stderr, flush=True)
+    print(f"ai_models: starting {repo} with vLLM-Omni ({need / local.GB:.1f} GB of {free / local.GB:.1f} GB free, "
+          f"log {log})", file=sys.stderr, flush=True)
     with log.open("wb") as out:
         proc = subprocess.Popen(command(python, repo, deploy, port, model, spec.get("args") or []), stdout=out, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True, preexec_fn=die_with_parent,
-                                env=server_env(spec))
+                                env=server_env(spec, local.integrated(dev)))
     srv = Server(proc, f"http://127.0.0.1:{port}", log, model)
     atexit.register(srv.stop)
     deadline = started + float(spec.get("start_timeout", START_TIMEOUT))
     while True:
         if proc.poll() is not None:
-            raise AIModelsError(f"vLLM-Omni server of {repo} exited with code {proc.returncode}:\n{tail(log)}")
+            srv.stop()
+            if memory_failure(text := tail(log)):
+                raise local.memory_error(repo, f"a stage of the vLLM-Omni server ran out of memory during the start, "
+                                         f"with a budget of {need / local.GB:.1f} GB (`memory` of provider {name!r}); "
+                                         f"log {log}",
+                                         "free what loaded during the start, or raise `memory` of provider "
+                                         f"{name!r}, and retry")
+            raise AIModelsError(f"vLLM-Omni server of {repo} exited with code {proc.returncode}:\n{text}")
         try:
             if httpx.get(f"{srv.url}/health", timeout=5, trust_env=False).status_code == 200:
                 break

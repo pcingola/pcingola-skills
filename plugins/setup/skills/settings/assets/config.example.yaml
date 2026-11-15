@@ -43,8 +43,10 @@ providers:
   # own environment (vllm-omni pins torch and transformers):
   #   uv venv <env dir> --python 3.12
   #   uv pip install --python <env dir>/bin/python "vllm==0.32.*" vllm-omni==0.32.0 --torch-backend=cu130
-  # The server takes memory_share of the free memory and stops after the
-  # command. style puts voiceover --style into the text as inline tags. args:
+  # The server's stages take memory GB together (Drama 3: over 56; 70 leaves
+  # a 13 GB KV cache); a start with less memory free is refused and names what
+  # holds it. The server stops after the command. style puts voiceover --style
+  # into the text as inline tags. args:
   # more server arguments (eager: the weights load in 34 s instead of 4.5 min
   # on a unified-memory GPU); env: server environment variables (FlashInfer's
   # sampler needs nvcc to JIT-compile on GPUs without prebuilt kernels).
@@ -66,7 +68,7 @@ providers:
   # the value of python. url and files: the model files, downloaded to <dir>/<model>/ (dir as
   # for kokoro); the voice default is the model's built-in voice.
   #chatterbox:  {kind: chatterbox, python: /path/to/env/bin/python, url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master, files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]}
-  #fish:        {kind: vllm-omni, python: /path/to/env/bin/python, repo: fishaudio/drama-3, deploy: fish_omni.yaml, memory_share: 0.6, style: "[{instructions}] {text}", args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager], env: {VLLM_USE_FLASHINFER_SAMPLER: 0}}
+  #fish:        {kind: vllm-omni, python: /path/to/env/bin/python, repo: fishaudio/drama-3, deploy: fish_omni.yaml, memory: 70, style: "[{instructions}] {text}", args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager], env: {VLLM_USE_FLASHINFER_SAMPLER: 0}}
 
 # The model of each task. The skills ask for these tasks:
 #   chat        ai:classify (chat backend), ai:second-opinion

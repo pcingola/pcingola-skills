@@ -119,7 +119,7 @@ The template rows come from wall-time and quality measurements on an NVIDIA GB10
 | `kokoro` | none; `kokoro` | `model_url`, `voices_url`, `langs`, `dir` (Local speech and alignment) |
 | `chatterbox` | none; `chatterbox` | `python`, `url`, `files`, `dir` (Local speech and alignment) |
 | `torchaudio` | none; `align` | `url`, `dir` (Local speech and alignment) |
-| `vllm-omni` | none; `omni` | `python`, `repo`, `deploy`, `memory_share`, `style`, `args`, `env`, `start_timeout` (Speech models of vLLM-Omni) |
+| `vllm-omni` | none; `omni` | `python`, `repo`, `deploy`, `memory`, `style`, `args`, `env`, `start_timeout` (Speech models of vLLM-Omni) |
 
 What each kind serves:
 
@@ -270,25 +270,43 @@ model (`repo`). `omni.aspeak`:
    SIGTERM), takes the local-model lock (`local.hold_lock`, Local model memory) and reads the free memory
    (`local.free_memory`). After waiting for the lock, it reads the free memory until it stops rising
    (`local.wait_for_settled_memory`: a rise under 0.5 GB between readings 0.5 s apart, at most 10 s), while the
-   previous holder's memory comes back. On an integrated GPU the free memory is at most
-   `torch.cuda.mem_get_info()[0]` (`vllm_free_memory`), because vLLM checks its share against that figure at start.
-   Before it measures, on an integrated GPU, it drops the clean page cache of the model files
-   (`local.drop_page_cache` over `local.model_dirs()`: the Hugging Face hub cache and every config `repo` that is
-   a local directory; files of at least `PAGE_CACHE_MIN_BYTES`, 64 MiB), with `posix_fadvise(POSIX_FADV_DONTNEED)`,
-   which changes no file and needs no privilege. Without it, weights read earlier stay cached and lower
-   `mem_get_info()`: on the GB10, with 74 GB of page cache, it reported 46 GB free, which sized the server at
-   about 26 GB, below Drama 3's 37.5 GB of weights. After the call (about 1 s over a 507 GB cache) it reported
-   114 GB. Diffusers loads (`local.pipeline`) do not call it: they size from `MemAvailable`, which counts the
-   cache as free, and the CUDA allocator reclaims the cache.
+   previous holder's memory comes back. vLLM 0.32 checks each stage's budget against the same figure: on an
+   integrated GPU `MemAvailable` (`MemorySnapshot.measure`), elsewhere `mem_get_info()`. When the provider's
+   `memory` (GB, the stages together) exceeds the free memory, the start is refused before the server runs
+   (`local.memory_error`): the message gives both sizes, the Ollama models resident in each `ollama` provider of the
+   config with the time Ollama unloads each one (`GET /api/ps`, `expires_at`), the processes holding the most GPU
+   memory (`nvidia-smi --query-compute-apps`) and, on an integrated GPU, whose CPU memory comes from the same pool,
+   the processes with the largest resident set (`local.memory_holders`). It unloads nothing.
 2. Writes a deploy overlay that inherits `deploy` (a file of vLLM-Omni's `deploy/` directory, found with the
    environment's `importlib.util.find_spec`, or a path) through vLLM-Omni's `base_config`. The overlay turns off
    the CUDA MPS daemon (`platforms.cuda.cuda_mps: false`) and scales every stage's `gpu_memory_utilization` so
-   that their sum is `memory_share` times the free memory over the device total, in the deploy config's
-   proportions (Drama 3: 0.78 and 0.1). Without MPS the two stages share one GPU by time-slicing.
+   that their sum is `memory` over the device total (`mem_get_info()[1]`), in the deploy config's proportions
+   (Drama 3: 0.78 and 0.1). Without MPS the two stages share one GPU by time-slicing.
+
+   vLLM sizes a stage's KV cache as its budget minus its weights, activation peak, other allocations measured
+   on the device during profiling and, by default, an estimate of the CUDA graph pool; a stage with no KV cache
+   fails ("No available memory for the cache blocks") after the weights have loaded. Drama 3's first stage needs
+   about 46.5 GiB besides its KV cache (37.5 GiB of weights): in 31 starts on the GB10 with a budget of 0.6 of the
+   free memory, the KV cache came out as the first stage's budget minus 46.5 GiB within 1 GiB, and 9 failed. 6 of
+   them had a first-stage budget under 47 GiB, measured while Ollama held models or, with the free memory read
+   from `mem_get_info()`, while the page cache was large; 1 lost 17.7 GiB to the graph estimate (below); in 2 the
+   second stage hit a CUDA out-of-memory error as it started, with first-stage budgets of 50 and 83 GiB. A budget
+   in GB gives the stages the same memory on every start. With `memory: 70` the first stage gets 57.8 GiB and a
+   KV cache of about 12.5 GiB. The page cache needs no drop: on the GB10, with 108 GB of page cache and 10.5 GB `MemFree`, a
+   90 GB CUDA allocation succeeded and the kernel reclaimed the cache.
+
+   On an integrated GPU the server's environment has `VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0` unless the
+   provider's `env` sets it (`omni.INTEGRATED_ENV`). vLLM-Omni estimates the CUDA graph pool from
+   `mem_get_info()` deltas, which on an integrated GPU also move with the page cache and with other processes:
+   Drama 3 starts measured 0.2 to 3.3 GiB, and one 17.7 GiB, which left a 56 GiB stage with no KV cache. Without
+   the estimate the graph pool (at most 3.3 GiB measured) is allocated outside the budget.
 3. Starts `vllm serve <repo> --omni --deploy-config <overlay>` plus the provider's `args` on a free loopback port,
    with the provider's `env` added to the environment, in its own process group with `PR_SET_PDEATHSIG`, and polls
-   `/health` until `start_timeout` (default 1800 s). The start runs in the calling thread, the event loop's, and
-   blocks the loop while the model loads: `PR_SET_PDEATHSIG` stops the server when the thread that started it exits,
+   `/health` until `start_timeout` (default 1800 s). When the server exits during the start with a memory failure
+   in its log (`omni.MEMORY_FAILURES`: no KV cache memory, a CUDA out-of-memory error, vLLM's own free memory
+   check), the error is `local.memory_error` with the holders at that moment and the log path: another program
+   took memory during the start, or the budget is too small for the model. The start runs in the calling thread,
+   the event loop's, and blocks the loop while the model loads: `PR_SET_PDEATHSIG` stops the server when the thread that started it exits,
    and the loop's thread lives as long as the caller.
 4. Sends each request asynchronously (`httpx.AsyncClient`) to `POST /v1/audio/speech` (`response_format: wav`; the
    audio comes at the model's rate, since Drama 3 refuses `sample_rate`).

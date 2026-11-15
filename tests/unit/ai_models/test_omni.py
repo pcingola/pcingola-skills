@@ -4,18 +4,17 @@ models of vLLM-Omni)."""
 import asyncio
 import base64
 import io
+import os
 import wave
 from pathlib import Path
 
 import pytest
-import torch
 import yaml
 
-from ai_models import AIModelsError, ConfigError, local, omni
-from tests.prereq import requires
+from ai_models import AIModelsError, ConfigError, omni
 
 SPEC = {"kind": "vllm-omni", "python": "/env/bin/python", "repo": "org/tts", "deploy": "tts.yaml",
-        "memory_share": 0.8, "style": "[{instructions}] {text}"}
+        "memory": 70, "style": "[{instructions}] {text}"}
 
 
 def test_overlay_scales_stage_fractions_and_turns_mps_off(tmp_path):
@@ -39,13 +38,18 @@ def test_overlay_without_fractions_is_a_config_error(tmp_path):
         omni.overlay(base, 0.5)
 
 
-def test_memory_share_of_free_over_total():
-    """The share is memory_share of the free bytes over the total; a missing or out-of-range key is a ConfigError."""
-    assert omni.memory_share(SPEC, "fish", free=100, total=200) == pytest.approx(0.4)
-    with pytest.raises(ConfigError, match="memory_share"):
-        omni.memory_share({**SPEC, "memory_share": 1.5}, "fish", free=100, total=200)
-    with pytest.raises(ConfigError, match="needs `memory_share`"):
-        omni.memory_share({"kind": "vllm-omni"}, "fish", free=100, total=200)
+def test_memory_bytes_and_device_share():
+    """`memory` is GB of the stages together; a missing, non-numeric or non-positive one, or one above the device,
+    is a ConfigError."""
+    assert omni.memory_bytes(SPEC, "fish") == 70 * 10**9
+    assert omni.device_share(70 * 10**9, 140 * 10**9, "fish") == pytest.approx(0.5)
+    with pytest.raises(ConfigError, match="needs `memory`"):
+        omni.memory_bytes({"kind": "vllm-omni"}, "fish")
+    for bad in (0, -1, "lots"):
+        with pytest.raises(ConfigError, match="memory must be"):
+            omni.memory_bytes({**SPEC, "memory": bad}, "fish")
+    with pytest.raises(ConfigError, match="exceeds the device"):
+        omni.device_share(150 * 10**9, 140 * 10**9, "fish")
 
 
 def test_deploy_path_takes_an_existing_file(tmp_path):
@@ -136,6 +140,15 @@ def test_server_env_adds_the_provider_env():
     assert env["VLLM_USE_FLASHINFER_SAMPLER"] == "0" and "PATH" in env
 
 
+def test_server_env_on_an_integrated_gpu_turns_the_graph_estimate_off_unless_the_provider_sets_it():
+    """On an integrated GPU the CUDA graph memory estimate is off by default (`INTEGRATED_ENV`); the provider's
+    `env` overrides it; on a discrete GPU it is left to vLLM."""
+    key = "VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS"
+    assert omni.server_env({}, shared=True)[key] == "0"
+    assert omni.server_env({"env": {key: 1}}, shared=True)[key] == "1"
+    assert omni.server_env({}, shared=False).get(key) == os.environ.get(key)
+
+
 def test_stop_kills_a_group_member_that_outlives_the_main_process():
     """`Server.stop` waits for the whole process group, not only the main process: a worker that ignores SIGTERM
     is killed with SIGKILL after the wait, and no process of the group is left. Guards stage workers keeping the
@@ -168,16 +181,29 @@ def test_sigterm_runs_atexit():
     assert r.stdout.strip() == "stopped"
 
 
-@requires(torch.cuda.is_available(), "a CUDA device")
-def test_vllm_free_memory_is_positive_and_within_cuda_free():
-    """The vLLM sizing figure from `local.free_memory` is positive and at most `torch.cuda.mem_get_info`'s free bytes
-    on an integrated GPU (on a discrete one it is `local.free_memory` itself)."""
-    free = local.free_memory("cuda")
-    got = omni.vllm_free_memory(free, "cuda")
-    assert got > 0
-    assert got <= free
-    if local.integrated("cuda"):
-        assert got <= torch.cuda.mem_get_info()[0]
+# Log lines of real Drama 3 starts on the GB10 that failed for memory, and one of a start that came up.
+KV_FAILURE = ("ValueError: No available memory for the cache blocks. Try increasing `gpu_memory_utilization` when "
+              "initializing the engine.")
+OOM_FAILURE = "torch.AcceleratorError: CUDA error: out of memory"
+STARTED = "(APIServer pid=1) INFO 11-15 08:53:13 [launcher.py:47] Application startup complete."
+
+
+def test_memory_failure_recognizes_out_of_memory_logs():
+    """A log with no KV cache memory or a CUDA out-of-memory error is a memory failure; a started server is not."""
+    assert omni.memory_failure(f"...\n{KV_FAILURE}\n...")
+    assert omni.memory_failure(OOM_FAILURE)
+    assert not omni.memory_failure(STARTED)
+
+
+def test_context_out_of_memory_becomes_a_memory_error():
+    """A CUDA out-of-memory error of this process's first CUDA calls becomes the memory error that names the model;
+    another runtime error passes unchanged."""
+    with pytest.raises(AIModelsError, match="org/tts: CUDA ran out of memory as this process started"):
+        with omni.context_out_of_memory("org/tts"):
+            raise RuntimeError("CUDA error: out of memory")
+    with pytest.raises(RuntimeError, match="device-side assert"):
+        with omni.context_out_of_memory("org/tts"):
+            raise RuntimeError("CUDA error: device-side assert triggered")
 
 
 def test_params_merge_and_built_fields_refused():

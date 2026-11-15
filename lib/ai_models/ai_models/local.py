@@ -27,11 +27,13 @@ the memory free before the load (`cap_memory`), and an out-of-memory error becom
 from __future__ import annotations
 
 import asyncio
+import csv
 import io
 import itertools
 import json
 import os
-import stat
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -40,6 +42,8 @@ import urllib.request
 import wave
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -225,54 +229,6 @@ def free_memory(dev: str) -> int:
     return torch.cuda.mem_get_info()[0]
 
 
-PAGE_CACHE_MIN_BYTES = 64 * 2**20  # `drop_page_cache` skips files smaller than this
-
-
-def model_dirs() -> list[Path]:
-    """The directories that hold model weights: the Hugging Face hub cache (`HF_HUB_CACHE`, under `HF_HOME` of the
-    config) and every `repo` of the config's providers and `diffusers` models that is a local directory."""
-    from huggingface_hub import constants
-
-    try:
-        cfg = config.load()
-    except ConfigError:
-        cfg = {}
-    specs = [*(cfg.get("providers") or {}).values(), *(cfg.get("diffusers") or {}).values()]
-    repos = [Path(str(s["repo"])).expanduser() for s in specs if isinstance(s, dict) and s.get("repo")]
-    dirs = [Path(constants.HF_HUB_CACHE), *(r for r in repos if r.is_dir())]
-    return [d for d in dict.fromkeys(dirs) if d.is_dir()]
-
-
-def drop_page_cache(dirs: Iterable[Path], min_bytes: int = PAGE_CACHE_MIN_BYTES) -> int:
-    """Ask Linux to drop the clean page cache of every regular file of at least `min_bytes` under `dirs`
-    (`posix_fadvise` `POSIX_FADV_DONTNEED`; symlinks are not followed); the bytes of the files advised. It changes
-    no file and needs no privilege; pages a process has mapped or dirty pages stay. A no-op (0) without
-    `posix_fadvise` (macOS, Windows). On an integrated GPU `torch.cuda.mem_get_info` counts the page cache as used,
-    and vLLM checks its share against that figure, so a server start calls this before it measures."""
-    if not hasattr(os, "posix_fadvise"):
-        return 0
-    done = 0
-    for top in dirs:
-        for root, _subdirs, files in os.walk(top):
-            for f in files:
-                p = os.path.join(root, f)
-                try:
-                    st = os.lstat(p)
-                    if not stat.S_ISREG(st.st_mode) or st.st_size < min_bytes:
-                        continue
-                    fd = os.open(p, os.O_RDONLY)
-                except OSError:
-                    continue
-                try:
-                    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
-                    done += st.st_size
-                except OSError:
-                    pass
-                finally:
-                    os.close(fd)
-    return done
-
-
 def integrated(dev: str) -> bool:
     """True for an integrated CUDA GPU under Linux (one that allocates system memory)."""
     import torch
@@ -312,25 +268,82 @@ def out_of_memory(repo: str) -> Iterator[None]:
 
 
 class _Resident(BaseModel):
-    """A model Ollama holds in memory (`/api/ps`)."""
+    """A model Ollama holds in memory (`/api/ps`): its name, bytes and when Ollama unloads it."""
 
     name: str
     size: int
+    expires_at: datetime | None = None
 
 
 class _Ps(BaseModel):
     models: list[_Resident] = []
 
 
-def memory_error(repo: str, sizes: str) -> AIModelsError:
-    """The error for model `repo`, with `sizes` and the models each `ollama` provider of the config holds."""
-    held = [f"{name} ({size / GB:.1f} GB)" for name, size in resident_ollama_models()]
-    where = f"; Ollama holds {', '.join(held)}: unload them (`ollama stop <model>`) and retry" if held else ""
-    return AIModelsError(f"local model {repo}: {sizes}{where}")
+@dataclass
+class Holder:
+    """A holder of memory that a memory error names: what it is, its bytes, and how it frees them."""
+
+    what: str
+    size: int
+    release: str = ""
+
+    def __str__(self) -> str:
+        return f"{self.what} ({self.size / GB:.1f} GB{', ' + self.release if self.release else ''})"
 
 
-def resident_ollama_models() -> list[tuple[str, int]]:
-    """(provider:model, bytes) of each model loaded in an `ollama` provider of the config (`GET /api/ps`); a
+HOLDER_MIN_BYTES = 1 * GB  # `memory_holders` names no process below this
+HOLDER_PROCESSES = 5  # `memory_holders` names at most this many processes
+
+
+def memory_error(repo: str, sizes: str, advice: str = "free memory and retry") -> AIModelsError:
+    """The error for model `repo`: `sizes`, what holds the memory (`memory_holders`) and `advice`."""
+    held = memory_holders()
+    where = f"; held by {'; '.join(map(str, held))}" if held else ""
+    return AIModelsError(f"local model {repo}: {sizes}{where}. To start it, {advice}")
+
+
+def memory_holders() -> list[Holder]:
+    """What holds the memory a local model needs: the models of each `ollama` provider of the config
+    (`resident_ollama_models`), then the processes that hold the most GPU memory (`gpu_processes`) and, on an
+    integrated GPU, whose CPU memory comes from the same pool, the processes with the largest resident set; at most
+    `HOLDER_PROCESSES` processes, none below `HOLDER_MIN_BYTES`, this process excluded."""
+    import psutil
+
+    try:
+        shared = integrated(device())
+    except (AIModelsError, RuntimeError):  # no GPU, or CUDA out of memory as this process starts
+        shared = False
+    procs = {pid: (name, size) for pid, name, size in gpu_processes()}
+    if shared:
+        for p in psutil.process_iter(["pid", "name", "memory_info"]):
+            if p.info["memory_info"] and p.info["pid"] not in procs:
+                procs[p.info["pid"]] = (p.info["name"], p.info["memory_info"].rss)
+    procs.pop(os.getpid(), None)
+    top = sorted(((size, pid, name) for pid, (name, size) in procs.items() if size >= HOLDER_MIN_BYTES), reverse=True)
+    return [*resident_ollama_models(),
+            *(Holder(f"process {pid} {name}", size, "until it exits") for size, pid, name in top[:HOLDER_PROCESSES])]
+
+
+def gpu_processes() -> list[tuple[int, str, int]]:
+    """(PID, name, bytes of GPU memory) of each process on an NVIDIA GPU (`nvidia-smi --query-compute-apps`); none
+    without `nvidia-smi` or when it fails. A process without a reading (`[N/A]`) is left out."""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return []
+    try:
+        out = subprocess.run([exe, "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=10, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    procs = []
+    for pid, name, mib in csv.reader(io.StringIO(out), skipinitialspace=True):
+        if pid.isdigit() and mib.isdigit():
+            procs.append((int(pid), Path(name).name, int(mib) * 2**20))
+    return procs
+
+
+def resident_ollama_models() -> list[Holder]:
+    """Each model loaded in an `ollama` provider of the config (`GET /api/ps`), with the time Ollama unloads it; a
     missing config or a server that does not answer contributes nothing."""
     from .models import base_url
     from .tls import ssl_verify
@@ -352,7 +365,9 @@ def resident_ollama_models() -> list[tuple[str, int]]:
                 ps = _Ps.model_validate(json.load(r))
         except (OSError, ValueError):
             continue
-        out.extend((f"{name}:{m.name}", m.size) for m in ps.models)
+        for m in ps.models:
+            when = f"Ollama unloads it at {m.expires_at.astimezone():%H:%M}, " if m.expires_at else ""
+            out.append(Holder(f"Ollama model {name}:{m.name}", m.size, f"{when}`ollama stop {m.name}` unloads it now"))
     return out
 
 
