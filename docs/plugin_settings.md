@@ -59,10 +59,6 @@ dir>/plugins/cache/<marketplace>/<plugin>/<version>` sits in a directory named a
 
 ## Data directory
 
-`Plugin.load()` also makes its plugin the process's plugin: `data_dir()` returns that plugin's data directory, else
-`$CLAUDE_PLUGIN_DATA`, else None. A shared package uses it for data of the calling skill (`ai_models.weights`: the
-default weights directory).
-
 Without `CLAUDE_PLUGIN_DATA`, the data directory is the one Claude Code assigns to the plugin, `<config
 dir>/plugins/data/<plugin>-<marketplace>`. The marketplace name has two sources:
 

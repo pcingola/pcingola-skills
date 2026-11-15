@@ -54,17 +54,33 @@ each line as the model takes it (`script.Line.of`):
 - A model that takes inline tags (`Traits.tags`: vllm-omni): `@<name> ` at the start names the speaker; the rest
   goes to the model as written. The sentence aligned and written as `text` is the line without bracket tags and
   speaker tags (`strip_tags`); `said` holds the line as sent when it differs, `speaker` the speaker. A line of only
-  tags is refused before the aligner loads. A speaker without `--speaker NAME=VOICE` is made up: its first take is
-  the reference of its later lines (`omni.speak` keeps one take per speaker) and is written as `voice-<name>.wav`.
+  tags is refused, and so is an `@` line whose name is not a speaker name (lowercase letters, digits, `-`, `_`).
+  A speaker without `--speaker NAME=VOICE` is made up: its first take is the reference of its later lines
+  (`omni.aspeak` keeps one take per speaker) and is written as `voice-<name>.wav` (`write_takes`); the made-up
+  speakers are named on stderr.
 - A model that takes a style but no tags: a line that starts with `[<style>]` is that sentence's style
   (`split_style`), passed instead of `--style`, with a `style` key in `timing.json`. Such a model takes any style.
-- Any other model: the line is literal text; `--speaker` is refused, and `--param` for a kind without request
-  fields (`Traits.params`: Kokoro, Chatterbox, Gemini).
+- Any other model: the line is literal text.
+
+A line with what its model does not take, an `@speaker`, or a tag other than a leading style of a model that takes
+styles, is refused, because the model would speak it. `--speaker` is refused for a model without tags, for a name
+that is not a speaker name or that no line uses, and `--param` for a kind without request fields (`Traits.params`:
+Kokoro, Chatterbox, Gemini). `Narrator.prepare` resolves every voice (the narrator's and each speaker's: a recording
+of `add-voice` or a path, and for a vllm-omni model its transcript) before the aligner loads and before the first
+request, so a missing recording or transcript fails before the minutes of a model start.
+
+Local weights live in `voiceover/` of the plugin data directory (`config.weights_dir`) unless the provider sets `dir`;
+voiceover passes it to `ai_models` as `weights_dir`. `setup --chatterbox` syncs the locked uv project
+`scripts/chatterbox` (chatterbox-tts 0.1.7, which pins torch 2.6) into `voiceover-scripts-chatterbox/.venv` next to
+voiceover's own environment under the plugin data directory (`config.chatterbox_env`, the `uv_env.sh` rule) and
+prints its python, the `python` of the `chatterbox` provider. It needs the wrapper's `PLUGIN_ENV_DIR`.
 
 `load_settings` refuses every `VOICEOVER_*` setting of the file other than `VOICEOVER_VOICES_DIR` (the model settings
 of an earlier version), naming the template's provider entries and models that replace them; when
 `VOICEOVER_MODEL_DIR` is among them, the message gives its value as the providers' `dir` and its `voices/` as
-`VOICEOVER_VOICES_DIR`.
+`VOICEOVER_VOICES_DIR`. It also refuses a routes.md row whose model is an earlier name (`kokoro`, `chatterbox`),
+asking for a model id of a provider of that kind. A config error about a missing provider or model gets a hint that
+the setup:settings template has the entries (`config.TEMPLATE_HINT`).
 
 ## Model options
 

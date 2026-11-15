@@ -129,9 +129,36 @@ COLUMN_TITLES = {"speaker": "Speaker", "narration": "Narration", "on screen": "O
 SPEAKERS_HEADER = ["speaker", "model", "voice", "speed", "style"]
 # The voice field and column of an earlier version, and how each of its values maps to a model.
 OLD_VOICE_KEY = "backend"
-BACKEND_MOVED = ("Backend (`backend`) became Model (`model`), a speech model id of config.yaml: kokoro is "
-                 "kokoro:kokoro-v1.0, chatterbox is chatterbox:chatterbox-turbo, speech is config.yaml's models.speech "
-                 "(an empty Model, null `model`)")
+# The earlier backend that meant config.yaml's `speech` model; every other earlier backend is a provider kind.
+SPEECH_BACKEND = "speech"
+
+
+def backend_model(backend: str) -> str | None:
+    """The model id an earlier voice `backend` maps to: None (config.yaml's `speech` model) for `speech`, else the
+    configured speech model of the provider kind of that name (`ai_models.speech.model_of_kind`), None when the
+    config has none."""
+    from ai_models import AIModelsError, speech
+
+    if backend == SPEECH_BACKEND:
+        return None
+    try:
+        return speech.model_of_kind(backend)
+    except AIModelsError:
+        return None
+
+
+def backend_moved(backend: str | None = None) -> str:
+    """The message for an earlier `backend` field or Backend column; with the `backend` value, its model id in this
+    config.yaml when it has one."""
+    msg = ("Backend (`backend`) became Model (`model`), a speech model id <provider>:<model> of config.yaml: for an "
+           "earlier backend named after a provider kind (kokoro, chatterbox), a model of a provider of that kind (the "
+           "voiceover skill's `routes` lists the speech models); for speech, an empty Model (config.yaml's "
+           "models.speech)")
+    if backend and backend != SPEECH_BACKEND and (model := backend_model(backend)):
+        msg += f"; here {backend} is {model}"
+    return msg
+
+
 # Keys of the storyboard structure (storyboard.json) and of each scene.
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
 SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
@@ -236,7 +263,7 @@ def _voice_fields(v, path: tuple, label: str, err) -> None:
         return
     for k, x in v.items():
         if k == OLD_VOICE_KEY:
-            err(path + (k,), f"{label}: {BACKEND_MOVED}")
+            err(path + (k,), f"{label}: {backend_moved(x if isinstance(x, str) else None)}")
         elif k not in VOICE_KEYS:
             err(path + (k,), f"{label}: unknown key `{k}`; allowed: {', '.join(VOICE_KEYS)}")
         elif x is not None and not (_number(x) if k == "speed" else isinstance(x, str)):
@@ -417,7 +444,7 @@ def _columns(cells: list[str]) -> tuple[list[str] | None, str | None]:
                       "first and any of Model, Voice, Speed, Style after On screen")
     unknown = [c for c in extra if c not in VOICE_COLUMNS]
     if OLD_VOICE_KEY in unknown:
-        return None, f"table column 'Backend': {BACKEND_MOVED}"
+        return None, f"table column 'Backend': {backend_moved()}"
     if unknown:
         return None, (f"unknown table column {cells[lead + 2 + extra.index(unknown[0])]!r}; after On screen "
                       "only Model, Voice, Speed, Style")
@@ -524,7 +551,7 @@ def parse_markdown(text: str) -> dict:
             if cur is None:
                 if speakers_table is None:
                     if OLD_VOICE_KEY in [c.lower() for c in cells]:
-                        err(n, f"speakers table column 'Backend': {BACKEND_MOVED}")
+                        err(n, f"speakers table column 'Backend': {backend_moved()}")
                     elif [c.lower() for c in cells] != SPEAKERS_HEADER:
                         err(n, "table outside a scene; put it under a `## <scene id>` heading (the header "
                                "holds only the `| Speaker | Model | Voice | Speed | Style |` table)")
@@ -879,7 +906,7 @@ def validate_settings(project_dir: Path, brand_dir: Path | None = None) -> Valid
         r.warnings.append(f"no `author:` in {settings.PROJECT_FILE}: the film has no creator credit")
 
     if s["voice"].get(OLD_VOICE_KEY) is not None:
-        err(f"`voice.backend` is no longer read: {BACKEND_MOVED}")
+        err(f"`voice.backend` is no longer read: {backend_moved(str(s['voice'][OLD_VOICE_KEY]))}")
     r.errors.extend(voice_errors(s["voice"], lambda key: f"`voice.{key}`"))
     gap = s["voice"].get("speaker_gap")
     if not _number(gap) or gap < 0:

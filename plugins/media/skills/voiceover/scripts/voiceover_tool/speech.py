@@ -15,12 +15,13 @@ of the rest, so one command has one speaker; `synth` writes it as `voice.wav` + 
 from __future__ import annotations
 
 import io
+import sys
 import wave
 
 import numpy as np
 
-from . import voices
-from .script import Line
+from . import config, voices
+from .script import NAME_RE, Line
 
 SAMPLE_RATE = 24_000
 
@@ -58,36 +59,71 @@ def resample(samples: np.ndarray, rate: int, target: int) -> np.ndarray:
 class Narrator:
     """Speech model `model` (else `models.speech`) with `style`, `speed`, the voice of each named speaker
     (`speakers`, a name of `@name` lines to a voice) and more request fields (`params`); `ValueError` when the config
-    names no such model or the model does not take the style, speed, speakers or parameters."""
+    names no such model or the model does not take the style, speed, speakers or parameters. Local weights live in
+    `config.weights_dir()` unless the provider sets `dir`."""
 
     sample_rate = SAMPLE_RATE
 
     def __init__(self, model: str | None = None, style: str | None = None, speed: float = 1.0,
                  speakers: dict[str, str] | None = None, params: dict | None = None) -> None:
-        from ai_models import AIModelsError
+        from ai_models import AIModelsError, ConfigError
         from ai_models import speech
 
         try:
-            m = speech.check(model, speed=speed, instructions=style, params=params)
+            m = speech.check(model, speed=speed, instructions=style, params=params, weights_dir=config.weights_dir())
+        except ConfigError as e:
+            raise ValueError(f"{e}{config.TEMPLATE_HINT}") from None
         except AIModelsError as e:
             raise ValueError(str(e)) from None
         self.model, self.kind, self.default_voice = m.id, m.kind, m.default_voice
         self.clones, self.instructions, self.tags = m.traits.clones, m.instructions, m.traits.tags
+        speakers = dict(speakers or {})
         if speakers and not self.tags:
             raise ValueError(f"{m.id} takes no speakers (`@speaker` lines are for a model that takes inline tags)")
-        self.style, self.speed, self.speakers, self.params = style, speed, dict(speakers or {}), dict(params or {})
+        if bad := [n for n in speakers if not NAME_RE.match(n)]:
+            raise ValueError(f"--speaker {bad[0]!r}: a speaker name has lowercase letters, digits, '-' and '_'")
+        self.style, self.speed, self.speakers, self.params = style, speed, speakers, dict(params or {})
         self.made_up: list[str] = []  # the speakers of `@name` lines without a voice, in order of first line
+        self.resolved: dict[str | None, str] = {}  # speaker (None: the narrator) -> the voice sent (a path or name)
 
     def lines(self, sentences: list[str]) -> list[Line]:
         """Each script line as the model takes it (`Line.of`): speakers and inline tags for a model that takes tags,
-        a leading `[style]` for one that takes styles, else literal text."""
-        return [Line.of(s, styles=self.instructions, tags=self.tags) for s in sentences]
+        a leading `[style]` for one that takes styles, else literal text; `ValueError` for a line the model would
+        not take."""
+        return [Line.of(s, styles=self.instructions, tags=self.tags, model=self.model) for s in sentences]
+
+    def _reference(self, voice: str, who: str) -> str:
+        """`voice` as sent: a cloning model's recording path (a vllm-omni model also needs its transcript), else
+        `voice`; `ValueError` naming `who` when the recording or transcript is missing."""
+        if not self.clones or voice == voices.DEFAULT_VOICE:
+            return voice
+        path = voices.reference_path(voice)
+        if self.tags and not path.with_suffix(".txt").is_file():
+            raise ValueError(f"{who}: the recording {path} has no transcript {path.with_suffix('.txt')}; "
+                             "`add-voice --text` stores one")
+        return str(path)
+
+    def prepare(self, lines: list[Line], voice: str) -> None:
+        """Resolve every voice before the first request: the narrator's `voice` and each speaker's (`--speaker`, else
+        a made-up voice, `default`). `ValueError` for a `--speaker` no line uses, or a recording or transcript that
+        is missing. The made-up speakers are named on stderr."""
+        used = list(dict.fromkeys(line.speaker for line in lines if line.speaker))
+        if unused := [n for n in self.speakers if n not in used]:
+            raise ValueError(f"--speaker {', '.join(unused)}: no `@name` line of the script has that speaker "
+                             f"(speakers in the script: {', '.join(used) or 'none'})")
+        self.resolved = {None: self._reference(voice, "--voice")}
+        for name in used:
+            self.resolved[name] = self._reference(self.speakers.get(name, voices.DEFAULT_VOICE), f"--speaker {name}")
+        self.made_up = [n for n in used if n not in self.speakers]
+        if self.made_up:
+            print(f"voiceover: made-up voices (the first line of each is the reference of the rest): "
+                  f"{', '.join(self.made_up)}", file=sys.stderr)
 
     def voices(self) -> list[str]:
         """The model's voices, then the reference recordings when the model clones a voice."""
         from ai_models import speech
 
-        own = speech.voices(self.model)
+        own = speech.voices(self.model, config.weights_dir())
         return own + [v for v in voices.names() if v not in own] if self.clones else own
 
     def first_takes(self) -> dict[str | None, tuple[bytes, str]]:
@@ -100,25 +136,15 @@ class Narrator:
         name = self.model.partition(":")[0]
         return {s: t for s in (None, *self.made_up) if (t := omni.first_take(name, s))}
 
-    def voice_of(self, line: Line, voice: str) -> str:
-        """The voice of `line`: its speaker's (`speakers`, else `default`, a made-up speaker), else `voice`."""
-        if line.speaker is None:
-            return voice
-        if line.speaker not in self.speakers and line.speaker not in self.made_up:
-            self.made_up.append(line.speaker)
-        return self.speakers.get(line.speaker, voices.DEFAULT_VOICE)
-
-    def synthesize(self, line: Line, voice: str) -> np.ndarray:
-        """Mono float32 samples of `line` at `sample_rate`, in its speaker's voice (else `voice`), with its own
+    def synthesize(self, line: Line) -> np.ndarray:
+        """Mono float32 samples of `line` at `sample_rate`, in its speaker's resolved voice (`prepare`), with its own
         style (else the narrator's)."""
         from ai_models import AIModelsError, speech
 
-        voice = self.voice_of(line, voice)
-        if self.clones and voice != voices.DEFAULT_VOICE:
-            voice = str(voices.reference_path(voice))
         try:
-            data = speech.speak(line.said, voice=voice, model=self.model, instructions=line.style or self.style,
-                                speed=self.speed, speaker=line.speaker, params=self.params or None)
+            data = speech.speak(line.said, voice=self.resolved[line.speaker], model=self.model,
+                                instructions=line.style or self.style, speed=self.speed, speaker=line.speaker,
+                                params=self.params or None, weights_dir=config.weights_dir())
         except AIModelsError as e:
             msg = str(e)
             raise TTSError(msg if msg.startswith(self.model) else f"{self.model}: {msg}") from None

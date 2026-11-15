@@ -124,14 +124,13 @@ def test_missing_file_gives_config_defaults_and_a_note(write_config, tmp_path, c
     (HEADER + "| image | local:a | any other image | y |\n", 3, "must be 'default' or begin with 'only when'"),
     (HEADER + "| image | local:a | default | y |\n| image | local:b | default | z |\n", 4, "a second 'default' row"),
     (HEADER + "| image | qwen | only when x | y |\n", 3, "<provider>:<model>"),
-    (HEADER + "| speech | kokoro | default | y |\n", 3, "write kokoro:kokoro-v1.0 and add the `kokoro` provider entry"),
-    (HEADER + "| speech | chatterbox | only when x | y |\n", 3, "write chatterbox:chatterbox-turbo"),
+    (HEADER + "| speech | kokoro | default | y |\n", 3, "<provider>:<model>"),
 ])
 def test_malformed_table_names_file_and_line(write_config, tmp_path, table, line, message):
     """A wrong header (including the old column order), a row of another width, an empty task/model/when cell, a
     `when` that is neither `default` nor an `only when` condition, a second default row of a task, or a model
-    without a provider is a `ConfigError` naming the user's file and the line; a bare `kokoro` or `chatterbox` of an
-    earlier voiceover names the model id and template provider entry that replace it."""
+    without a provider (also a bare `kokoro` of an earlier voiceover) is a `ConfigError` naming the user's file and
+    the line."""
     write_config(LOCAL)
     (tmp_path / routes.FILE_NAME).write_text(table, encoding="utf-8")
     with pytest.raises(ConfigError, match=re.escape(message)) as e:

@@ -27,9 +27,10 @@ import io
 import re
 import wave
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from . import chatterbox, config, kokoro, omni
+from . import chatterbox, config, kokoro, omni, weights
 from .errors import AIModelsError, ConfigError, explained
 from .models import provider
 
@@ -92,21 +93,33 @@ class SpeechModel:
         return bool(self.spec.get("style")) if self.kind == omni.KIND else self.traits.instructions
 
 
-def model_of(model: str | None = None) -> SpeechModel:
-    """`model` (else `models.speech`) as a `SpeechModel`; `ConfigError` for a kind without speech models."""
+def model_of(model: str | None = None, weights_dir: str | Path | None = None) -> SpeechModel:
+    """`model` (else `models.speech`) as a `SpeechModel`, its provider's `dir` defaulting to `weights_dir`
+    (`weights.with_dir`); `ConfigError` for a kind without speech models."""
     model_id = config.resolve(model, "speech")
     name, bare = config.split_id(model_id)
-    spec = (config.template_provider(name, name) if name in (kokoro.KIND, chatterbox.KIND)
-            else config.provider(name))
-    m = SpeechModel(model_id, name, spec, bare)
+    m = SpeechModel(model_id, name, weights.with_dir(config.provider(name), weights_dir), bare)
     m.traits  # noqa: B018 - refuses a kind without speech models
     return m
 
 
+def model_of_kind(kind: str) -> str | None:
+    """The configured speech model of provider kind `kind`: `models.speech` when its provider has that kind, else
+    the first `speech` row of the routes (`routes.table`) whose provider has it; None when there is none."""
+    from . import routes
+
+    for r in routes.table(["speech"]):
+        name, _ = config.split_id(r.model)
+        if (config.load().get("providers") or {}).get(name, {}).get("kind") == kind:
+            return r.model
+    return None
+
+
 def check(model: str | None = None, *, speed: float = 1.0, instructions: str | None = None,
-          params: dict[str, Any] | None = None) -> SpeechModel:
-    """The `SpeechModel`; `AIModelsError` for a speed, instructions or request parameters it does not take."""
-    m = model_of(model)
+          params: dict[str, Any] | None = None, weights_dir: str | Path | None = None) -> SpeechModel:
+    """The `SpeechModel` (`model_of`); `AIModelsError` for a speed, instructions or request parameters it does not
+    take, or `params` that would replace a field the request is built with (vllm-omni, `omni.request_body`)."""
+    m = model_of(model, weights_dir)
     rng = m.traits.speed
     if rng is None and speed != 1.0:
         raise AIModelsError(f"{m.id} has no speed setting; ask for the pace in the instructions instead"
@@ -117,13 +130,17 @@ def check(model: str | None = None, *, speed: float = 1.0, instructions: str | N
         raise AIModelsError(f"{m.id} takes no instructions (style)")
     if params and not m.traits.params:
         raise AIModelsError(f"{m.id} takes no request parameters")
+    if params and m.kind == omni.KIND and (taken := sorted(set(params) & omni.BUILT_FIELDS)):
+        raise AIModelsError(f"{m.id}: request parameters {', '.join(taken)} are set from the text, voice and "
+                            "model; they cannot be given")
     return m
 
 
-def voices(model: str | None = None) -> list[str]:
-    """The voices of `model` (else `models.speech`): the provider's `voices`, else a Kokoro model's voices, else
-    the default voice. A model whose kind `clones` also takes a reference recording, which is not listed."""
-    m = model_of(model)
+def voices(model: str | None = None, weights_dir: str | Path | None = None) -> list[str]:
+    """The voices of `model` (else `models.speech`): the provider's `voices`, else a Kokoro model's voices (loading
+    it from `weights_dir` when the provider has no `dir`), else the default voice. A model whose kind `clones` also
+    takes a reference recording, which is not listed."""
+    m = model_of(model, weights_dir)
     if m.spec.get("voices"):
         return [str(v) for v in m.spec["voices"]]
     if m.kind == kokoro.KIND:
@@ -131,10 +148,10 @@ def voices(model: str | None = None) -> list[str]:
     return [m.default_voice]
 
 
-def fetch(model: str | None = None) -> None:
-    """Download the weights of a local speech model (kinds kokoro, chatterbox) when missing; other kinds have
-    none."""
-    m = model_of(model)
+def fetch(model: str | None = None, weights_dir: str | Path | None = None) -> None:
+    """Download the weights of a local speech model (kinds kokoro, chatterbox) when missing, to its provider's
+    `dir`, else `weights_dir`; other kinds have none."""
+    m = model_of(model, weights_dir)
     if m.kind == kokoro.KIND:
         kokoro.files(m.spec, m.provider, m.bare)
     elif m.kind == chatterbox.KIND:
@@ -184,20 +201,23 @@ async def _google(client, model: str, text: str, voice: str, instructions: str |
 
 async def aspeak(text: str, *, voice: str | None = None, model: str | None = None,
                  instructions: str | None = None, response_format: str = "wav", speed: float = 1.0,
-                 speaker: str | None = None, params: dict[str, Any] | None = None) -> bytes:
+                 speaker: str | None = None, params: dict[str, Any] | None = None,
+                 weights_dir: str | Path | None = None) -> bytes:
     """The audio of `text` by `model` (else `models.speech`) in `voice` (else the model's default voice).
     `instructions` set the style, `speed` the pace, `params` more request fields sent as they are (kinds with
     `Traits.params`), as far as `check` allows. `speaker` names who speaks, for a vllm-omni model with the voice
-    `default` (`omni.speak`). Google, vLLM-Omni, Kokoro and Chatterbox return WAV whatever `response_format` says."""
-    m = check(model, speed=speed, instructions=instructions, params=params)
+    `default` (`omni.aspeak`). `weights_dir` is where a local model's weights are when its provider has no `dir`.
+    Kokoro and Chatterbox run in a worker thread (`asyncio.to_thread`), so they do not block the event loop.
+    Google, vLLM-Omni, Kokoro and Chatterbox return WAV whatever `response_format` says."""
+    m = check(model, speed=speed, instructions=instructions, params=params, weights_dir=weights_dir)
     model_id, name, bare, kind, spec = m.id, m.provider, m.bare, m.kind, m.spec
     voice = voice or m.default_voice
     if kind == omni.KIND:
-        return omni.speak(name, spec, bare, text, voice, instructions, speed, speaker, params)
+        return await omni.aspeak(name, spec, bare, text, voice, instructions, speed, speaker, params)
     if kind == kokoro.KIND:
-        return kokoro.speak(spec, name, bare, text, voice, speed)
+        return await asyncio.to_thread(kokoro.speak, spec, name, bare, text, voice, speed)
     if kind == chatterbox.KIND:
-        return chatterbox.speak(spec, name, bare, text, voice)
+        return await asyncio.to_thread(chatterbox.speak, spec, name, bare, text, voice)
     p = provider(name)
     with explained(model_id):
         if kind in OPENAI_KINDS:

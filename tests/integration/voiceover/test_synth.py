@@ -109,18 +109,16 @@ class TestSynth(unittest.TestCase):
         self.assertGreater((five["start"] + five["end"]) / 2, (s["start"] + s["end"]) / 2)
         self.assertGreater(five["start"], s["words"][1]["end"] - 1e-9)
 
-    def test_line_style_is_text_for_kokoro(self) -> None:
-        """A `[style]` line with the Kokoro model, which takes no style, is voiced as literal text: the sentence keeps
-        its bracket and has no `style`. Guards line styles only for models that take styles."""
+    def test_tag_line_refused_for_kokoro(self) -> None:
+        """A `[style]` line with the Kokoro model, which takes no style or tags, is refused before any synthesis and
+        writes nothing: Kokoro would speak the tag word. Guards a script written for Fish voiced by Kokoro."""
         script = self.script.with_name("styled.txt")
         script.write_text(SCRIPT, encoding="utf-8")
         out = self.out.with_name("styled")
         r = synth(script, out, self.config, "--no-align")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        last = json.loads((out / "timing.json").read_text(encoding="utf-8"))["sentences"][-1]
-        self.assertEqual(last["text"], "[calm] Keep it quiet.")
-        self.assertNotIn("style", last)
-
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("would speak aloud", r.stderr)
+        self.assertFalse(out.exists())
 
 if __name__ == "__main__":
     unittest.main()

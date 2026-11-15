@@ -173,15 +173,31 @@ class TestSpeakers(unittest.TestCase):
         old = SPEAKERS_MD.replace("| Speaker | Model |", "| Speaker | Backend |")
         msg = _error(old)
         self.assertIn("storyboard.md line 5: speakers table column 'Backend': Backend (`backend`) became Model", msg)
-        self.assertIn("kokoro is kokoro:kokoro-v1.0, chatterbox is chatterbox:chatterbox-turbo", msg)
+        self.assertIn("a model of a provider of that kind", msg)
         scene = SPEAKERS_MD.replace("| Speaker | Narration | On screen |\n|---|---|---|",
                                     "| Speaker | Narration | On screen | Backend |\n|---|---|---|---|")
         self.assertIn("table column 'Backend': Backend (`backend`) became Model", _error(scene))
         data = storyboard.parse_markdown(SPEAKERS_MD)
         data["speakers"]["host"] = {"backend": "kokoro", "name": "bm_george"}
         problems = [m for _, m in storyboard.check(data)]
-        self.assertTrue(any("became Model" in m and "speech is config.yaml's models.speech" in m for m in problems),
-                        problems)
+        self.assertTrue(any("became Model" in m and "for speech, an empty Model" in m for m in problems), problems)
+
+    def test_earlier_backend_maps_to_the_configured_model(self) -> None:
+        """storyboard.backend_model maps an earlier backend to the config's speech model of the provider kind of that
+        name (None for speech and for a kind the config lacks), and the message names it. Guards one mapping, read
+        from config.yaml, not from code."""
+        from ai_models import config as ai_config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "config.yaml"
+            cfg.write_text("providers: {k: {kind: kokoro}}\nmodels: {speech: 'k:kokoro-v1.0'}\n")
+            ai_config.use(cfg)
+            try:
+                self.assertEqual([storyboard.backend_model(b) for b in ("kokoro", "chatterbox", "speech")],
+                                 ["k:kokoro-v1.0", None, None])
+                self.assertIn("here kokoro is k:kokoro-v1.0", storyboard.backend_moved("kokoro"))
+            finally:
+                ai_config.use(None)
 
     def test_resolve_voice(self) -> None:
         """storyboard.resolve_voice fills a speaker's empty speed with 1.0, keeps an empty voice name null (the

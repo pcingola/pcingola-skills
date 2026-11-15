@@ -11,6 +11,10 @@ lines. `Line.of` reads what a line holds besides its text, as far as the model t
   `[whisper] Keep it quiet.`; `split_style` takes it off the sentence, which is spoken with that style instead of
   `--style`.
 - Any other model: the line is literal text.
+
+A line with what its model does not take, an `@speaker` or a tag (other than a leading style of a model that takes
+styles), is refused (`ValueError`): the model would speak the tag words aloud. So is an `@` line of a tag model whose
+name is not a speaker name.
 """
 
 from __future__ import annotations
@@ -20,7 +24,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 STYLE_RE = re.compile(r"^\[([^\[\]]+)\]\s*(\S.*)$")
-SPEAKER_RE = re.compile(r"^@([a-z0-9][a-z0-9_-]*)\s+(\S.*)$")
+NAME = r"[a-z0-9][a-z0-9_-]*"
+NAME_RE = re.compile(rf"^{NAME}$")
+SPEAKER_RE = re.compile(rf"^@({NAME})\s+(\S.*)$")
+AT_RE = re.compile(r"^@\S+\s")  # a line that names a speaker, well formed or not
 TAG_RE = re.compile(r"\[[^\[\]]*\]|<\|[^|]*\|>")
 
 
@@ -60,16 +67,19 @@ class Line:
     speaker: str | None = None
 
     @classmethod
-    def of(cls, line: str, *, styles: bool, tags: bool) -> Line:
-        """The line for a model that takes `styles` (instructions) and inline `tags`; `ValueError` for a line of a
-        tag model that holds only tags."""
+    def of(cls, line: str, *, styles: bool, tags: bool, model: str = "the model") -> Line:
+        """The line for `model`, which takes `styles` (instructions) and inline `tags`; `ValueError` for a line with
+        an ill-formed speaker name, only tags, or a speaker or tag the model does not take."""
         if tags:
             speaker, said = split_speaker(line)
+            if speaker is None and AT_RE.match(line):
+                raise ValueError(f"script line {line!r}: a speaker name has lowercase letters, digits, '-' and '_'")
             text = strip_tags(said)
             if not text:
                 raise ValueError(f"script line {line!r} has only tags, no words")
             return cls(text, said, None, speaker)
-        if styles:
-            style, text = split_style(line)
-            return cls(text, text, style)
-        return cls(line, line)
+        style, text = split_style(line) if styles else (None, line)
+        if SPEAKER_RE.match(line) or TAG_RE.search(text):
+            raise ValueError(f"script line {line!r} has a speaker (`@name`) or tag (`[...]`, `<|...|>`) that {model} "
+                             "would speak aloud; it takes no inline tags (a vllm-omni model such as Fish does)")
+        return cls(text, text, style)

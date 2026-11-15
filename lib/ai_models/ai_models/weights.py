@@ -1,9 +1,8 @@
 """Weight files of the local speech and alignment models, downloaded from URLs of the config.
 
 A provider of kind `kokoro`, `chatterbox` or `torchaudio` keeps the files of its model `<model>` in
-`<dir>/<model lowercased>/`: `dir` of the provider entry, else `voiceover/` in the data directory of the plugin
-that loaded the settings (`plugin_settings.data_dir`; media:voiceover's weights directory, so its earlier downloads
-are reused). `ensure_file` streams a URL to `<dest>.part`, checks the byte count against Content-Length
+`<dir>/<model lowercased>/`: `dir` of the provider entry, else the weights directory the caller passes
+(`with_dir`; media:voiceover passes `voiceover/` of its plugin data directory). `ensure_file` streams a URL to `<dest>.part`, checks the byte count against Content-Length
 and renames, so no file is left half-written under its final name. Downloads use the TLS context of `tls`.
 """
 
@@ -15,26 +14,21 @@ from typing import Any
 
 from .errors import AIModelsError, ConfigError
 
-# The folder of the plugin data directory that holds the weights when the provider has no `dir`.
-DATA_FOLDER = "voiceover"
-
-
 class DownloadError(AIModelsError):
     """A weight file could not be downloaded."""
 
 
-def root(spec: dict[str, Any]) -> Path:
-    """The provider's weights directory: its `dir`, else `DATA_FOLDER` in the plugin data directory; `ConfigError`
-    when the process has neither (no plugin loaded its settings and CLAUDE_PLUGIN_DATA is unset)."""
-    import plugin_settings
+def with_dir(spec: dict[str, Any], default: str | Path | None) -> dict[str, Any]:
+    """`spec` with `dir` set to `default` when it has none (a copy; `spec` itself is unchanged)."""
+    return spec if spec.get("dir") or default is None else {**spec, "dir": str(default)}
 
-    if spec.get("dir"):
-        return Path(str(spec["dir"])).expanduser()
-    d = plugin_settings.data_dir()
-    if d is None:
-        raise ConfigError(f"a provider of kind {spec.get('kind')} has no `dir`, and this process has no plugin data "
-                          "directory; set `dir` in its entry")
-    return d / DATA_FOLDER
+
+def root(spec: dict[str, Any]) -> Path:
+    """The provider's weights directory, its `dir`; `ConfigError` when it has none (the caller passed no default)."""
+    if not spec.get("dir"):
+        raise ConfigError(f"a provider of kind {spec.get('kind')} has no `dir` for its weights, and the caller gave "
+                          "none; set `dir` in its entry")
+    return Path(str(spec["dir"])).expanduser()
 
 
 def model_dir(spec: dict[str, Any], model: str) -> Path:

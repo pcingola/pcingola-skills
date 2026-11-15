@@ -103,8 +103,14 @@ What else a line may carry depends on the model:
   with its own style in square brackets, `[whisper] Keep it quiet.`, spoken
   with the style `whisper` instead of `--style`; `timing.json` records the
   sentence's `style`.
-- Any other model (Kokoro, Chatterbox): the line is plain text, brackets and
-  `@` included; `--speaker` and `--param` are refused.
+- Any other model (Kokoro, Chatterbox): plain text only. A line with `@name`
+  or a tag is refused, since the model would speak it; so are `--speaker` and
+  `--param`.
+
+`synth` checks every line and every voice (each `--speaker` name against the
+script, each recording and, for Fish, its transcript) before the first
+request. A speaker of the script without `--speaker` gets a made-up voice;
+`synth` names those on stderr.
 
 ## Commands
 
@@ -112,6 +118,8 @@ What else a line may carry depends on the model:
 # First run: download the weights of the speech model (local kinds: Kokoro
 # 350 MB, Chatterbox 3 GB) and of the align model (MMS_FA 1.26 GB)
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup [--model ID]
+# Build the Python environment of the chatterbox provider; prints its python
+${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup --chatterbox
 
 # Script -> DIR/narration.wav + DIR/timing.json (prints both paths)
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out/
@@ -170,9 +178,13 @@ breaths and silence at both ends and raise a quiet recording to about −20 LUFS
 (e.g. `highpass=f=70,afftdn=nf=-70:nr=10,loudnorm=I=-20:TP=-2`) before
 `add-voice`. Light denoising only: the model copies artefacts.
 
-It runs in its own Python environment (the provider's `python`). The
-weights (3 GB) come from the URL of the provider on first use, or with
-`setup --model <model>`. One sentence takes about 3 s per second of audio on
+It runs in its own Python environment, the provider's `python`. When
+`config.yaml` has no `chatterbox` provider with a `python`, run
+`${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup --chatterbox`: it builds the
+environment under the plugin's data directory and prints its python; the
+user adds the template's `chatterbox` provider entry with that `python`
+(setup:settings). The weights (3 GB) come from the URL of the provider on
+first use, or with `setup --model <model>`. One sentence takes about 3 s per second of audio on
 CPU. Output carries Resemble's inaudible Perth watermark. Clone only a voice
 whose owner has agreed.
 

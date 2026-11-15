@@ -77,7 +77,7 @@ def test_speech_models_from_the_routes(tmp_path):
         (tmp_path / "routes.md").write_text("| task | model | when | why |\n|---|---|---|---|\n"
                                             "| speech | kokoro | default | old |\n", encoding="utf-8")
         broken = get_models(url)
-    assert broken["speech"] == [] and "write kokoro:kokoro-v1.0" in broken["speech_error"]
+    assert broken["speech"] == [] and "is not <provider>:<model>" in broken["speech_error"]
     got = models["speech"]
     assert models["speech_error"] is None
     assert got == [

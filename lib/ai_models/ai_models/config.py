@@ -84,34 +84,6 @@ def api_key(spec: dict[str, Any]) -> str | None:
     return key
 
 
-# The template the errors about the local speech and align kinds point to, and per kind the model id of its entry
-# there (its provider has the kind's name). An earlier media:voiceover took the bare names `kokoro` and `chatterbox`.
-TEMPLATE = "assets/config.example.yaml of setup:settings"
-TEMPLATE_MODELS = {"kokoro": "kokoro:kokoro-v1.0", "chatterbox": "chatterbox:chatterbox-turbo",
-                   "torchaudio": "torchaudio:MMS_FA"}
-
-
-def template_hint(kind: str) -> str:
-    """The fix an error about a missing provider or model of `kind` appends: the template's entry."""
-    return f"; {TEMPLATE} has the provider entry `{kind}` (kind {kind}) of the model {TEMPLATE_MODELS[kind]}"
-
-
-def template_provider(name: str, kind: str) -> dict[str, Any]:
-    """`provider(name)`, its `ConfigError` with `template_hint` of `kind`."""
-    try:
-        return provider(name)
-    except ConfigError as e:
-        raise ConfigError(f"{e}{template_hint(kind)}") from None
-
-
-def resolve_template(model: str | None, task: str, kind: str) -> str:
-    """`resolve(model, task)`, its `ConfigError` with `template_hint` of `kind`."""
-    try:
-        return resolve(model, task)
-    except ConfigError as e:
-        raise ConfigError(f"{e}{template_hint(kind)}") from None
-
-
 def diffusers_model(name: str) -> dict[str, Any]:
     """The settings of a local model (`diffusers.<name>`): `repo` and pipeline defaults."""
     spec = (load().get("diffusers") or {}).get(name)

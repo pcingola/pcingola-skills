@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from . import config, weights
@@ -64,7 +65,7 @@ class Aligner:
 def spec_of(model_id: str) -> tuple[str, dict[str, Any], str]:
     """(provider name, its settings, the pipeline name) of an align model id."""
     name, bare = config.split_id(model_id)
-    spec = config.template_provider(name, KIND)
+    spec = config.provider(name)
     if spec["kind"] != KIND:
         raise ConfigError(f"provider {name!r} of kind {spec['kind']!r} has no align models; kind: {KIND}")
     return name, spec, bare
@@ -76,11 +77,13 @@ def fetch(spec: dict[str, Any], name: str, model: str):
     return weights.ensure_file(url, weights.model_dir(spec, model) / weights.basename(url))
 
 
-def aligner(model: str | None = None) -> Aligner:
-    """The aligner of `model` (else `models.align`), loaded once per process."""
-    model_id = config.resolve_template(model, TASK, KIND)
+def aligner(model: str | None = None, weights_dir: str | Path | None = None) -> Aligner:
+    """The aligner of `model` (else `models.align`), loaded once per process, its weights in the provider's `dir`,
+    else `weights_dir` (`weights.with_dir`)."""
+    model_id = config.resolve(model, TASK)
     if model_id not in _aligners:
         name, spec, bare = spec_of(model_id)
+        spec = weights.with_dir(spec, weights_dir)
         fetch(spec, name, bare)
         try:
             _aligners[model_id] = Aligner(bare, str(weights.model_dir(spec, bare)))

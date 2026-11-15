@@ -44,6 +44,9 @@ it by the narrator (`--voice`). Each line is one request.
 - A speaker with a voice: `--speaker NAME=VOICE`, VOICE a voice of `add-voice` stored with `--text` or the path of
   any recording with its transcript in a `.txt` file of the same stem. The model clones it for every line of that
   speaker.
+- `synth` checks every `--speaker` before the server starts: the name must be a speaker name used by an `@name`
+  line, and its recording must exist with its transcript. A misspelled `@name` in the script is a new made-up
+  speaker; `synth` names the made-up speakers on stderr.
 - A made-up speaker: no `--speaker` for it. Its first line gets a new voice from the model, and that take is the
   reference of all its later lines, so the speaker keeps one voice for the command. `synth` writes the take as
   `voice-<name>.wav` with `voice-<name>.txt`; `--speaker NAME=<out dir>/voice-<name>.wav` keeps the voice in

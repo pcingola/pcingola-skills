@@ -1,6 +1,7 @@
 """`ai_models.omni`: the parts of the vLLM-Omni speech kind that run without a server (docs/ai_models.md, Speech
 models of vLLM-Omni)."""
 
+import asyncio
 import base64
 import io
 import wave
@@ -126,7 +127,7 @@ def test_reference_needs_a_file_and_a_transcript(tmp_path):
 def test_speed_is_refused_before_any_server_starts():
     """A speed other than 1 fails before a server starts (the kind has no speed)."""
     with pytest.raises(AIModelsError, match="no speed"):
-        omni.speak("fish", SPEC, "tts", "Hi.", "default", None, 1.5)
+        asyncio.run(omni.aspeak("fish", SPEC, "tts", "Hi.", "default", None, 1.5))
 
 
 def test_server_env_adds_the_provider_env():
@@ -177,3 +178,26 @@ def test_vllm_free_memory_is_positive_and_within_cuda_free():
     assert got <= free
     if local.integrated("cuda"):
         assert got <= torch.cuda.mem_get_info()[0]
+
+
+def test_params_merge_and_built_fields_refused():
+    """`request_body` adds the caller's request fields and refuses one it builds itself (`BUILT_FIELDS`)."""
+    body = omni.request_body("tts", "Hi.", "default", None, {"seed": 7, "extra_params": {"temperature": 0.8}})
+    assert body == {"model": "tts", "input": "Hi.", "response_format": "wav", "seed": 7,
+                    "extra_params": {"temperature": 0.8}}
+    for key in ("input", "ref_audio", "model"):
+        with pytest.raises(AIModelsError, match=key):
+            omni.request_body("tts", "Hi.", "default", None, {key: "x"})
+
+
+def test_first_take_kept_per_speaker():
+    """`keep_take` keeps the first `default` answer of each speaker (None: the narrator) and none for a reference
+    voice; `first_take` returns it, and a later answer does not replace it."""
+    omni.keep_take("p1", None, "default", b"a", "one")
+    omni.keep_take("p1", "guest", "default", b"b", "two")
+    omni.keep_take("p1", "guest", "default", b"c", "three")
+    omni.keep_take("p1", "host", "/ref.wav", b"d", "four")
+    assert omni.first_take("p1") == (b"a", "one") and omni.first_take("p1", "guest") == (b"b", "two")
+    assert omni.first_take("p1", "host") is None and omni.first_take("p2") is None
+    body = omni.request_body("tts", "Hi.", "default", omni.first_take("p1", "guest"))
+    assert body["ref_text"] == "two" and body["ref_audio"].startswith("data:audio/wav;base64,")

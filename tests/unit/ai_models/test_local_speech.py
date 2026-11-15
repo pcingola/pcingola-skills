@@ -92,12 +92,12 @@ def test_chatterbox_load_timeout_and_log_cleanup(tmp_path):
 
 def test_align_model_of_another_kind_refused(write_config):
     """The align task takes only a `torchaudio` provider; without `models.align`, or without its provider, the error
-    names the task or provider and the template's `torchaudio` entry; a provider without `url` is refused."""
+    names the task or provider; a provider without `url` is refused."""
     write_config({"providers": {"o": {"kind": "openai"}, "t": {"kind": "torchaudio", "dir": "/nonexistent"}},
                   "models": {}})
-    with pytest.raises(ConfigError, match="no model for task 'align'.*provider entry `torchaudio`"):
+    with pytest.raises(ConfigError, match="no model for task 'align'"):
         align.aligner()
-    with pytest.raises(ConfigError, match="no provider 'torchaudio'.*provider entry `torchaudio`"):
+    with pytest.raises(ConfigError, match="no provider 'torchaudio'"):
         align.aligner("torchaudio:MMS_FA")
     with pytest.raises(ConfigError, match="has no align models"):
         align.aligner("o:mms")
@@ -105,10 +105,23 @@ def test_align_model_of_another_kind_refused(write_config):
         align.aligner("t:MMS_FA")
 
 
-def test_missing_local_speech_provider_names_the_template(write_config):
-    """A `kokoro:` or `chatterbox:` model without its provider names the template's entry."""
-    write_config({"providers": {}, "models": {"speech": "kokoro:kokoro-v1.0"}})
-    with pytest.raises(ConfigError, match="no provider 'kokoro'.*provider entry `kokoro` \\(kind kokoro\\)"):
-        speech.model_of()
-    with pytest.raises(ConfigError, match="provider entry `chatterbox`"):
-        speech.model_of("chatterbox:chatterbox-turbo")
+def test_model_of_kind(write_config, tmp_path):
+    """`model_of_kind` gives `models.speech` when its provider has the kind, else the first routes row of a provider
+    of the kind, else None."""
+    write_config({"providers": {"k": KOKORO, "cb": {"kind": "chatterbox"}, "o": {"kind": "openai"}},
+                  "models": {"speech": "o:tts"}})
+    (tmp_path / "routes.md").write_text("| task | model | when | why |\n|---|---|---|---|\n"
+                                        "| speech | cb:chatterbox-turbo | only when cloned | x |\n", encoding="utf-8")
+    assert speech.model_of_kind("openai") == "o:tts"
+    assert speech.model_of_kind("chatterbox") == "cb:chatterbox-turbo"
+    assert speech.model_of_kind("kokoro") is None
+
+
+def test_weights_dir_from_the_caller(write_config):
+    """A local model's weights directory is the provider's `dir`, else the caller's `weights_dir`; with neither,
+    the error asks for `dir`."""
+    write_config({"providers": {"k": KOKORO, "kd": {**KOKORO, "dir": "/own"}}, "models": {}})
+    assert speech.model_of("k:kokoro-v1.0", "/caller").spec["dir"] == "/caller"
+    assert speech.model_of("kd:kokoro-v1.0", "/caller").spec["dir"] == "/own"
+    with pytest.raises(ConfigError, match="set `dir`"):
+        kokoro.files(speech.model_of("k:kokoro-v1.0").spec, "k", "kokoro-v1.0")

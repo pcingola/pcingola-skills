@@ -2,7 +2,7 @@
 
 chatterbox-tts pins torch 2.6, so the model runs in a separate Python environment (`python` of the provider), in
 one worker process per calling process (`chatterbox_worker.py`), started on the first `speak` and stopped at exit
-(`atexit`; the kernel also stops it when the caller dies, `PR_SET_PDEATHSIG`). The worker runs on the CPU, so it
+(`atexit`). When the caller dies, the worker's stdin reaches its end and the worker's request loop ends. The worker runs on the CPU, so it
 takes no GPU lock. Requests and answers are JSON lines over the worker's stdin and stdout, read by a thread so that
 a wait has a limit: `start_timeout` (seconds, default 600) for the load, `timeout` (default 600) per answer. Its
 stderr goes to a log file whose tail an error quotes; the log's directory is removed when the worker ends cleanly.
@@ -37,6 +37,7 @@ STOP_SECONDS = 30.0
 TIMEOUT = 600.0  # seconds for the load (provider key start_timeout) and for each answer (timeout)
 
 _workers: dict[str, "Worker"] = {}
+_lock = threading.Lock()  # one worker start or request at a time
 
 
 @dataclass
@@ -100,9 +101,8 @@ def fetch(spec: dict[str, Any], name: str, model: str) -> Path:
 
 
 def worker(spec: dict[str, Any], name: str, model: str) -> Worker:
-    """The worker of provider `name`, started on the first call of the process. Linux sends `PR_SET_PDEATHSIG`
-    when the thread that started the worker exits, not the process, so a worker started from a short-lived thread
-    (`asyncio.to_thread`) stops with that thread."""
+    """The worker of provider `name`, started on the first call of the process. Callers in several threads
+    (`asyncio.to_thread`) share it, one request at a time (`_lock`)."""
     if name in _workers and _workers[name].proc.poll() is None:
         return _workers[name]
     python = str(Path(str(required(spec, "python", name))).expanduser())
@@ -111,8 +111,7 @@ def worker(spec: dict[str, Any], name: str, model: str) -> Worker:
     with log.open("wb") as err:
         try:
             proc = subprocess.Popen([python, "-I", str(WORKER), str(d)], stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=err, text=True, start_new_session=True,
-                                    preexec_fn=omni.die_with_parent)
+                                    stdout=subprocess.PIPE, stderr=err, text=True, start_new_session=True)
         except OSError as e:
             raise ConfigError(f"provider {name!r}: cannot run {python}: {e}") from e
     w = Worker(proc, log)
@@ -135,7 +134,7 @@ def reference(voice: str) -> str | None:
 def speak(spec: dict[str, Any], name: str, model: str, text: str, voice: str) -> bytes:
     """A 24 kHz WAV file of `text` in `voice`."""
     ref = reference(voice)
-    with tempfile.TemporaryDirectory(prefix="ai-models-chatterbox-") as tmp:
+    with _lock, tempfile.TemporaryDirectory(prefix="ai-models-chatterbox-") as tmp:
         out = Path(tmp) / "speech.wav"
         answer = worker(spec, name, model).ask({"text": text, "reference": ref, "out": str(out)},
                                                float(spec.get("timeout", TIMEOUT)))

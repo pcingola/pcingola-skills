@@ -10,6 +10,7 @@ process; it needs no GPU and no local-model lock.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ KIND = "kokoro"
 SAMPLE_RATE = 24_000
 
 _models: dict[Path, Any] = {}
+_lock = threading.Lock()  # one load at a time when callers run in several threads
 
 
 def files(spec: dict[str, Any], name: str, model: str) -> tuple[Path, Path]:
@@ -49,6 +51,11 @@ def lang(spec: dict[str, Any], name: str, voice: str) -> str:
 
 def model(spec: dict[str, Any], name: str, bare: str):
     """The loaded `kokoro_onnx.Kokoro` of provider `name`'s model `bare`, one per model file per process."""
+    with _lock:
+        return _load(spec, name, bare)
+
+
+def _load(spec: dict[str, Any], name: str, bare: str):
     onnx, voices_file = files(spec, name, bare)
     if onnx not in _models:
         from kokoro_onnx import EspeakConfig, Kokoro

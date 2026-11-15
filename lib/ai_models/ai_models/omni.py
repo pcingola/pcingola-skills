@@ -2,7 +2,7 @@
 
 vLLM-Omni pins its own torch and transformers, so it runs in a separate Python environment (`python` of the
 provider) and the skill process talks to it over HTTP. The server serves one model (`repo`) for the life of the
-calling process: the first `speak` takes the local-model lock (`local.hold_lock`), reads the free memory
+calling process: the first `aspeak` takes the local-model lock (`local.hold_lock`), reads the free memory
 (`local.free_memory`; after waiting for the lock, once it settles, `local.wait_for_settled_memory`; on an
 integrated GPU at most `torch.cuda.mem_get_info`'s free bytes, `vllm_free_memory`, after dropping the page cache of
 the model files, `local.drop_page_cache`, because `mem_get_info` counts that cache as used), writes a deploy overlay and
@@ -279,14 +279,22 @@ def data_uri(wav: bytes) -> str:
     return f"data:audio/wav;base64,{base64.b64encode(wav).decode()}"
 
 
-def request_body(model: str, text: str, voice: str, take: tuple[bytes, str] | None = None) -> dict[str, Any]:
-    """The speech request; with `DEFAULT_VOICE` and a first take (WAV, text), that take as the reference."""
+# The fields `request_body` sets; a caller's `params` cannot replace them.
+BUILT_FIELDS = frozenset({"model", "input", "response_format", "ref_audio", "ref_text"})
+
+
+def request_body(model: str, text: str, voice: str, take: tuple[bytes, str] | None = None,
+                 params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The speech request; with `DEFAULT_VOICE` and a first take (WAV, text), that take as the reference; `params`
+    added (`AIModelsError` for one of `BUILT_FIELDS`)."""
+    if taken := sorted(set(params or {}) & BUILT_FIELDS):
+        raise AIModelsError(f"request parameters {', '.join(taken)} are set from the text, voice and model")
     body: dict[str, Any] = {"model": model, "input": text, "response_format": "wav"}
     if ref := reference(voice):
         body["ref_audio"], body["ref_text"] = ref
     elif take:
         body["ref_audio"], body["ref_text"] = data_uri(take[0]), take[1]
-    return body
+    return {**body, **(params or {})}
 
 
 def first_take(name: str, speaker: str | None = None) -> tuple[bytes, str] | None:
@@ -295,24 +303,32 @@ def first_take(name: str, speaker: str | None = None) -> tuple[bytes, str] | Non
     return _takes.get((name, speaker))
 
 
-def speak(name: str, spec: dict[str, Any], model: str, text: str, voice: str, instructions: str | None,
-          speed: float, speaker: str | None = None, params: dict[str, Any] | None = None) -> bytes:
+def keep_take(name: str, speaker: str | None, voice: str, wav: bytes, said: str) -> None:
+    """Keep `wav` (the answer to `said`) as `speaker`'s first take when the voice is `DEFAULT_VOICE` and it has
+    none yet."""
+    if voice == DEFAULT_VOICE:
+        _takes.setdefault((name, speaker), (wav, said))
+
+
+async def aspeak(name: str, spec: dict[str, Any], model: str, text: str, voice: str, instructions: str | None,
+                 speed: float, speaker: str | None = None, params: dict[str, Any] | None = None) -> bytes:
     """A WAV file of `text` at the model's own rate from the provider's server (Drama 3 refuses `sample_rate`).
     With `DEFAULT_VOICE`, `speaker`'s first take is the reference of its later requests, so each speaker keeps one
-    voice. `params` are more request fields, over the ones built here (Drama 3: `seed`, `max_new_tokens`,
-    `extra_params` with `temperature`, `top_p`, `top_k`); the server ignores fields it does not know."""
+    voice. `params` are more request fields (`request_body`; Drama 3: `seed`, `max_new_tokens`, `extra_params` with
+    `temperature`, `top_p`, `top_k`); the server ignores fields it does not know. The first call starts the server
+    in the calling thread, the event loop's, which blocks the loop while it loads: `PR_SET_PDEATHSIG` stops the
+    server when the thread that started it exits, and the loop's thread lives as long as the caller. The request
+    itself is asynchronous."""
     import httpx
 
     if speed != 1.0:
         raise AIModelsError(f"{name}:{model} has no speed setting")
     said = styled(spec, name, text, instructions)
-    body = request_body(model, said, voice, _takes.get((name, speaker)) if voice == DEFAULT_VOICE else None)
-    body.update(params or {})
+    body = request_body(model, said, voice, first_take(name, speaker) if voice == DEFAULT_VOICE else None, params)
     srv = server(name, spec, model)
-    r = httpx.post(f"{srv.url}/v1/audio/speech", json=body, timeout=float(spec.get("timeout", 600)),
-                   trust_env=False)
+    async with httpx.AsyncClient(trust_env=False, timeout=float(spec.get("timeout", 600))) as client:
+        r = await client.post(f"{srv.url}/v1/audio/speech", json=body)
     if r.status_code != 200:
         raise AIModelsError(f"{name}:{model} answered {r.status_code}: {r.text[:500]}")
-    if voice == DEFAULT_VOICE:
-        _takes.setdefault((name, speaker), (r.content, said))
+    keep_take(name, speaker, voice, r.content, said)
     return r.content

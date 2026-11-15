@@ -52,8 +52,8 @@ providers:
   # English US and UK voices, no style): model_url and voices_url are its
   # files; langs maps a voice-name prefix to its espeak language (voices of
   # other prefixes are refused); voice is the default voice. The files go to
-  # <dir>/<model>/; dir defaults to <media data dir>/voiceover, where an
-  # earlier media:voiceover downloaded them.
+  # <dir>/<model>/; without dir, media:voiceover keeps them in
+  # <media data dir>/voiceover.
   kokoro:      {kind: kokoro, model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx, voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin, langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}, voice: af_heart}
   # torchaudio forced-alignment pipelines (models.align): word times of
   # media:voiceover on the CPU. url: the pipeline's weights file (MMS_FA:
@@ -61,10 +61,9 @@ providers:
   torchaudio:  {kind: torchaudio, url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt}
   # Chatterbox Turbo, local speech with voice cloning from one recording, on
   # the CPU (about 3 GB), in a worker process of its own environment
-  # (chatterbox-tts pins torch 2.6):
-  #   uv venv <env dir> --python 3.12
-  #   uv pip install --python <env dir>/bin/python chatterbox-tts==0.1.7 soundfile "setuptools<81"
-  # url and files: the model files, downloaded to <dir>/<model>/ (dir as
+  # (chatterbox-tts pins torch 2.6). media:voiceover's `setup --chatterbox` builds
+  # that environment under the media data directory and prints its python,
+  # the value of python. url and files: the model files, downloaded to <dir>/<model>/ (dir as
   # for kokoro); the voice default is the model's built-in voice.
   #chatterbox:  {kind: chatterbox, python: /path/to/env/bin/python, url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master, files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]}
   #fish:        {kind: vllm-omni, python: /path/to/env/bin/python, repo: fishaudio/drama-3, deploy: fish_omni.yaml, memory_share: 0.6, style: "[{instructions}] {text}", args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager], env: {VLLM_USE_FLASHINFER_SAMPLER: 0}}

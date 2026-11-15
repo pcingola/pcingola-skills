@@ -7,7 +7,7 @@ import wave
 import numpy as np
 
 from tests.settings_env import write_config
-from tests.subproc import child_env, py_value
+from tests.subproc import child_env, py_value, run_python
 from tests.unit.voiceover.cli_run import voiceover
 from voiceover_tool.speech import decode
 from voiceover_tool.timing import build_timing
@@ -79,7 +79,7 @@ def test_timing_records_the_model_and_style_only_when_set():
 
 def test_lines_as_the_model_takes_them(tmp_path):
     """`Narrator.lines` reads speakers and inline tags for a model that takes tags (vllm-omni), a leading `[style]`
-    for one that takes styles (OpenAI), and literal text for one that takes neither (Kokoro)."""
+    for one that takes styles (OpenAI), and literal text without tags for one that takes neither (Kokoro)."""
     config = write_config(tmp_path / "config.yaml",
                           providers={"oai": OAI, "k": {"kind": "kokoro", "langs": {"af_": "en-us"}},
                                      "f": {"kind": "vllm-omni", "python": "/nonexistent"}},
@@ -88,9 +88,12 @@ def test_lines_as_the_model_takes_them(tmp_path):
     lines = ["[whisper] Keep it quiet.", "@guest Well [laughs] maybe that's fair."]
     expr = "[[l.text, l.said, l.style, l.speaker] for l in Narrator({m}).lines({lines!r})]"
     env = child_env(SKILLS_CONFIG=str(config))
-    assert py_value(imports, expr.format(m="", lines=lines), env) == [
-        ["Keep it quiet.", "Keep it quiet.", "whisper", None], [lines[1]] * 2 + [None, None]]
-    assert py_value(imports, expr.format(m="'k:kokoro-v1.0'", lines=lines), env) == [[l, l, None, None] for l in lines]
+    assert py_value(imports, expr.format(m="", lines=lines[:1]), env) == [
+        ["Keep it quiet.", "Keep it quiet.", "whisper", None]]
+    done = run_python(f"{imports}\nNarrator().lines({lines[1:]!r})", env)
+    assert "would speak aloud" in done.stderr
+    plain = ["Keep it quiet.", "Hello @ noon."]
+    assert py_value(imports, expr.format(m="'k:kokoro-v1.0'", lines=plain), env) == [[l, l, None, None] for l in plain]
     assert py_value(imports, expr.format(m="'f:drama-3'", lines=lines), env) == [
         ["Keep it quiet.", "[whisper] Keep it quiet.", None, None],
         ["Well maybe that's fair.", "Well [laughs] maybe that's fair.", None, "guest"]]
@@ -115,7 +118,62 @@ def test_speakers_and_params_refused_by_a_model_that_takes_none(tmp_path):
     script.write_text("@host [laughs]\n")
     p = voiceover(*synth, "--model", "f:drama-3", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "has only tags" in p.stderr, p.stderr
+    script.write_text("Hello [laughs] there.\n")
+    p = voiceover(*synth, SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "would speak aloud" in p.stderr, p.stderr
     assert not (tmp_path / "o").exists()
+
+
+def test_speakers_checked_before_any_request(tmp_path):
+    """With a model that takes tags, a `--speaker` name that is not a speaker name or that no line uses, an `@Name`
+    line, and a speaker recording without transcript are refused before the server starts (its python does not
+    exist, so any start would fail otherwise); a missing narrator recording too. Guards a typo found after a 5 min
+    model load."""
+    voices_dir = tmp_path / "voices"
+    voices_dir.mkdir()
+    (voices_dir / "anna.wav").write_bytes(b"RIFF")
+    config = write_config(tmp_path / "config.yaml", {"VOICEOVER_VOICES_DIR": str(voices_dir)},
+                          providers={"f": {"kind": "vllm-omni", "python": "/nonexistent"}},
+                          models={"speech": "f:drama-3"})
+    script = tmp_path / "s.txt"
+    script.write_text("@host Hello.\n@guest Hi.\n")
+    synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
+    for args, message in [(("--speaker", "Host=anna"), "lowercase letters"),
+                          (("--speaker", "hots=anna"), "no `@name` line of the script has that speaker"),
+                          (("--speaker", "host=anna"), "has no transcript"),
+                          (("--speaker", "host=bob"), "unknown voice 'bob'"),
+                          (("--voice", "bob"), "unknown voice 'bob'")]:
+        p = voiceover(*synth, *args, SKILLS_CONFIG=str(config))
+        assert p.returncode == 1 and message in p.stderr, (args, p.stderr)
+    script.write_text("@Host Hello.\n")
+    p = voiceover(*synth, SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "lowercase letters" in p.stderr, p.stderr
+    assert not (tmp_path / "o").exists()
+
+
+def test_first_takes_per_speaker_written(tmp_path):
+    """`Narrator.first_takes` gives the first `default` take of the narrator and of each made-up speaker that
+    `omni.keep_take` kept, and `write_takes` writes them as `voice.wav` and `voice-<name>.wav` with transcripts."""
+    config = write_config(tmp_path / "config.yaml", providers={"f": {"kind": "vllm-omni", "python": "/nonexistent"}},
+                          models={"speech": "f:drama-3"})
+    code = f"""
+from ai_models import omni
+from voiceover_tool.cli import write_takes
+from voiceover_tool.speech import Narrator
+n = Narrator()
+lines = n.lines(["Hi.", "@guest Hello.", "@host Hey.", "@guest Again."])
+n.prepare(lines, "default")
+omni.keep_take("f", None, "default", b"N", "Hi.")
+omni.keep_take("f", "guest", "default", b"G", "Hello.")
+omni.keep_take("f", "guest", "default", b"G2", "Again.")
+omni.keep_take("f", "host", "/some/ref.wav", b"H", "Hey.")
+print(sorted(p.name for p in write_takes(__import__("pathlib").Path({str(tmp_path)!r}), n.first_takes())))
+"""
+    done = run_python(code, child_env(SKILLS_CONFIG=str(config)))
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == ["['voice-guest.wav',", "'voice.wav']"]
+    assert "made-up voices" in done.stderr and "guest, host" in done.stderr
+    assert (tmp_path / "voice-guest.wav").read_bytes() == b"G" and (tmp_path / "voice-guest.txt").read_text() == "Hello.\n"
 
 
 def test_params_parse_as_json_else_string():

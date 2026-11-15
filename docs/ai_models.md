@@ -29,7 +29,7 @@ per concern). It has three parts:
 | `espeak` | the espeak-ng data path for Kokoro |
 | `music` | `compose` |
 | `video` | `animate`, `aanimate`; `frame_count`, `frame_size`, `clip_size` |
-| `omni` | `speak` of a vLLM-Omni server (Speech models of vLLM-Omni) |
+| `omni` | `aspeak` of a vLLM-Omni server (Speech models of vLLM-Omni) |
 | `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` (video), the pipeline cache, the lock, memory check and cap (Local model memory) |
 | `tls` | the TLS context of remote clients |
 | `errors` | `AIModelsError`, `ConfigError`, `explained` |
@@ -130,7 +130,7 @@ What each kind serves:
 | system1 | Pydantic-AI `SystemOneModel` on the provider's `base_url` (Ollama: `/v1/systemone`) | any with a `base_url` |
 | image, image_edit | Pydantic-AI `OpenAIImageGenerationModel`, `GoogleImageGenerationModel`; `local.DiffusersImageModel` | `ollama`, `openrouter`, `openai`, `azure`, `google`, `diffusers` |
 | image mask | `images.MaskedOpenAIImageModel`; the `inpaint` pipeline of a `diffusers` model | OpenAI kinds, `diffusers` |
-| speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, Google `generate_content`, `omni.speak`, `kokoro.speak` or `chatterbox.speak` | OpenAI kinds, `google`, `vllm-omni`, `kokoro`, `chatterbox` |
+| speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, Google `generate_content`, `omni.aspeak`, `kokoro.speak` or `chatterbox.speak` (the last two in a worker thread) | OpenAI kinds, `google`, `vllm-omni`, `kokoro`, `chatterbox` |
 | align | `align.aligner` | `torchaudio` |
 | music | `music.compose`: Google predict or stream, or `local.DiffusersMusicModel` | `google`, `diffusers` |
 | video | `video.animate`: `local.animate` (image to video) | `diffusers` |
@@ -214,16 +214,18 @@ allocation succeeded.
 
 A provider that serves speech takes `voice` (its default voice; else the kind's, `speech.TRAITS`) and `voices` (the
 list `speech.voices` returns; without it a `kokoro` model lists its voices and the others their default voice).
-`speech.check` refuses a speed outside the kind's range and instructions a kind does not take, before any request or
-model load; `speak` calls it. A missing `kokoro`, `chatterbox` or `torchaudio` provider, and a missing `models.align`,
-is a `ConfigError` that names the template's entry for the kind (`config.template_hint`). A routes row whose model is
-the bare `kokoro` or `chatterbox` of an earlier media:voiceover is a `ConfigError` naming the model id and provider
-entry that replace it (`config.TEMPLATE_MODELS`).
+`speech.check` refuses a speed outside the kind's range, instructions a kind does not take, and `params` of a kind
+that takes none or that name a field the request is built with (`omni.BUILT_FIELDS`), before any request or model
+load; `speak` calls it. `speech.model_of_kind(kind)` is the configured speech model of a provider kind:
+`models.speech` when its provider has the kind, else the first speech routes row of such a provider, else None
+(media:short-video and Studio map a voice of an earlier version with it). `aspeak` runs Kokoro and Chatterbox in a
+worker thread (`asyncio.to_thread`), so they do not block the event loop; one lock per kind serializes a model load
+or a worker request.
 
 The `kokoro`, `chatterbox` and `torchaudio` kinds keep the files of model `<model>` in `<dir>/<model lowercased>/`
-(`weights.model_dir`): `dir` of the provider, else `voiceover/` in the data directory of the plugin that loaded the
-settings (`plugin_settings.data_dir`: the media plugin's for media:voiceover, where its earlier versions downloaded
-them); without either, a `ConfigError` asks for `dir`. Two
+(`weights.model_dir`): `dir` of the provider, else the `weights_dir` the caller passes to `speech.speak`,
+`speech.voices`, `speech.fetch`, `speech.model_of` or `align.aligner` (`weights.with_dir`; media:voiceover passes
+`voiceover/` of its plugin data directory); without either, a `ConfigError` asks for `dir`. Two
 providers with the same `dir` and model share the files. `weights.ensure_file` downloads a missing file to
 `<file>.part`, checks its length against Content-Length and renames it, so a failed download leaves no file under the
 final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files of a `kokoro` or `chatterbox` model.
@@ -234,14 +236,15 @@ final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files
   model file stays loaded for the life of the process. The answer is a 24 kHz WAV file; speed 0.5 to 2 (kokoro-onnx's
   limit); no instructions. espeak-ng keeps its data path in a 160-byte buffer and fails on a longer one, so when the
   `espeak-ng-data` path bundled in `espeakng_loader` is 150 characters or longer, `espeak.data_path` passes a copy at
-  `<weights root>/espeak-ng-data`, else in the temporary directory.
+  `<dir>/espeak-ng-data`, else in the temporary directory.
 - `chatterbox`: Chatterbox Turbo, zero-shot voice cloning. chatterbox-tts 0.1.7 pins torch and torchaudio 2.6, so it
-  runs in its own environment (`python`), in one worker process per calling process (`chatterbox_worker.py`, run as
+  runs in its own environment (`python`; media:voiceover's `setup --chatterbox` builds one from its locked uv project
+  `scripts/chatterbox`), in one worker process per calling process (`chatterbox_worker.py`, run as
   `python -I chatterbox_worker.py <model dir>`; it imports nothing of `ai_models`). The worker loads the model on the
   CPU, sets `HF_HUB_OFFLINE=1` unless set (the weights are local), and answers JSON request lines on stdin with JSON
   lines on a copy of stdout; its own stdout goes to stderr, which goes to a log file an error quotes. It stops at exit
-  (`atexit`, stdin closed, killed after 30 s; the log's directory is removed after a clean exit) and with the
-  thread that started it (`PR_SET_PDEATHSIG` follows the thread, not the process). A thread reads its answers, so a
+  (`atexit`, stdin closed, killed after 30 s; the log's directory is removed after a clean exit); when the caller
+  dies, its stdin reaches its end and its request loop ends. A thread reads its answers, so a
   wait has a limit: `start_timeout` for the load and `timeout` per answer (seconds, default 600 each). `url` and `files` name the
   model files (the template: the ModelScope mirror of Resemble AI's repository). A voice is `default` (the built-in
   voice) or the path of a recording longer than 5 s. Under numpy 2, Chatterbox's `norm_loudness` multiplies the
@@ -261,7 +264,7 @@ final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files
 Fish Audio Drama 3 runs only through vLLM-Omni (or SGLang-Omni), which pins torch 2.14.0 and transformers below
 5.20; the skill environments have torch 2.14.1 and transformers 5.23. It therefore runs in its own environment,
 in a separate process. A provider of kind `vllm-omni` names that environment's interpreter (`python`) and the
-model (`repo`). `omni.speak`:
+model (`repo`). `omni.aspeak`:
 
 1. On the first call of the process, makes SIGTERM raise `SystemExit` (`exit_on_sigterm`, so step 5 runs after a
    SIGTERM), takes the local-model lock (`local.hold_lock`, Local model memory) and reads the free memory
@@ -284,9 +287,11 @@ model (`repo`). `omni.speak`:
    proportions (Drama 3: 0.78 and 0.1). Without MPS the two stages share one GPU by time-slicing.
 3. Starts `vllm serve <repo> --omni --deploy-config <overlay>` plus the provider's `args` on a free loopback port,
    with the provider's `env` added to the environment, in its own process group with `PR_SET_PDEATHSIG`, and polls
-   `/health` until `start_timeout` (default 1800 s).
-4. Sends each request to `POST /v1/audio/speech` (`response_format: wav`; the audio comes at the model's rate,
-   since Drama 3 refuses `sample_rate`).
+   `/health` until `start_timeout` (default 1800 s). The start runs in the calling thread, the event loop's, and
+   blocks the loop while the model loads: `PR_SET_PDEATHSIG` stops the server when the thread that started it exits,
+   and the loop's thread lives as long as the caller.
+4. Sends each request asynchronously (`httpx.AsyncClient`) to `POST /v1/audio/speech` (`response_format: wav`; the
+   audio comes at the model's rate, since Drama 3 refuses `sample_rate`).
 5. Stops the server at exit (`atexit`, `Server.stop`): SIGTERM to the group, a wait of up to 30 s for the main
    process and then up to 30 s for the rest of the group (the stage workers, polled with `killpg(pgid, 0)`), then
    SIGKILL to the group. The kernel sends SIGTERM to the main process when the caller dies (`PR_SET_PDEATHSIG`);
@@ -305,7 +310,7 @@ Voice: `default` (the model's own voice), or a path to a reference recording wit
 of the same stem, sent as `ref_audio` (a `data:` URI) and `ref_text`. Drama 3 picks a new speaker for each
 request without a reference. A fixed `seed` (the request field exists) does not keep it: on the GB10 three
 sentences with seed 7 had median F0 184, 146 and 135 Hz, with seed 11 203, 146 and 208 Hz, without a seed 110,
-184 and 191 Hz. With `default`, `omni.speak` therefore keeps the process's first answer (`first_take`: WAV and
+184 and 191 Hz. With `default`, `omni.aspeak` therefore keeps the process's first answer (`first_take`: WAV and
 the text sent) and sends it as `ref_audio`/`ref_text` with every later `default` request; three sentences then
 had 138, 138 and 148 Hz and a mean log-mel profile within cosine 0.975 of the first. The first take is kept per
 `speaker` (a caller's name for who speaks; None for one voice), so each speaker of a dialogue keeps its own voice.
@@ -314,8 +319,8 @@ Instructions go through the provider's `style`, a format string with `{instructi
 
 The text goes to the server as given, with its inline tags (`Traits.tags`): point tags in square brackets anywhere
 and speaker tags `<|speaker:0|>` to `<|speaker:15|>`, which the Drama 3 prompt keeps (the reference is speaker 0).
-`params` are more request fields merged over the built body (`Traits.params`; the OpenAI kinds get them as
-`extra_body`). vLLM-Omni 0.32's speech request reads `seed`, `max_new_tokens` and `extra_params` (its
+`params` are more request fields added to the built body (`request_body`; a field it builds itself, `BUILT_FIELDS`,
+is refused; `Traits.params`; the OpenAI kinds get them as `extra_body`). vLLM-Omni 0.32's speech request reads `seed`, `max_new_tokens` and `extra_params` (its
 `temperature`, `top_p` and `top_k` set the sampling of stage 0) and ignores unknown fields. Its Drama 3 adapter
 takes one reference per request (`ref_audio` and `ref_text`, or `ref_audio_codes`); the model card's
 `previous_takes` and several references belong to SGLang-Omni's `/v1/tts`.

@@ -95,9 +95,14 @@ def sentence_words(
 
 def clip_aligner(model: str | None = None) -> Callable[[np.ndarray, int], AlignFn]:
     """The `align_fn` maker of align model `model` (else `models.align` of the `ai_models` config): for a clip and
-    its sample rate, the function that aligns tokens against that clip. Loads the model; `AIModelsError` when it
-    cannot."""
-    from ai_models import align
+    its sample rate, the function that aligns tokens against that clip. Loads the model, its weights in
+    `config.weights_dir()` unless the provider sets `dir`; `AIModelsError` when it cannot."""
+    from ai_models import ConfigError, align
 
-    aligner = align.aligner(model)
+    from . import config
+
+    try:
+        aligner = align.aligner(model, config.weights_dir())
+    except ConfigError as e:
+        raise ConfigError(f"{e}{config.TEMPLATE_HINT}") from None
     return lambda clip, sr: (lambda tokens: aligner.align(clip, sr, tokens))

@@ -2,6 +2,8 @@
 
 import unittest
 
+import pytest
+
 from voiceover_tool.script import parse_script
 
 
@@ -24,8 +26,24 @@ def test_line_of_a_tag_model():
 
     line = Line.of("@anna [sighs] Fine. <|speaker:1|> [laughs] Well.", styles=False, tags=True)
     assert (line.speaker, line.text, line.said) == ("anna", "Fine. Well.", "[sighs] Fine. <|speaker:1|> [laughs] Well.")
-    assert Line.of("@Anna hi", styles=False, tags=True).speaker is None  # not a speaker name: literal
     assert strip_tags("a [b]c  <|speaker:2|>d") == "a c d"
+    with pytest.raises(ValueError, match="lowercase letters"):
+        Line.of("@Anna hi", styles=False, tags=True)
+    with pytest.raises(ValueError, match="only tags"):
+        Line.of("@anna [laughs]", styles=False, tags=True)
+
+
+def test_line_of_a_model_without_tags():
+    """For a model without inline tags, a leading `[style]` is the style of a model that takes styles; any other
+    tag, and an `@speaker`, is refused, since the model would speak it."""
+    from voiceover_tool.script import Line
+
+    assert Line.of("[whisper] Hi.", styles=True, tags=False) == Line("Hi.", "Hi.", "whisper")
+    assert Line.of("Hi @ noon.", styles=False, tags=False) == Line("Hi @ noon.", "Hi @ noon.")
+    for line, styles in [("[whisper] Hi.", False), ("Hi [laughs] there.", True), ("@guest Hi.", True),
+                         ("Hi <|speaker:1|> there.", False)]:
+        with pytest.raises(ValueError, match="would speak aloud"):
+            Line.of(line, styles=styles, tags=False, model="k:kokoro-v1.0")
 
 
 def test_line_style():

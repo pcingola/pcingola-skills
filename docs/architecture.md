@@ -170,7 +170,9 @@ All tests run in one environment, the repo-root project's `dev` group, from the 
 path dependencies (`ai-models` with its `diffusers` extra), so every test sees the working tree's `lib/`, and the
 dependencies of every skill project. Its pytest `pythonpath` lists each skill's `scripts/` and the studio server. A
 dependency added to a skill project is also added to the root `dev` group, so the suites never need a second
-environment. Manim alone runs in its own environment, as a subprocess, for users and tests alike.
+environment. Manim alone runs in its own environment, as a subprocess, for users and tests alike; Chatterbox runs in its
+own environment (`voiceover setup --chatterbox`), as ai_models' worker process, and its test reads that environment's
+python from the config.
 
 Tests call the real code and the real dependency. No test imports a mock library, patches, uses the `monkeypatch` or
 `mocker` fixture, uses a fake or stub server, writes the process environment, or skips (`skip`, `skipif`, `xfail`,

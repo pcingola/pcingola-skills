@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,7 +27,7 @@ from ai_models import AIModelsError, routes
 from . import config, voices
 from .align import AlignFn, clip_aligner, sentence_words
 from .assemble import DEFAULT_GAP, DEFAULT_LEAD, DEFAULT_TAIL, join, trim_silence, write_wav
-from .script import read_script
+from .script import Line, read_script
 from .speech import Narrator, TTSError
 from .timing import SentenceTiming, build_timing, write_timing
 
@@ -41,7 +43,7 @@ ClipAligner = Callable[[np.ndarray, int], AlignFn]
 
 def synthesize_to_dir(
     narrator: Narrator,
-    sentences: Sequence[str],
+    lines: Sequence[Line],
     out_dir: str | Path,
     *,
     voice: str,
@@ -50,21 +52,19 @@ def synthesize_to_dir(
     tail: float = DEFAULT_TAIL,
     aligner: ClipAligner | None = None,
 ) -> tuple[Path, Path]:
-    """Synthesize sentence by sentence, join, align, write WAV + timing.json.
+    """Synthesize `lines` (`Narrator.lines`) one by one in the voices `Narrator.prepare` resolved, join, align,
+    write WAV + timing.json, and the first takes (`write_takes`).
 
-    Each line is read as the model takes it (`Narrator.lines`): speakers and inline tags, or a leading `[style]`.
-    The aligner sees each sentence without its tags. With `aligner=None` only sentence times are written (`words`
-    is empty and `aligned` is false). The first take of each `default`-voice speaker of a vllm-omni model is written
-    as `voice.wav` (the narrator) or `voice-<speaker>.wav`, with its transcript in a `.txt` file of the same stem.
+    `voice` is the narrator's voice as given, recorded in timing.json. The aligner sees each sentence without its
+    tags. With `aligner=None` only sentence times are written (`words` is empty and `aligned` is false).
     """
-    if not sentences:
+    if not lines:
         raise ValueError("script has no sentences")
-    lines = narrator.lines(list(sentences))
     sentences = [line.text for line in lines]
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     sr = narrator.sample_rate
-    clips = [trim_silence(narrator.synthesize(line, voice), sr) for line in lines]
+    clips = [trim_silence(narrator.synthesize(line), sr) for line in lines]
     audio, spans = join(clips, sr, lead, gap, tail)
 
     timings: list[SentenceTiming] = []
@@ -90,11 +90,24 @@ def synthesize_to_dir(
         params=narrator.params,
     )
     timing_path = write_timing(out_dir / TIMING_NAME, timing)
-    for speaker, (wav, said) in narrator.first_takes().items():
-        path = out_dir / (VOICE_NAME if speaker is None else f"voice-{speaker}.wav")
+    write_takes(out_dir, narrator.first_takes())
+    return wav_path, timing_path
+
+
+def take_path(out_dir: Path, speaker: str | None) -> Path:
+    """Where the first take of `speaker` (None: the narrator) goes: `voice.wav` or `voice-<speaker>.wav`."""
+    return out_dir / (VOICE_NAME if speaker is None else f"voice-{speaker}.wav")
+
+
+def write_takes(out_dir: Path, takes: dict[str | None, tuple[bytes, str]]) -> list[Path]:
+    """Write each speaker's first take (WAV, text) as `take_path` with its transcript in the `.txt` of that stem."""
+    out = []
+    for speaker, (wav, said) in takes.items():
+        path = take_path(out_dir, speaker)
         path.write_bytes(wav)
         path.with_suffix(".txt").write_text(said + "\n")
-    return wav_path, timing_path
+        out.append(path)
+    return out
 
 
 def _cmd_synth(args: argparse.Namespace) -> int:
@@ -107,13 +120,15 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     try:
         narrator = Narrator(args.model, style=args.style, speed=args.speed, speakers=_pairs(args.speaker, "--speaker"),
                             params=_params(args.param))
-        narrator.lines(sentences)  # a line of a tag model that holds only tags fails before the aligner loads
+        voice = args.voice or narrator.default_voice
+        lines = narrator.lines(sentences)
+        narrator.prepare(lines, voice)  # every line and voice checked before the aligner loads and the first request
         aligner = None if args.no_align else clip_aligner()
         wav, timing = synthesize_to_dir(
             narrator,
-            sentences,
+            lines,
             args.out_dir,
-            voice=args.voice or narrator.default_voice,
+            voice=voice,
             lead=args.lead,
             gap=args.gap,
             tail=args.tail,
@@ -159,13 +174,38 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     return 0
 
 
+def setup_chatterbox() -> Path:
+    """Sync the Chatterbox uv project (`config.CHATTERBOX_PROJECT`, locked) into `config.chatterbox_env()`; return
+    that environment's python. `ValueError` when not run through the wrapper or when uv fails."""
+    venv = config.chatterbox_env()
+    if venv is None:
+        raise ValueError("PLUGIN_ENV_DIR is not set, so the Chatterbox environment has no place outside the plugin "
+                         "directory; run voiceover through its wrapper voiceover.sh")
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    env["UV_PROJECT_ENVIRONMENT"] = str(venv)
+    uv = shutil.which("uv")
+    if uv is None:
+        raise ValueError("uv is not on PATH")
+    done = subprocess.run([uv, "sync", "--frozen", "--project", str(config.CHATTERBOX_PROJECT)], env=env,
+                          stdout=sys.stderr)
+    if done.returncode != 0:
+        raise ValueError(f"uv sync of {config.CHATTERBOX_PROJECT} failed with code {done.returncode}")
+    return venv / "bin" / "python"
+
+
 def _cmd_setup(args: argparse.Namespace) -> int:
     from ai_models import speech
 
     try:
-        speech.fetch(args.model)
+        if args.chatterbox:
+            python = setup_chatterbox()
+            print(python)
+            print(f"Chatterbox environment ready; give the `chatterbox` provider entry of config.yaml `python: {python}` "
+                  "(the setup:settings template has the entry)", file=sys.stderr)
+            return 0
+        speech.fetch(args.model, config.weights_dir())
         clip_aligner()
-    except AIModelsError as e:
+    except (AIModelsError, ValueError) as e:
         config.error(str(e))
     return 0
 
@@ -224,8 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", default=None, help="Speech model id <provider>:<model> (default: models.speech)")
     p.set_defaults(func=_cmd_voices)
 
-    p = sub.add_parser("setup", help="Download the weights of the speech and align models")
+    p = sub.add_parser("setup", help="Download the weights of the speech and align models, or build the Chatterbox "
+                                     "environment")
     p.add_argument("--model", default=None, help="Speech model id <provider>:<model> (default: models.speech)")
+    p.add_argument("--chatterbox", action="store_true",
+                   help="Build the Python environment the chatterbox provider runs its worker in, and print its python")
     p.set_defaults(func=_cmd_setup)
 
     p = sub.add_parser("add-voice", help="Store a reference recording as a voice (models that clone a voice: "
