@@ -176,5 +176,7 @@ global configuration. A test that needs a setting, a provider or a model writes 
 directory (`write_config`) and passes its path to the child in `SKILLS_CONFIG`; an in-process test of `ai_models`
 names it with `config.use`. A test that needs a
 key, a model, a GPU or a tool fails with a message naming what is missing (`tests/prereq.py`: `requires`). Model
-tests run against real targets: Ollama with small models, real Hugging Face `diffusers` models at small size and few steps (never random weights), Kokoro for speech,
-and the cloud providers when their keys are set.
+tests run against real targets: Ollama with small models, real Hugging Face `diffusers` models at small size and few steps, Kokoro for speech,
+and the cloud providers when their keys are set. A pipeline whose smallest real checkpoint is too large for a test
+(Kandinsky S2V: 23.9 GB) is tested on the random-weight checkpoint its authors publish for that pipeline class; such a
+test checks the code path (loading, call, output format), not the output.

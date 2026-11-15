@@ -23,7 +23,8 @@
 # Provider kinds: ollama, openrouter, openai (any OpenAI-compatible server),
 # azure (Azure OpenAI, needs api_version), google (Gemini, Lyria; vertex: true
 # for a Vertex endpoint; predict_models lists the music models served by the
-# Vertex predict endpoint, the others stream), diffusers (local models of the diffusers section).
+# Vertex predict endpoint, the others stream), diffusers (local models of the diffusers section),
+# vllm-omni (a local speech model served by vLLM-Omni; keys in its entry below).
 # Every kind except diffusers takes timeout (seconds per request, default 600).
 # Delete the providers you do not use; replace each replace-me with a key.
 # azure and vertex below point at a company (enterprise) gateway that serves
@@ -36,6 +37,16 @@ providers:
   azure:       {kind: azure, base_url: https://gateway.example.com/azure-openai, api_version: 2025-04-01-preview, api_key: replace-me}
   vertex:      {kind: google, vertex: true, base_url: https://gateway.example.com/vertex-ai, api_key: replace-me, predict_models: [lyria-002]}
   local:       {kind: diffusers}
+  # Fish Audio Drama 3, local speech (about 42 GB), served by vLLM-Omni from its
+  # own environment (vllm-omni pins torch and transformers):
+  #   uv venv <env dir> --python 3.12
+  #   uv pip install --python <env dir>/bin/python "vllm==0.32.*" vllm-omni==0.32.0 --torch-backend=cu130
+  # The server takes memory_share of the free memory and stops after the
+  # command. style puts voiceover --style into the text as inline tags. args:
+  # more server arguments (eager: the weights load in 34 s instead of 4.5 min
+  # on a unified-memory GPU); env: server environment variables (FlashInfer's
+  # sampler needs nvcc to JIT-compile on GPUs without prebuilt kernels).
+  #fish:        {kind: vllm-omni, python: /path/to/env/bin/python, repo: fishaudio/drama-3, deploy: fish_omni.yaml, memory_share: 0.6, style: "[{instructions}] {text}", args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager], env: {VLLM_USE_FLASHINFER_SAMPLER: 0}}
 
 # The model of each task. The skills ask for these tasks:
 #   chat        ai:classify (chat backend), ai:second-opinion
@@ -54,6 +65,9 @@ providers:
 #   music       media:music generate
 #   video       media:short-video video scenes (Engine: video): an image
 #               animated into a clip
+#   presenter   media:short-video presenter scenes (Engine: presenter): a
+#               portrait and the scene's narration recording made into a clip
+#               of the person speaking it
 #   audio       media:music analyze (a chat model that takes audio)
 #   film_critic media:short-video film critic, through ai:second-opinion (a
 #               model that takes video with sound: a Gemini model of a
@@ -75,11 +89,14 @@ models:
   # Local models on a GPU (Ollama and the diffusers section below), in place of
   # the cloud lines above:
   #speech: ollama:lfm3-audio
+  #speech: fish:drama-3
   #image_best: local:qwen-image
   #image_edit: local:qwen-image
   #image_multi_ref: local:qwen-image
   #music: local:ace-step
   #video: local:ltx-2.5
+  #video: local:kandinsky-6
+  #presenter: local:kandinsky-s2v
   # Small local models for the integration tests and a quick test film: real
   # models at small size and few steps, low quality output.
   #image: local:flux2-klein-4b
@@ -89,6 +106,7 @@ models:
   #speech: ollama:lfm3-audio
   #music: local:ace-step
   #video: local:ltx-video-small
+  #presenter: local:kandinsky-s2v-lite
 
 # Local models (provider kind diffusers): repo (Hugging Face repository),
 # steps, guidance (optional; without it no guidance_scale is passed, for a
@@ -102,7 +120,11 @@ models:
 # video model also has, all required: pipeline (the diffusers class to load),
 # fps, size_multiple (width and height are rounded to it), frame_step (frame
 # counts are frame_step * k + 1), width, height (the default size) and
-# max_frames. The image-gen, music and short-video wrappers install torch and
+# max_frames. A presenter model also has, all required: pipeline (a
+# DiffusionPipeline or ModularPipeline class), fps, buckets (the frame sizes
+# the model makes, [width, height]; a clip takes the one nearest the
+# picture's aspect ratio), audio_rate (the sample rate the model takes the speech at)
+# and output (the pipeline output that holds the videos). The image-gen, music and short-video wrappers install torch and
 # diffusers when a provider of kind diffusers is present; the first run
 # downloads the weights to the Hugging Face cache (HF_HOME below).
 diffusers:
@@ -117,6 +139,14 @@ diffusers:
   # about 70 GB of the components it loads. The args are the distilled
   # schedule and guidance off, from the model card.
   ltx-2.5:        {repo: Lightricks/LTX-2.5-Diffusers, pipeline: LTX2ImageToVideoPipeline, steps: 8, guidance: 1.0, fps: 24, size_multiple: 32, frame_step: 8, width: 960, height: 544, max_frames: 481, args: {sigmas: [1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875], audio_guidance_scale: 1.0, stg_scale: 0.0, audio_stg_scale: 0.0, modality_scale: 1.0, audio_modality_scale: 1.0}, skip: [processor, prompt_enhancer]}
+  # Kandinsky 6.0 Pro distilled, text and image to video with a sound track;
+  # about 81 GB. 10 steps, guidance off (distilled).
+  #kandinsky-6:    {repo: kandinskylab/Kandinsky-6.0-Pro-distill-5s-Diffusers, pipeline: Kandinsky6TI2VAPipeline, steps: 10, guidance: 1.0, fps: 24, size_multiple: 32, frame_step: 4, width: 864, height: 480, max_frames: 121}
+  # Kandinsky S2V 1.0 Pro distilled, presenter (portrait and speech to video,
+  # 5 s chunks); about 62 GB. 16 steps, guidance distilled into the weights.
+  kandinsky-s2v:  {repo: kandinskylab/Kandinsky-S2V-1.0-Pro-distill-Diffusers, pipeline: KandinskyS2VDistilledModularPipeline, steps: 16, fps: 25, buckets: [[512, 512], [512, 768], [768, 512]], audio_rate: 16000, output: videos}
+  # Kandinsky S2V 1.0 Lite distilled (2B transformer), for tests; about 24 GB.
+  kandinsky-s2v-lite: {repo: kandinskylab/Kandinsky-S2V-1.0-Lite-distill-Diffusers, pipeline: KandinskyS2VDistilledModularPipeline, steps: 16, fps: 25, buckets: [[512, 512], [512, 768], [768, 512]], audio_rate: 16000, output: videos}
   # LTX-Video 0.9.5 at small size and few steps, for tests (see models above).
   ltx-video-small: {repo: Lightricks/LTX-Video-0.9.5, pipeline: LTXImageToVideoPipeline, steps: 8, guidance: 3.0, fps: 24, size_multiple: 32, frame_step: 8, width: 512, height: 320, max_frames: 121}
 
