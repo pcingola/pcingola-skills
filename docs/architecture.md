@@ -5,9 +5,13 @@ works is in `docs/<skill>.md` where one exists.
 
 ## Plugin isolation
 
-A skill reads nothing outside its plugin directory except its plugin data directory, the settings file, a brand
-folder reported by `brand:brand` (read in place) and files another skill wrote as its output. It reads no repo-root
-path, no repo-root `data/` and no file of another plugin.
+A skill reads nothing outside its plugin directory except its plugin data directory, the settings file, the user's
+model routes file `routes.md` in the settings file's directory, a brand folder reported by `brand:brand` (read in
+place) and files another skill wrote as its output. It reads no repo-root path, no repo-root `data/` and no file of
+another plugin. The user's `routes.md` sits beside the settings file for the same reason the settings file sits
+outside every plugin: a plugin update or uninstall leaves it in place, and every plugin finds it through one path
+rule (`plugin_settings.config_file`). The default routes ship inside `lib/ai_models`, which every skill that calls a
+model installs, so no skill reads them from another plugin.
 
 Claude Code reads a plugin installed from a directory marketplace in place, and a plugin installed from a git or
 remote marketplace from a copy under `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. That copy holds the
@@ -52,6 +56,9 @@ Each concern has one location, and every other skill reaches it through that loc
   `vision`, `system1`, `image`, `image_edit`, `speech`, `music`, `audio`) or passes the user's `--model`.
 - Reading the settings file and the plugin data directory: `lib/plugin_settings`. `ai_models` reads the file through
   it.
+- Model routes, the table of which model serves which kind of request: `ai_models.routes`, with the defaults in
+  `lib/ai_models/ai_models/routes.md` and the user's rows in `routes.md` beside the settings file
+  (`docs/ai_models.md`, Model routes). Each skill that calls a model prints the table with its `routes` command.
 - Brands (logos, colours, fonts, guidelines, PowerPoint templates): `brand:brand`. Callers get a brand folder
   from it, locate each file through its `brand.yaml` key and read it in place without keeping a copy.
 - Visual styles: `brand:style`. A brand's `styles` key restricts the styles a branded image may use.

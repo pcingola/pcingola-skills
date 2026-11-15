@@ -41,10 +41,12 @@ directory) and reads its `settings.yaml` over the skill defaults.
 `scene.py` (`manim_scene`) instead of an HTML composition and need no
 HyperFrames. Those of a scene with `Engine: video` work on its motion prompt
 `prompt.txt` (`video_scene`): `render` sends the scene's image and the prompt
-to the video model (`render --seed N` fixes the model's seed). Those of a
+to the video model (`render --seed N` fixes the model's seed, `render --model
+ID` replaces the model). Those of a
 scene with `Engine: presenter` (`presenter_scene`) copy its picture, and
 `render` sends it and the scene's narration recording to the presenter model
-(`--seed` too). A scene with
+(`--seed` and `--model` too). `routes` prints the model routes of the video
+and presenter tasks (`ai_models.routes`). A scene with
 `Engine: clip` has no page: `clip` imports its video (`clip`), and
 `scaffold` and `render` refuse it.
 """
@@ -59,9 +61,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ai_models import routes
+
 from . import audiocheck, brand, clip, config, credit, media, mix, music, narration, scenes, settings, speakers, state
 from . import manim_scene, presenter_scene, status, storyboard, video_scene
 
+# The tasks of video and presenter scenes; `routes` prints their rows.
+ROUTE_TASKS = ("video", "presenter")
 LAYOUT = ("images", "sources", "voice", "scenes", "music", "film")
 
 
@@ -293,9 +299,9 @@ def _scaffold_video(project: Path, scene: dict) -> int:
     return 0
 
 
-def _render_video(project: Path, scene: dict, seed: int | None) -> int:
+def _render_video(project: Path, scene: dict, seed: int | None, model: str | None) -> int:
     try:
-        out = video_scene.render(project, scene, seed)
+        out = video_scene.render(project, scene, seed, model)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
     print(out)
@@ -312,9 +318,9 @@ def _scaffold_presenter(project: Path, scene: dict) -> int:
     return 0
 
 
-def _render_presenter(project: Path, scene: dict, seed: int | None) -> int:
+def _render_presenter(project: Path, scene: dict, seed: int | None, model: str | None) -> int:
     try:
-        out = presenter_scene.render(project, scene, seed)
+        out = presenter_scene.render(project, scene, seed, model)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
     print(out)
@@ -346,17 +352,18 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
 def _cmd_render(args: argparse.Namespace) -> int:
     project = _project(args)
     seed = getattr(args, "seed", None)
+    model = getattr(args, "model", None)
     data = _valid(project)
     if storyboard.is_clip(_scene(data, args.scene)):
         config.error(clip.refuse(args.scene, "render"))
     if manim_scene.is_manim(_scene(data, args.scene)):
         return _render_manim(project, _scene(data, args.scene))
     if storyboard.is_video(_scene(data, args.scene)):
-        return _render_video(project, _scene(data, args.scene), seed)
+        return _render_video(project, _scene(data, args.scene), seed, model)
     if storyboard.is_presenter(_scene(data, args.scene)):
-        return _render_presenter(project, _scene(data, args.scene), seed)
-    if seed is not None:
-        config.error("--seed applies only to a video or presenter scene (`Engine: video`, `Engine: presenter`)")
+        return _render_presenter(project, _scene(data, args.scene), seed, model)
+    if seed is not None or model is not None:
+        config.error("--seed and --model apply only to a video or presenter scene (`Engine: video`, `Engine: presenter`)")
     # A scene switched from manim to html has a latest version with no page.
     latest = state.latest_scene(project, args.scene)
     if latest is not None and not (latest / "index.html").is_file():
@@ -589,6 +596,8 @@ def _build_parser() -> argparse.ArgumentParser:
     c = project_cmd("render", "Render the latest version of a scene")
     c.add_argument("--scene", required=True)
     c.add_argument("--seed", type=int, help="Seed of the video model (a scene with `Engine: video`)")
+    c.add_argument("--model", help="Model id <provider>:<model> of the ai_models config; replaces task `video` "
+                   "(`Engine: video`) or `presenter` (`Engine: presenter`)")
     c.set_defaults(func=_cmd_render)
 
     c = project_cmd("clip", "Import a video as the next version of a clip scene (`Engine: clip`)")
@@ -633,6 +642,8 @@ def _build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("play", help="Open images and media files in the applications set under `play:` in assets/settings.yaml")
     c.add_argument("files", nargs="+", metavar="FILE")
     c.set_defaults(func=_cmd_play)
+
+    routes.command(sub, ROUTE_TASKS)
     return p
 
 

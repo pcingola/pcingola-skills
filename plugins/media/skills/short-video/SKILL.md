@@ -224,6 +224,21 @@ recording, for its whole length. The `Brief:`, when given, replaces the
 model's own prompt. `status` asks for a new render when the image or the
 recording changes. Its subagent gets `references/video-model.md`.
 
+## Model routes
+
+Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/short-video.sh routes`.
+It prints the routing table of this skill's tasks, `| task | when | model | why |`:
+the user's rows, then the default rows, without the rows whose model
+`config.yaml` lacks. Take the first row whose task is the call's task and
+whose `when` describes the request, and pass its `model` with `--model`.
+With no matching row, pass no `--model`: the task's model of `config.yaml`
+serves the call. A model that the user or a calling skill names is passed
+as given, without the table.
+
+The task of `render` is `video` for a scene with `Engine: video` and
+`presenter` for a scene with `Engine: presenter`; `render --model ID` passes
+the row's model.
+
 ## Clip scenes
 
 A scene with `Engine: clip` shows a video made outside short-video: a morph
@@ -272,7 +287,8 @@ be the `brand:` value.
 | `script [--scene ID]...` | write the narration scripts of scenes without a voice version, or of the scenes named |
 | `voice [--scene ID]... [--src DIR]` | import voiced narration as the next voice version |
 | `scaffold --scene ID` | create the next scene version |
-| `render --scene ID [--seed N]` | check, render (a video scene: call the video model, `--seed` its seed), mux the narration, write the contact sheet |
+| `render --scene ID [--seed N] [--model ID]` | check, render (a video or presenter scene: call the model, `--seed` its seed, `--model` replaces the task's model), mux the narration, write the contact sheet |
+| `routes [--task video\|presenter]` | the model routes of the video and presenter tasks (Model routes) |
 | `clip --scene ID FILE` | import a video as the next version of a clip scene, mux, contact sheet |
 | `frames --scene ID --at 3.2,7.5 [--version vN]` | full-size PNGs at given times |
 | `length` | narration length (a clip scene: at least its clip), silent clip length, and the music length to request |

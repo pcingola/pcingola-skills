@@ -62,8 +62,8 @@ def scaffold(project: Path, scene: dict) -> Path:
     return out
 
 
-def render(project: Path, scene: dict, seed: int | None = None) -> Path:
-    """Model call, fill to the narration's length, mux the narration, contact sheet, meta. Returns scene.mp4."""
+def render(project: Path, scene: dict, seed: int | None = None, model: str | None = None) -> Path:
+    """Model call (`model`, else task `presenter` of the ai_models config), fill to the narration's length, mux the narration, contact sheet, meta. Returns scene.mp4."""
     sid = scene["id"]
     sdir = state.latest_scene(project, sid)
     if sdir is None or not (sdir / BACKGROUND).is_file() or not (sdir / "timing.json").is_file():
@@ -79,7 +79,7 @@ def render(project: Path, scene: dict, seed: int | None = None) -> Path:
 
     speech = vdir / NARRATION
     try:
-        model = ai_config.resolve(None, "presenter")
+        model = ai_config.resolve(model, "presenter")
         mp4 = video.present((sdir / BACKGROUND).read_bytes(), speech.read_bytes(), model=model, aspect=None,
                             prompt=prompt, seed=seed)
     except AIModelsError as e:

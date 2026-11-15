@@ -33,7 +33,7 @@ files, brand files and style samples are read in place.
 | `status.json` | the state of each scene ([status.json](#statusjson)) |
 | `lessons.md` | `media:short-video`'s lessons file; created with the first storyboard |
 | `refs/`, `sources/` | the user's pictures and sources, written by the page; research sources this skill saves go in `sources/`, generated tracks in `sources/music/` |
-| `images/<scene>/v<N>.png`, `v<N>.json` | picture N of scene `<scene>`, numbered from 1 within the scene's directory, never overwritten; the sidecar has the fields of a `studio:images` version sidecar, with `kind` `"short-video"`, `model` `best` (image-gen's tier), `model_id` the `<provider>:<model>` of the task that made it (`image_best`, from the request's `models`), `shape` the film's and `brand` the film's; written after the PNG |
+| `images/<scene>/v<N>.png`, `v<N>.json` | picture N of scene `<scene>`, numbered from 1 within the scene's directory, never overwritten; the sidecar has the fields of a `studio:images` version sidecar, with `kind` `"short-video"`, `model` `best` (image-gen's tier), `model_id` the `<provider>:<model>` that made it (the `--model` of image-gen's model routes, else `image_best` from the request's `models`), `shape` the film's and `brand` the film's; written after the PNG |
 | `images/<scene>/marks/` | marked copies and edit masks, written by the page |
 | `voice/`, `scenes/`, `music/v<N>/`, `film/v<N>/` | `media:short-video`'s versions, written by its commands |
 | `music/v<N>/studio.json` | `source` (`made` or `own`), `brief` (the request's; `""` for an own track), `note` (one line on how it sounds), `duration` (seconds), `created`; written after the `music` command imported the version |

@@ -21,7 +21,7 @@ ${CLAUDE_SKILL_DIR}/scripts/music.sh analyze <files or folder> [--brief "<style>
 ## Models
 
 The model is `--model <provider>:<model>`, else the config's `music` task.
-Leave `--model` off unless the user names a model.
+Model routes (below) choose `--model`.
 
 | Provider kind | Model | Output | Options |
 |---|---|---|---|
@@ -43,6 +43,19 @@ FFmpeg for a `.mp3` output. When a Lyria model returns the other format, the
 CLI writes the file with the suffix of that format, prints a warning and
 prints the path it wrote. Existing files are not overwritten without
 `--force`.
+
+## Model routes
+
+Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/music.sh routes`.
+It prints the routing table of this skill's tasks, `| task | when | model | why |`:
+the user's rows, then the default rows, without the rows whose model
+`config.yaml` lacks. Take the first row whose task is the call's task and
+whose `when` describes the request, and pass its `model` with `--model`.
+With no matching row, pass no `--model`: the task's model of `config.yaml`
+serves the call. A model that the user or a calling skill names is passed
+as given, without the table.
+
+The task of the call is `music` for `generate` and `audio` for `analyze`.
 
 ## Options
 

@@ -104,7 +104,7 @@ Each level adds to the one before.
 | 2. Ollama | a running Ollama server with the models pulled (`ollama pull <tag>`); no key | add `ollama` (kind `ollama`) | `system1` (System-1 models, needed by classify `--backend system1`), small `chat` and `vision` models, `speech` on macOS |
 | 3. GPU | an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon | add `local` (kind `diffusers`) and the `diffusers` section | `image`, `image_edit`, `image_best`, `image_multi_ref`, `music`, `video`, `presenter` in the skill's process |
 
-Point each task the user needs at a provider of the chosen level. A task without a model fails only when a skill asks for it. The model ids of the template are examples; ask the user which models to use when the template has none for a provider. At level 3 the image-gen, music and short-video wrappers install torch and diffusers (the skill's `local` extra) when they build the environment, and the first run downloads the weights.
+Point each task the user needs at a provider of the chosen level. A task without a model fails only when a skill asks for it. The model ids of the template are examples; ask the user which models to use when the template has none for a provider. At level 3 the image-gen, music and short-video wrappers install torch and diffusers (the skill's `local` extra) when they build the environment, and the first run downloads the weights. The default local image model is FLUX.2 klein 4B (`local:flux2-klein-4b`); Qwen-Image 2.1 (`local:qwen-image`) spells text right at about 9 times the wall time; Z-Image-Turbo is optional.
 
 ## Settings errors
 
@@ -173,3 +173,23 @@ Tasks (`models.<task>`) and the skills that ask for them:
 The `audio` task is optional; without it `music analyze` skips the model section. `image_best` and `image_multi_ref` are optional; without them the image-gen tiers `best` and `multi-ref` fail with a message naming the task. `video` is optional; without it a short-video scene with `Engine: video` fails at `render` with a message naming the task.
 
 `diffusers.<name>` describes one local model: `repo` (a Hugging Face repository; weights go to the Hugging Face cache), `steps`, `guidance`, and `inpaint` (the diffusers pipeline class for edits with a mask). A model id `local:<name>` names it. A video model also has these keys, all required: `pipeline` (the diffusers class to load), `fps`, `size_multiple` (width and height are rounded to it), `frame_step` (frame counts are `frame_step * k + 1`), `width`, `height` (the default size) and `max_frames`.
+
+## Model routes: routes.md
+
+A skill that calls a model picks the model of each request from a routing table: the user's rows, then default rows shipped with the skills. The user's file is `routes.md` in the directory of `config.yaml` (beside `$SKILLS_CONFIG` when that is set). It is optional, holds only the user's own rows, and no plugin update changes it. Each model-calling skill's `routes` command prints the merged table of its tasks.
+
+The file holds one Markdown table; text outside the table is ignored:
+
+```markdown
+| task | when | model | why |
+|---|---|---|---|
+| image | architecture diagrams | local:qwen-image | labels spelled right |
+| video | any clip | local:ltx-2.5 | fast, ambient sound |
+```
+
+- `task`: a task of the `models` section (`image`, `video`, `speech`, ...).
+- `when`: the requests the row serves, in words. The agent compares it with the request; the first row that fits wins, so a user row wins over a default row for the same request.
+- `model`: `<provider name>:<model>` of `config.yaml`. A row whose provider is not in `providers`, or whose `diffusers` model is not in `diffusers`, is left out.
+- `why`: the reason (quality, wall time).
+
+To add a row, create the file with the header when it is missing and add the row with Edit; put a more specific row above a general one of the same task. A malformed row makes the `routes` command fail with the file and line.

@@ -8,6 +8,7 @@ Commands:
     fit        Loop or trim a track to an exact length, with fades.
     analyze    Per-clip reports on how clips fit their briefs: a model
                description, signal measurements and images (`analyze.py`).
+    routes     Print the model routes of the music and audio tasks (`ai_models.routes`).
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from ai_models import routes
 
 from . import config, fit, prompt
 
@@ -185,6 +188,10 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
         config.error(str(e))
 
 
+# generate takes the `music` model, analyze the `audio` model; `routes` prints their rows.
+ROUTE_TASKS = ("music", "audio")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="music", description="Music generation with the music model of the "
                                                           "ai_models config (a Google music model or a local diffusers model).")
@@ -229,6 +236,8 @@ def _build_parser() -> argparse.ArgumentParser:
     c.add_argument("--out-dir", help="Report directory (default: <input folder>/analysis)")
     c.add_argument("--jobs", type=int, default=4, help="Clips analysed in parallel (default 4)")
     c.set_defaults(func=_cmd_analyze)
+
+    routes.command(sub, ROUTE_TASKS)
     return p
 
 

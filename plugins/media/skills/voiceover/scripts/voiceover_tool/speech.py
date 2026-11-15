@@ -1,4 +1,4 @@
-"""The `speech` backend: the `speech` model of the `ai_models` config through
+"""The `speech` backend: the `speech` model of the `ai_models` config (or a given model id) through
 `ai_models.speech.speak`, one request per sentence.
 
 A style goes as the model's `instructions` (OpenAI-style providers) or as a
@@ -59,18 +59,18 @@ def resample(samples: np.ndarray, rate: int, target: int) -> np.ndarray:
 
 
 class SpeechBackend:
-    """The config's `speech` model. `ValueError` when the config names none."""
+    """`model`, else the config's `speech` model. `ValueError` when the config names none."""
 
     name = "speech"
     sample_rate = SAMPLE_RATE
 
-    def __init__(self, style: str | None = None) -> None:
+    def __init__(self, style: str | None = None, model: str | None = None) -> None:
         from ai_models import AIModelsError
         from ai_models import config as ai_config
         from ai_models.models import kind
 
         try:
-            self.model = ai_config.resolve(None, TASK)
+            self.model = ai_config.resolve(model, TASK)
             self.kind = kind(self.model)
         except AIModelsError as e:
             raise ValueError(str(e)) from None

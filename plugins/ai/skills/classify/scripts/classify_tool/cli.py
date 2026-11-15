@@ -6,6 +6,7 @@ Commands:
     eval   Classify labelled items with one question, or read the scores of
            an earlier run (--scores), and print accuracy, Brier score,
            calibration and accuracy/coverage per threshold.
+    routes Print the model routes of the system1 and chat tasks (`ai_models.routes`).
 """
 
 from __future__ import annotations
@@ -14,12 +15,16 @@ import argparse
 import json
 import sys
 
+from ai_models import routes
 from ai_models.errors import AIModelsError
 from pydantic_ai.models.decision import DecisionQuestion, NoulQuestion, ScoreQuestion
 
 from . import backends, config, metrics, output, questions, runner
 from .items import Item, ItemError, items_from_texts, read_items
 from .questions import QuestionError
+
+# The tasks of the two backends; `routes` prints their rows.
+ROUTE_TASKS = ("system1", "chat")
 
 
 def _add_question_flags(p: argparse.ArgumentParser) -> None:
@@ -70,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--scores", metavar="FILE", help="compute the metrics from this run or eval output "
                                                      "instead of scoring (backend flags unused)")
     p.add_argument("--json", action="store_true", help="print the metrics as JSON")
+
+    routes.command(sub, ROUTE_TASKS)
     return parser
 
 
@@ -240,6 +247,8 @@ def _cmd_eval(args) -> int:
 def main(argv: list[str] | None = None) -> None:
     config.load_settings()
     args = build_parser().parse_args(argv)
+    if args.command == "routes":
+        sys.exit(args.func(args))
     try:
         code = _cmd_run(args) if args.command == "run" else _cmd_eval(args)
     except (AIModelsError, ItemError, QuestionError) as e:

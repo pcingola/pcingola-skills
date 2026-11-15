@@ -153,8 +153,8 @@ def scaffold(project: Path, scene: dict) -> Path:
     return out
 
 
-def render(project: Path, scene: dict, seed: int | None = None) -> Path:
-    """Model call, fill to the narration's length, mux the narration (with the
+def render(project: Path, scene: dict, seed: int | None = None, model: str | None = None) -> Path:
+    """Model call (`model`, else task `video` of the ai_models config), fill to the narration's length, mux the narration (with the
     clip's sound track under it unless the scene has `ambience` False), contact
     sheet, meta. Returns scene.mp4."""
     sid = scene["id"]
@@ -174,7 +174,7 @@ def render(project: Path, scene: dict, seed: int | None = None) -> Path:
     from ai_models.errors import AIModelsError
 
     try:
-        model = ai_config.resolve(None, "video")
+        model = ai_config.resolve(model, "video")
         # the model renders at its own size in the project's aspect ratio; `fill` scales the clip to `video:`
         mp4 = video.animate((sdir / BACKGROUND).read_bytes(), prompt, seconds=seconds, model=model,
                             aspect=v["width"] / v["height"], seed=seed)

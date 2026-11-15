@@ -12,8 +12,7 @@ metadata:
 Generates and edits images with the models of the settings file
 `config.yaml`. `--tier` picks the config task of the model.
 `--model <provider>:<model>` names another model of a provider in that file
-and replaces the tier's model. Leave `--model` off unless the user names a
-model.
+and replaces the tier's model. Model routes (below) choose `--model`.
 
 ## Choosing a tier
 
@@ -39,6 +38,22 @@ What each provider kind takes:
   the first `--ref`'s size. They need the skill's `local` extra (torch and
   diffusers, installed when the config has a `diffusers` provider) and a
   CUDA or Apple MPS GPU.
+
+## Model routes
+
+Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/image-gen.sh routes`.
+It prints the routing table of this skill's tasks, `| task | when | model | why |`:
+the user's rows, then the default rows, without the rows whose model
+`config.yaml` lacks. Take the first row whose task is the call's task and
+whose `when` describes the request, and pass its `model` with `--model`.
+With no matching row, pass no `--model`: the task's model of `config.yaml`
+serves the call. A model that the user or a calling skill names is passed
+as given, without the table.
+
+A call without `--ref` in tier `fast` or `best` matches rows of task `image`
+and of its tier's task; any other call matches rows of its tier's task
+(the table above). When the user asks for options (one image per tier),
+pass no `--model`.
 
 ## When the user asks for options
 

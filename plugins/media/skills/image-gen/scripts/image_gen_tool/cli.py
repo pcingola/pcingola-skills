@@ -2,6 +2,7 @@
 
 Commands:
     generate   Generate one or more images from a text prompt.
+    routes     Print the model routes of the image tasks (`ai_models.routes`).
 
 The model is `--model`, else the model of the config task of `--tier`:
 `fast` (default) takes `image` (`image_edit` with `--ref`), `best` takes
@@ -17,9 +18,13 @@ import argparse
 import sys
 from pathlib import Path
 
+from ai_models import routes
+
 from . import config
 from .models import ASPECT_RATIOS, BACKGROUNDS, DEFAULT_TIER, IMAGE_SIZES, QUALITIES, TIERS
 
+# The config tasks of the tiers; `routes` prints their rows.
+ROUTE_TASKS = ("image", "image_edit", "image_best", "image_multi_ref")
 _EXT_FORMATS = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp"}
 
 
@@ -131,6 +136,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     g.set_defaults(func=_cmd_generate)
 
+    routes.command(sub, ROUTE_TASKS)
     return p
 
 

@@ -77,6 +77,20 @@ def test_speech_backend_from_config(tmp_path):
     assert p.returncode == 1 and "no speed setting" in p.stderr
 
 
+def test_model_replaces_the_speech_model_only_for_the_speech_backend(tmp_path):
+    """`synth --model` (get_backend `model`) replaces the config's `speech` model of the speech backend and is
+    refused for another backend (SKILL.md "Model routes")."""
+    with pytest.raises(ValueError, match="only to the speech backend"):
+        get_backend("kokoro", model="oai:tts-2")
+    config = write_config(tmp_path / "config.yaml", {"VOICEOVER_SPEECH_VOICE": "marin"},
+                          providers={"oai": {"kind": "openai", "base_url": "http://127.0.0.1:1/v1"}},
+                          models={"speech": "oai:tts-1"})
+    env = child_env(SKILLS_CONFIG=str(config))
+    imports = "from voiceover_tool.backends import get_backend"
+    assert py_value(imports, "[get_backend('speech').model, get_backend('speech', model='oai:tts-2').model]",
+                    env) == ["oai:tts-1", "oai:tts-2"]
+
+
 def test_timing_model_and_style_only_when_set():
     kw = dict(audio="a.wav", sample_rate=24000, duration=1.0, backend="b", voice="v", speed=1.0, sentences=[])
     assert "model" not in build_timing(**kw) and "style" not in build_timing(**kw)

@@ -40,6 +40,20 @@ The models come from the settings file `config.yaml`: `models.vision`
 when an image is among the files, else `models.chat`. `--model` takes any
 `<provider>:<model>` id of that file; `models` prints the two models.
 
+## Model routes
+
+Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/second-opinion.sh routes`.
+It prints the routing table of this skill's tasks, `| task | when | model | why |`:
+the user's rows, then the default rows, without the rows whose model
+`config.yaml` lacks. Take the first row whose task is the call's task and
+whose `when` describes the request, and pass its `model` with `--model`.
+With no matching row, pass no `--model`: the task's model of `config.yaml`
+serves the call. A model that the user or a calling skill names is passed
+as given, without the table.
+
+The task of the call is `vision` when an image is among the files, else
+`chat`.
+
 The provider decides which inputs a model takes. A model that does not take
 an input (audio, video or PDF on most chat models, images on a text-only
 model) fails the request with the provider's message; pass `--model` with one

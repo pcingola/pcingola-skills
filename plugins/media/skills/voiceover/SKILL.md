@@ -52,6 +52,20 @@ narrator, unhurried pace"); it is not spoken. Kokoro voices: those whose
 name prefix the setting `VOICEOVER_KOKORO_LANGS` maps to an espeak language
 (`af_`/`am_` American, `bf_`/`bm_` British English in the example config).
 
+## Model routes
+
+Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/voiceover.sh routes`.
+It prints the routing table of this skill's tasks, `| task | when | model | why |`:
+the user's rows, then the default rows, without the rows whose model
+`config.yaml` lacks. Take the first row whose task is the call's task and
+whose `when` describes the request, and pass its `model` with `--model`.
+With no matching row, pass no `--model`: the task's model of `config.yaml`
+serves the call. A model that the user or a calling skill names is passed
+as given, without the table.
+
+The routes cover the `speech` task. A matching row selects `--backend
+speech --model <model>`; with no matching row the backend choice above holds.
+
 ## Script format
 
 Plain text, one sentence per line. Blank lines are skipped. Lines are not
@@ -73,6 +87,7 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out
 #   --backend kokoro|chatterbox|speech   default kokoro
 #   --voice NAME     default per backend     --speed 1.0 (kokoro; speech except Gemini TTS)
 #   --style TEXT     delivery instruction (speech only)
+#   --model ID       <provider>:<model> of config.yaml (speech only; default: its speech model)
 #   --lead 0.25      silence before the first sentence (s)
 #   --gap 0.35       silence between sentences (s)
 #   --tail 0.6       silence after the last sentence (s)

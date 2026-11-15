@@ -1,6 +1,7 @@
 """Models for the skills, set per task in `config.yaml` (`config`), reached through Pydantic-AI.
 
     config   the config file, `provider:model` ids, `model_for(task)`
+    routes   the model routes tables (`routes.md`): user rows, then the defaults; the `routes` CLI command
     models   Pydantic-AI providers per kind; `chat_model`, `agent`, `embedder`
     images   `image_generator` (generation, edits with reference images, masks)
     system1  `system1_model`, `decide`

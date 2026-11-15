@@ -46,8 +46,9 @@ A project is the request's `project` directory (absolute). Every file this skill
   kept as found.
 - `model` is the request's image-gen tier (`best`, `fast`, `multi-ref`); `shape` is `1:1`, `4:3`,
   `16:9` or `9:16`.
-- `model_id` is the `<provider>:<model>` that made the image, from the request's `models` (the model of each
-  config task when the Studio server accepted the request): tier `fast` takes `image` without reference images and
+- `model_id` is the `<provider>:<model>` that made the image: the `--model` that image-gen's model routes passed,
+  else the model of the tier's task from the request's `models` (the model of each config task when the Studio
+  server accepted the request): tier `fast` takes `image` without reference images and
   `image_edit` with them, `best` takes `image_best`, `multi-ref` `image_multi_ref`. A version made from another
   (`change`, `variations`, `other-styles`) passes reference images. Null when that task has no model.
 - Numbering: find the existing `v*.json` and `v*.png` with Glob in the project directory; the next N is one more than

@@ -14,6 +14,7 @@ per concern). It has three parts:
 | Module | Contents |
 |---|---|
 | `config` | the config file, `<provider>:<model>` ids, `model_for(task)`, `resolve(model, task)` |
+| `routes` | the model routes tables: `Route`, `parse`, `table`, `markdown`, `command` (Model routes) |
 | `models` | the Pydantic-AI provider of each kind; `chat_model`, `agent`, `embedder` |
 | `images` | `image_generator`, `MaskedOpenAIImageModel` |
 | `system1` | `system1_model`, `decide` |
@@ -53,6 +54,38 @@ The package reads three sections; the fourth, `settings`, belongs to `plugin_set
 
 The image-gen, music and short-video wrappers install the extra when the config has a provider of kind `diffusers`
 (`docs/architecture.md`, CLI wrappers).
+
+## Model routes
+
+A model route says which model serves a kind of request of a task. `routes` reads two Markdown tables with the
+columns `| task | when | model | why |`:
+
+- The user's `routes.md`, in the directory of the config file (`routes.user_path()`: `config.path().parent`, so it
+  follows `SKILLS_CONFIG`). It is optional and holds only that user's rows. No plugin update writes it.
+- The defaults, `ai_models/routes.md`, package data of this package, so they reach every skill environment with the
+  relock that brings a new `ai-models`.
+
+`task` is a task of the `models` section, `when` a description of the requests the row serves, `model` a
+`<provider>:<model>` id and `why` the reason (quality, wall time). Lines outside the table are ignored. The first
+table line is the header; a wrong header, a row of another width, an empty `task`, `when` or `model`, and a model
+that is not `<provider>:<model>` are each a `ConfigError` naming the file and line.
+
+`table(tasks)` returns the user's rows, then the default rows, of `tasks` (None: all), without the rows whose model
+is not configured: the provider is missing from `providers`, or, for a provider of kind `diffusers`, the model is
+missing from `diffusers`. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud
+provider serves a model shows only at the call. No code reads `when`: the agent reads the table and takes the first
+row whose task and `when` fit the request, so a user row wins over a default row for the same request.
+`markdown` prints the rows as a table. `command(subparsers, tasks)` adds `routes [--task T]` to a skill's CLI; it
+prints the table of the skill's tasks and returns 0, or prints the error and returns 1.
+
+The skills with the command and their tasks: image-gen (`image`, `image_edit`, `image_best`, `image_multi_ref`),
+music (`music`, `audio`), short-video (`video`, `presenter`), voiceover (`speech`), classify (`system1`, `chat`),
+second-opinion (`chat`, `vision`). Each `SKILL.md` has a "Model routes" section with the same rule; the chosen model
+goes to the call as `--model`. Skills that load image-gen (infographic, pptx-author, studio, video-effects) route
+through image-gen.
+
+The default rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
+`config.example.yaml`; a user without one of those models has its row dropped.
 
 ## Provider kinds
 

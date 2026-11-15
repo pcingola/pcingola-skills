@@ -1,4 +1,4 @@
-"""second-opinion CLI: `review` and `models`.
+"""second-opinion CLI: `review`, `models` and `routes` (the model routes of the chat and vision tasks).
 
 Settings are loaded by `plugin_settings` (`Plugin.load`), which documents the sources.
 The models, the providers and their keys are in `config.yaml`.
@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from ai_models import AIModelsError
+from ai_models import AIModelsError, routes
 from plugin_settings import Plugin, error
 
 PLUGIN = Plugin.of(__file__)
@@ -18,6 +19,9 @@ load_settings = PLUGIN.load
 
 from . import files as files_mod
 from . import models, review
+
+# The review takes the vision model when an image is among the files, else the chat model.
+ROUTE_TASKS = ("chat", "vision")
 
 
 def cmd_review(args: argparse.Namespace) -> None:
@@ -77,10 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     m = sub.add_parser("models", help="show the review models of config.yaml")
     m.set_defaults(func=cmd_models)
+
+    routes.command(sub, ROUTE_TASKS)
     return p
 
 
 def main(argv: list[str] | None = None) -> None:
     load_settings()
     args = build_parser().parse_args(argv)
-    args.func(args)
+    sys.exit(args.func(args))

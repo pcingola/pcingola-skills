@@ -1,7 +1,7 @@
 """TTS backends behind one interface.
 
 A backend turns one sentence into mono float32 samples at `sample_rate`.
-Register new backends in `BACKENDS` (name -> factory taking `style`).
+Register new backends in `BACKENDS` (name -> factory taking `style`; the `speech` factory also takes `model`).
 
 - `kokoro`: local Kokoro (kokoro-onnx), the voices of the prefixes in VOICEOVER_KOKORO_LANGS, no style.
 - `chatterbox`: local Chatterbox Turbo with voice cloning, see `chatterbox.py`.
@@ -88,10 +88,10 @@ class KokoroBackend:
         return np.asarray(samples, dtype=np.float32).reshape(-1)
 
 
-def _speech(style: str | None = None) -> TTSBackend:
+def _speech(style: str | None = None, model: str | None = None) -> TTSBackend:
     from .speech import SpeechBackend
 
-    return SpeechBackend(style)
+    return SpeechBackend(style, model)
 
 
 def _chatterbox(style: str | None = None) -> TTSBackend:
@@ -108,9 +108,14 @@ BACKENDS: dict[str, Callable[..., TTSBackend]] = {
 DEFAULT_BACKEND = "kokoro"
 
 
-def get_backend(name: str, style: str | None = None) -> TTSBackend:
+def get_backend(name: str, style: str | None = None, model: str | None = None) -> TTSBackend:
+    """Backend `name`; `model` (a `<provider>:<model>` id) replaces the `speech` model, for that backend only."""
     try:
         factory = BACKENDS[name]
     except KeyError:
         raise ValueError(f"unknown backend {name!r}; available: {', '.join(sorted(BACKENDS))}") from None
-    return factory(style)
+    if model is None:
+        return factory(style)
+    if name != "speech":
+        raise ValueError(f"--model applies only to the speech backend, not {name!r}")
+    return factory(style, model)

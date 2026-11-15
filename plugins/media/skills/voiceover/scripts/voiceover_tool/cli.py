@@ -6,6 +6,7 @@ Commands:
     setup    Download all model weights (synth does this on first use).
     add-voice  Store a reference recording as a chatterbox voice.
     play     Open a media file in VLC.
+    routes   Print the model routes of the speech task (`ai_models.routes`).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 import numpy as np
+from ai_models import routes
 
 from . import config, download
 from .align import AlignFn, sentence_words
@@ -31,6 +33,8 @@ from .timing import SentenceTiming, build_timing, write_timing
 
 WAV_NAME = "narration.wav"
 TIMING_NAME = "timing.json"
+# The speech backend's task; `routes` prints its rows.
+ROUTE_TASKS = ("speech",)
 VOICE_NAME = "voice.wav"  # the first take of a `default` vllm-omni voice, with its transcript `voice.txt`
 
 # (trimmed clip, sample rate) -> AlignFn for that clip
@@ -109,7 +113,7 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     if not sentences:
         config.error(f"{args.script}: no sentences (one sentence per line, blank lines skipped)")
     try:
-        backend = get_backend(args.backend, style=args.style)
+        backend = get_backend(args.backend, style=args.style, model=args.model)
     except ValueError as e:
         config.error(str(e))
 
@@ -244,6 +248,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="kokoro, and speech with an OpenAI-style model (not Gemini TTS)")
     p.add_argument("--style", default=None, help="Delivery instruction, e.g. 'calm documentary narrator' "
                    "(speech only)")
+    p.add_argument("--model", default=None,
+                   help="speech only: model id <provider>:<model> of the ai_models config (default: its speech model)")
     p.add_argument("--lead", type=float, default=DEFAULT_LEAD, help=f"Silence before the first sentence, s (default {DEFAULT_LEAD})")
     p.add_argument("--gap", type=float, default=DEFAULT_GAP, help=f"Silence between sentences, s (default {DEFAULT_GAP})")
     p.add_argument("--tail", type=float, default=DEFAULT_TAIL, help=f"Silence after the last sentence, s (default {DEFAULT_TAIL})")
@@ -269,6 +275,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("play", help="Open a media file in VLC")
     p.add_argument("file")
     p.set_defaults(func=_cmd_play)
+
+    routes.command(sub, ROUTE_TASKS)
     return parser
 
 
