@@ -3,37 +3,20 @@ name = "voiceover-cli"
 version = "0.1.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "kokoro-onnx>=0.6.1,<0.7",
+    # the speech and align models of the ai_models config (lib/ai_models, git source): Kokoro and the torchaudio
+    # aligner run in this process
+    "ai-models[kokoro,align]",
+    # resampling a speech model's answer to 24 kHz; torchaudio 2.11 is the release the align extra pins
     "torch==2.11.*",
     "torchaudio==2.11.*",
     "numpy",
     "num2words",
-    # weight downloads
-    "httpx>=0.27.0",
     # the local-model lock and free memory of ai_models.local (speech models of kind vllm-omni)
     "psutil",
-    # speech backend: the speech model of the ai_models config (lib/ai_models, git source)
-    "ai-models",
     # the settings file config.yaml (lib/plugin_settings, git source)
     "plugin-settings",
-    # chatterbox backend (Chatterbox-Turbo); its pins are overridden below
-    "chatterbox-tts==0.1.7",
+    # the length of a reference recording (add-voice)
     "soundfile",
-    # resemble-perth (the watermark) imports pkg_resources, removed in setuptools 81
-    "setuptools<81",
-]
-
-[tool.uv]
-# chatterbox-tts pins torch 2.6 and numpy<2; it runs on torch 2.11 (torchaudio's
-# last release, needed by the MMS_FA aligner) and numpy 2 (needed by kokoro-onnx). gradio (its demo UI)
-# and the Chinese/Japanese tokenisers of its multilingual model are not needed.
-override-dependencies = [
-    "torch==2.11.*",
-    "torchaudio==2.11.*",
-    "numpy>=2",
-    "gradio; sys_platform == 'never'",
-    "spacy-pkuseg; sys_platform == 'never'",
-    "pykakasi; sys_platform == 'never'",
 ]
 
 [tool.uv.sources]

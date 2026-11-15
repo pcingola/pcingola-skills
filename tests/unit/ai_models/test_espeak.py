@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from voiceover_tool import espeak
+from ai_models import espeak
 
 
 class TestChooseDataDir(unittest.TestCase):
@@ -20,7 +20,7 @@ class TestChooseDataDir(unittest.TestCase):
 
     def test_first_short_candidate_wins(self):
         """espeak.choose_data_dir skips candidates at or over the limit and returns the first short one.
-        Guards the candidate order: plugin data dir, then the temp dir."""
+        Guards the candidate order: beside the weights, then the temp dir."""
         long_dir = Path("/" + "y" * 200)
         got = espeak.choose_data_dir("/" + "x" * 200, [long_dir, Path("/b"), Path("/c")], limit=150)
         self.assertEqual(got, Path("/b"))
@@ -32,9 +32,9 @@ class TestChooseDataDir(unittest.TestCase):
             espeak.choose_data_dir("/" + "x" * 200, [Path("/" + "y" * 200)], limit=150)
 
     def test_default_candidates_are_short(self):
-        """espeak.candidates includes a directory shorter than PATH_LIMIT.
-        Guards the temp-dir fallback that makes the copy possible under a long plugin data dir."""
-        self.assertTrue(any(len(str(d)) < espeak.PATH_LIMIT for d in espeak.candidates()))
+        """espeak.candidates includes a directory shorter than PATH_LIMIT, also under a long weights directory.
+        Guards the temp-dir fallback that makes the copy possible under a long weights directory."""
+        self.assertTrue(any(len(str(d)) < espeak.PATH_LIMIT for d in espeak.candidates(Path("/" + "w" * 200))))
 
 
 class TestEnsureCopy(unittest.TestCase):

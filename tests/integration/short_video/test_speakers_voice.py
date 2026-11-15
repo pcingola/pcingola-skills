@@ -2,12 +2,12 @@
 skill, `voice`, `scaffold`, `render` and `assemble`, all run through the
 wrappers as the agent runs them.
 
-The default voice is Kokoro `af_heart` (`voice:` in settings); the speaker
-`guest` is Kokoro `bm_george`. Skips until the voiceover weights are
-downloaded and HyperFrames is installed.
+The speech model is `models.speech` of the user's config.yaml, a Kokoro model
+whose default voice is `af_heart` (`voice:` in settings); the speaker `guest`
+is its voice `bm_george`. Fails until that config and HyperFrames are in
+place.
 """
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -29,9 +29,9 @@ STORYBOARD = """\
 
 Topic: A host and a guest.
 
-| Speaker | Backend | Voice | Speed | Style |
+| Speaker | Model | Voice | Speed | Style |
 |---|---|---|---|---|
-| guest | kokoro | bm_george | | |
+| guest | | bm_george | | |
 
 ## talk
 Image: a.png
@@ -48,11 +48,17 @@ Brief: The image holds still.
 """
 
 
-def _weights_missing() -> bool:
-    v = os.environ.get("VOICEOVER_MODEL_DIR", "").strip()
-    d = Path(v).expanduser() if v else config.plugin_data_dir() / "voiceover"
-    files = ("kokoro-v1.0/kokoro-v1.0.onnx", "kokoro-v1.0/voices-v1.0.bin", "mms_fa/model.pt")
-    return not all((d / f).is_file() for f in files)
+def _kokoro_speech() -> bool:
+    """Whether the user's config.yaml has a Kokoro `speech` model with the default voice `af_heart` and an align
+    model."""
+    from ai_models import AIModelsError, speech
+    from ai_models import config as ai_config
+
+    try:
+        m = speech.model_of()
+        return m.kind == "kokoro" and m.default_voice == "af_heart" and bool(ai_config.model_for("align"))
+    except AIModelsError:
+        return False
 
 
 def _run(*args: str) -> str:
@@ -63,7 +69,7 @@ def _run(*args: str) -> str:
 
 
 @requires(shutil.which("ffmpeg") is not None, "ffmpeg not installed")
-@requires(not (_weights_missing()), "voiceover weights not downloaded; run voiceover.sh setup")
+@requires(_kokoro_speech(), "config.yaml has no Kokoro speech model with voice af_heart and no align model")
 @requires(scenes.node_ready(NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run short-video.sh setup")
 class TestSpeakersVoice(unittest.TestCase):
 
@@ -88,8 +94,8 @@ class TestSpeakersVoice(unittest.TestCase):
                 continue
             extra: list[str] = []
             if i + 1 < len(lines) and lines[i + 1].startswith("  speaker="):
-                m = re.search(r"backend=(\S+) name=(\S+) speed=(\S+)", lines[i + 1])
-                extra = ["--backend", m.group(1), "--voice", m.group(2), "--speed", m.group(3)]
+                m = re.search(r"(?:model=(\S+) )?name=(\S+) speed=(\S+)", lines[i + 1])
+                extra = (["--model", m.group(1)] if m.group(1) else []) + ["--voice", m.group(2), "--speed", m.group(3)]
             script = Path(line)
             _run(VOICEOVER, "synth", "--script", script, "--out-dir", script.parent, *extra)
 
@@ -110,7 +116,7 @@ class TestSpeakersVoice(unittest.TestCase):
         d = self.project / "sources" / "narration" / "talk"
         self.assertEqual((d / "p2" / "script.txt").read_text(), "Thank you for having me.\nIt is good to be here.\n")
         self.assertTrue((d / "p3" / "script.txt").is_file())
-        self.assertIn("  speaker=guest backend=kokoro name=bm_george speed=1.0", self.script_out.splitlines())
+        self.assertIn("  speaker=guest name=bm_george speed=1.0", self.script_out.splitlines())
 
     def test_joined_timing(self) -> None:
         """short-video.sh voice joins the Kokoro parts into one timing.json with speakers, renumbered sentences

@@ -28,6 +28,17 @@ diffusers = [
     "av",
     "psutil",
 ]
+# Kokoro speech on the CPU (kokoro.py)
+kokoro = [
+    "kokoro-onnx>=0.6.1,<0.7",
+    "numpy",
+]
+# forced alignment (align.py): torchaudio 2.11, its last release, keeps forced_align
+align = [
+    "torch>=2.9",
+    "torchaudio==2.11.*",
+    "numpy",
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu130"
@@ -38,6 +49,7 @@ explicit = true
 # CUDA 13.0 builds on Linux (aarch64 and x86_64); PyPI's default build on macOS (MPS)
 torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
 torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
 
 [build-system]
 requires = ["hatchling"]

@@ -6,9 +6,12 @@ requires-python = ">=3.11"
 dependencies = [
     # the settings file config.yaml (lib/plugin_settings, git source)
     "plugin-settings",
+    # the speech models of the voice picker and what each takes (lib/ai_models, git source)
+    "ai-models",
 ]
 
 [tool.uv.sources]
+ai-models = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/ai_models", branch = "main" }
 plugin-settings = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/plugin_settings", branch = "main" }
 
 [dependency-groups]

@@ -10,6 +10,9 @@ per concern). It has three parts:
    provider kind.
 3. Local models with `diffusers`, in the caller's process: image, music and image-to-video models. The extra
    `ai-models[diffusers]` installs torch and diffusers, so only the skills that need it carry them.
+4. Local speech and alignment (Local speech and alignment): Kokoro and the torchaudio aligner in the caller's
+   process (extras `ai-models[kokoro]`, `ai-models[align]`), Chatterbox in a worker process of its own environment,
+   Fish Audio Drama 3 in a vLLM-Omni server of its own environment.
 
 | Module | Contents |
 |---|---|
@@ -18,7 +21,12 @@ per concern). It has three parts:
 | `models` | the Pydantic-AI provider of each kind; `chat_model`, `agent`, `embedder` |
 | `images` | `image_generator`, `MaskedOpenAIImageModel` |
 | `system1` | `system1_model`, `decide` |
-| `speech` | `speak` |
+| `speech` | `speak`, `voices`, `check`, `fetch`, `model_of`; `Traits` and `TRAITS` (what each kind's speech models take) |
+| `kokoro` | `speak`, `voices` of a `kokoro` provider (Local speech and alignment) |
+| `chatterbox` | `speak` of a `chatterbox` provider through `chatterbox_worker.py` (Local speech and alignment) |
+| `align` | `aligner`: an `Aligner` of a `torchaudio` provider (Local speech and alignment) |
+| `weights` | the weights directory of a provider (`dir`), `ensure_file` |
+| `espeak` | the espeak-ng data path for Kokoro |
 | `music` | `compose` |
 | `video` | `animate`, `aanimate`; `frame_count`, `frame_size`, `clip_size` |
 | `omni` | `speak` of a vLLM-Omni server (Speech models of vLLM-Omni) |
@@ -43,7 +51,8 @@ The package reads three sections; the fourth, `settings`, belongs to `plugin_set
 - `models`: task to model id. A model id is `<provider name>:<model>`; the first colon splits it, so
   `ollama:d3:4b` is the Ollama tag `d3:4b`. A caller passes its own id (a `--model` flag) or asks for a task and gets
   `models.<task>` (`config.resolve`). The tasks the skills use: `chat`, `vision`, `system1`, `image`,
-  `image_edit`, `image_best`, `image_multi_ref`, `speech`, `music`, `audio`, `video`, `film_critic`. The package has no model defaults.
+  `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`,
+  `film_critic`. The package has no model defaults.
 - `diffusers`: name to local model: `repo` (a Hugging Face repository), `steps`, `guidance` (optional: without it
   no `guidance_scale` is passed), `inpaint` (the diffusers pipeline class for an edit with a mask, built over the
   loaded modules with `from_pipe`), `args` (optional: more pipeline call arguments, after steps and guidance and
@@ -62,25 +71,21 @@ A model route says which model serves a request of a task. `routes` reads one Ma
 `config.path().parent`, so it follows `SKILLS_CONFIG`). No plugin update writes it. setup:settings creates it from
 its template `assets/routes.md`, next to `config.example.yaml`, and merges template changes that the user accepts.
 
-`task` is a task of the `models` section. `model` is a `<provider>:<model>` id; for a task in `routes.BACKENDS`
-(`speech`: `kokoro`, `chatterbox`) it may instead be a backend name of media:voiceover. `when` is `default` (the
+`task` is a task of the `models` section. `model` is a `<provider>:<model>` id. `when` is `default` (the
 recommended default model of the task) or a condition beginning with `only when` (an escalation). `why` gives the
 model's strengths and limits (quality, wall time). Lines outside the table are ignored. The first table line is the
 header; a wrong header, a row of another width, an empty `task`, `model` or `when`, any other `when`, a second
-`default` row of a task, and a model that is neither `<provider>:<model>` nor a backend of the task are each a
-`ConfigError` naming the file and line.
+`default` row of a task, and a model that is not `<provider>:<model>` are each a `ConfigError` naming the file and
+line.
 
 `table(tasks)` returns, per task in order:
 
 1. The default row. The model in use stays `models.<task>` of the config, so the row has that model. The table's
    default row gives the `why` when its model is the same; when it differs, `why` is
    `set in config.yaml; the table recommends <model>: <its why>`. Without a table default row, `why` is
-   `set in config.yaml`; without `models.<task>`, there is no default row. A table default row whose model is a
-   backend is returned as is: `models.speech` names the model of voiceover's `speech` backend, not the default
-   backend.
+   `set in config.yaml`; without `models.<task>`, there is no default row.
 2. The escalation rows in file order, without the rows whose model is not configured: the provider is missing from
-   `providers`, or, for a provider of kind `diffusers`, the model is missing from `diffusers`. A backend needs no
-   configuration. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud provider
+   `providers`, or, for a provider of kind `diffusers`, the model is missing from `diffusers`. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud provider
    serves a model shows only at the call.
 
 Without the file, `table` returns only the default rows of `models.<task>`. No code reads `when`: the agent uses the
@@ -92,13 +97,13 @@ path, and that setup:settings creates it), or prints the error and returns 1.
 The skills with the command and their tasks: image-gen (`image`, `image_edit`, `image_best`, `image_multi_ref`),
 music (`music`, `audio`), short-video (`video`, `presenter`), voiceover (`speech`), classify (`system1`, `chat`),
 second-opinion (`chat`, `vision`). Each `SKILL.md` has a "Model routes" section with the same rule; the chosen model
-goes to the call as `--model` (a voiceover backend as `--backend`). Skills that load image-gen (infographic, pptx-author, studio, video-effects) route
+goes to the call as `--model`. Skills that load image-gen (infographic, pptx-author, studio, video-effects) route
 through image-gen, by the tier they ask for.
 
 The template rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
-`config.example.yaml`. Each template default row other than `speech` names the config template's `models.<task>`
-(`local:flux2-klein-4b` for `image`, `local:ltx-2.5` for `video`, `local:ace-step` for `music`); the `speech` default
-is the backend `kokoro`, voiceover's default. A user without one of the escalation models has that row dropped.
+`config.example.yaml`. Each template default row names the config template's `models.<task>`
+(`local:flux2-klein-4b` for `image`, `local:ltx-2.5` for `video`, `local:ace-step` for `music`,
+`kokoro:kokoro-v1.0` for `speech`). A user without one of the escalation models has that row dropped.
 
 ## Provider kinds
 
@@ -110,6 +115,9 @@ is the backend `kokoro`, voiceover's default. A user without one of the escalati
 | `azure` | `AzureProvider` | `base_url` (the Azure endpoint), `api_version`, `api_key` |
 | `google` | `GoogleProvider`, or `GoogleCloudProvider` (Vertex) with `vertex: true` | `api_key`, `base_url` |
 | `diffusers` | none; `local` | none |
+| `kokoro` | none; `kokoro` | `model_url`, `voices_url`, `langs`, `dir` (Local speech and alignment) |
+| `chatterbox` | none; `chatterbox` | `python`, `url`, `files`, `dir` (Local speech and alignment) |
+| `torchaudio` | none; `align` | `dir` (Local speech and alignment) |
 | `vllm-omni` | none; `omni` | `python`, `repo`, `deploy`, `memory_share`, `style`, `args`, `env`, `start_timeout` (Speech models of vLLM-Omni) |
 
 What each kind serves:
@@ -121,7 +129,8 @@ What each kind serves:
 | system1 | Pydantic-AI `SystemOneModel` on the provider's `base_url` (Ollama: `/v1/systemone`) | any with a `base_url` |
 | image, image_edit | Pydantic-AI `OpenAIImageGenerationModel`, `GoogleImageGenerationModel`; `local.DiffusersImageModel` | `ollama`, `openrouter`, `openai`, `azure`, `google`, `diffusers` |
 | image mask | `images.MaskedOpenAIImageModel`; the `inpaint` pipeline of a `diffusers` model | OpenAI kinds, `diffusers` |
-| speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, Google `generate_content`, or `omni.speak` | OpenAI kinds, `google`, `vllm-omni` |
+| speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, Google `generate_content`, `omni.speak`, `kokoro.speak` or `chatterbox.speak` | OpenAI kinds, `google`, `vllm-omni`, `kokoro`, `chatterbox` |
+| align | `align.aligner` | `torchaudio` |
 | music | `music.compose`: Google predict or stream, or `local.DiffusersMusicModel` | `google`, `diffusers` |
 | video | `video.animate`: `local.animate` (image to video) | `diffusers` |
 
@@ -199,6 +208,44 @@ device properties) it is the system's available memory (`MemAvailable` of `/proc
 cache, but `mem_get_info()` reports `MemFree` and counts the page cache as used. On a GB10, after 34 GB of
 safetensors files were read, `mem_get_info()` reported 83 GB free and `MemAvailable` 125 GB, and a 102 GB CUDA
 allocation succeeded.
+
+## Local speech and alignment
+
+A provider that serves speech takes `voice` (its default voice; else the kind's, `speech.TRAITS`) and `voices` (the
+list `speech.voices` returns; without it a `kokoro` model lists its voices and the others their default voice).
+`speech.check` refuses a speed outside the kind's range and instructions a kind does not take, before any request or
+model load; `speak` calls it.
+
+The `kokoro`, `chatterbox` and `torchaudio` kinds keep the files of model `<model>` in `<dir>/<model lowercased>/`
+(`weights.model_dir`): `dir` of the provider, else `$XDG_CACHE_HOME/ai-models` (default `~/.cache/ai-models`). Two
+providers with the same `dir` and model share the files. `weights.ensure_file` downloads a missing file to
+`<file>.part`, checks its length against Content-Length and renames it, so a failed download leaves no file under the
+final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files of a `kokoro` or `chatterbox` model.
+
+- `kokoro`: kokoro-onnx in the caller's process on the CPU (extra `ai-models[kokoro]`), no lock. `model_url` and
+  `voices_url` are the ONNX model and the voices file (the kokoro-onnx GitHub release); `langs` maps a voice-name
+  prefix to the espeak-ng language it is phonemized with, and a voice of no listed prefix is refused. One model per
+  model file stays loaded for the life of the process. The answer is a 24 kHz WAV file; speed 0.5 to 2 (kokoro-onnx's
+  limit); no instructions. espeak-ng keeps its data path in a 160-byte buffer and fails on a longer one, so when the
+  `espeak-ng-data` path bundled in `espeakng_loader` is 150 characters or longer, `espeak.data_path` passes a copy at
+  `<weights root>/espeak-ng-data`, else in the temporary directory.
+- `chatterbox`: Chatterbox Turbo, zero-shot voice cloning. chatterbox-tts 0.1.7 pins torch and torchaudio 2.6, so it
+  runs in its own environment (`python`), in one worker process per calling process (`chatterbox_worker.py`, run as
+  `python -I chatterbox_worker.py <model dir>`; it imports nothing of `ai_models`). The worker loads the model on the
+  CPU, sets `HF_HUB_OFFLINE=1` unless set (the weights are local), and answers JSON request lines on stdin with JSON
+  lines on a copy of stdout; its own stdout goes to stderr, which goes to a log file an error quotes. It stops at exit
+  (`atexit`, stdin closed, killed after 30 s) and with the caller (`PR_SET_PDEATHSIG`). `url` and `files` name the
+  model files (the template: the ModelScope mirror of Resemble AI's repository). A voice is `default` (the built-in
+  voice) or the path of a recording longer than 5 s. Under numpy 2, Chatterbox's `norm_loudness` multiplies the
+  float32 reference by a float64 gain and returns float64 (NEP 50 promotion), which its mel filter matmul rejects; the
+  worker casts the result to float32. The answer is a 24 kHz WAV file with Resemble's Perth watermark; no speed, no
+  instructions.
+- `torchaudio`: a forced-alignment pipeline of `torchaudio.pipelines` by name (`torchaudio:MMS_FA`), task `align`, in
+  the caller's process on the CPU (extra `ai-models[align]`, torchaudio 2.11, the last release with `forced_align`).
+  torch.hub downloads the weights into the model directory on the first use (`get_model(dl_kwargs={"model_dir":
+  ...})`) and loads them from there afterwards. `Aligner.align(samples, rate, tokens)` resamples to the pipeline's
+  rate and returns one (start, end) in seconds per token. One aligner per model id stays loaded for the life of the
+  process.
 
 ## Speech models of vLLM-Omni
 

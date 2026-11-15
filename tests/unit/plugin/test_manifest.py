@@ -130,12 +130,16 @@ def test_lib_sources_follow_main():
     assert url and not url.startswith("file://"), f"lib git URL is local: {url!r}"
 
 
-MODEL_SDK_IMPORT = re.compile(r"^\s*(?:from|import)\s+(google\.genai|google\s+import\s+genai|openai)\b", re.M)
+# Model SDKs and model libraries: the provider SDKs, local model libraries and torchaudio's model pipelines.
+MODEL_SDK_IMPORT = re.compile(r"^\s*(?:from|import)\s+(google\.genai|google\s+import\s+genai|openai|kokoro_onnx|"
+                              r"chatterbox|diffusers|transformers|torchaudio\.pipelines|torchaudio\s+import\s+pipelines)\b",
+                              re.M)
 
 
 def test_model_calls_only_through_ai_models():
-    """No module of a plugin project that depends on ai-models imports google-genai or the OpenAI
-    SDK. Guards the rule that ai_models is the only code talking to model providers."""
+    """No module of a plugin project that depends on ai-models imports google-genai, the OpenAI SDK or a model
+    library (kokoro-onnx, chatterbox, diffusers, transformers, torchaudio's pipelines). Guards the rule that
+    ai_models is the only code that runs a model."""
     modules = [module for pyproject in sorted(PLUGINS_DIR.glob("**/pyproject.toml"))
                if "ai-models" in _uv_sources(pyproject)
                for module in sorted(pyproject.parent.glob("*_tool/**/*.py"))]

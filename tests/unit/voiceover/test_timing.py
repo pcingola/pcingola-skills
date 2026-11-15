@@ -1,5 +1,5 @@
 """Unit tests for word placement, without any model. The synth pipeline with the
-real Kokoro backend and aligner is in tests/integration/voiceover/test_synth.py."""
+real Kokoro model and aligner is in tests/integration/voiceover/test_synth.py."""
 
 import unittest
 

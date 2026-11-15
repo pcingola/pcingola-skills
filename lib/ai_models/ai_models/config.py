@@ -67,6 +67,13 @@ def provider(name: str) -> dict[str, Any]:
     return spec
 
 
+def required(spec: dict[str, Any], key: str, name: str) -> Any:
+    """`key` of the settings `spec` of provider `name`; `ConfigError` when it is missing or empty."""
+    if spec.get(key) in (None, ""):
+        raise ConfigError(f"provider {name!r} of kind {spec.get('kind')} needs `{key}` in {path()}")
+    return spec[key]
+
+
 def api_key(spec: dict[str, Any]) -> str | None:
     """The provider's `api_key`, None when the entry has none; `ConfigError` when it is empty."""
     if "api_key" not in spec:

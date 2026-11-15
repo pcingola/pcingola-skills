@@ -30,14 +30,14 @@ structural rule, so the two files obey the same rules.
 The header may define speakers, other voices than the default one (`voice:`
 in settings), in one table before the first scene:
 
-    | Speaker | Backend | Voice | Speed | Style |
+    | Speaker | Model | Voice | Speed | Style |
     |---|---|---|---|---|
-    | guest | speech | Kore | 1.0 | warm, curious |
+    | guest | vertex:gemini-3.8-flash-tts | Kore | 1.0 | warm, curious |
 
 A scene table may then start with a Speaker column,
 `| Speaker | Narration | On screen |`, whose cells name a speaker of that
 table; an empty cell is the default voice. After On screen it may have any of
-the columns Backend, Voice, Speed, Style, in any order: a sentence's own voice
+the columns Model, Voice, Speed, Style, in any order: a sentence's own voice
 settings over its speaker's voice; an empty cell is unset.
 
 `<!-- ... -->` comments (lines starting with `<!--` up to the line holding
@@ -53,14 +53,14 @@ file changes nothing downstream.
 
 The parsed dict has the shape the rest of the code uses. Top level: `title`,
 `topic`, optional `source` (path under `sources/`), `speakers` when the
-header has a speakers table (name to `backend`, `name`, `speed`, `style`,
+header has a speakers table (name to `model`, `name`, `speed`, `style`,
 an empty cell as None) and `scenes`. Each scene:
 `id` (`[a-z0-9_]+`, unique), `image` (path under `images/`, only when
 given), `brief`,
 `narration` (list of sentences) and `beats` (same length as `narration`). A
 scene whose table has the Speaker column also has `speakers`, the Speaker
 cell of each sentence (None when empty); one with voice columns has `voices`,
-per sentence None or a dict of the set fields among `backend`, `name`,
+per sentence None or a dict of the set fields among `model`, `name`,
 `speed`, `style`; one with an image preview line has `preview`, its path. A
 template scene has `template` instead of `brief` and `image` only when given.
 The author is not part of the dict (`read`, storyboard.json): `load` adds a
@@ -120,13 +120,13 @@ PRESENTER = Engine.PRESENTER
 NO_BRIEF = (CLIP, PRESENTER)
 TABLE_HEADER = ["narration", "on screen"]
 # The fields of a voice: a speaker's, or a sentence's own settings.
-VOICE_KEYS = ("backend", "name", "speed", "style")
+VOICE_KEYS = ("model", "name", "speed", "style")
 # Optional scene table columns after On screen: header name to voice field.
-VOICE_COLUMNS = {"backend": "backend", "voice": "name", "speed": "speed", "style": "style"}
+VOICE_COLUMNS = {"model": "model", "voice": "name", "speed": "speed", "style": "style"}
 COLUMN_TITLES = {"speaker": "Speaker", "narration": "Narration", "on screen": "On screen",
-                 "backend": "Backend", "voice": "Voice", "speed": "Speed", "style": "Style"}
+                 "model": "Model", "voice": "Voice", "speed": "Speed", "style": "Style"}
 # The header's speakers table.
-SPEAKERS_HEADER = ["speaker", "backend", "voice", "speed", "style"]
+SPEAKERS_HEADER = ["speaker", "model", "voice", "speed", "style"]
 # Keys of the storyboard structure (storyboard.json) and of each scene.
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
 SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
@@ -208,7 +208,7 @@ MD_NAMES = {
     "title": "`# <title>`", "topic": "`Topic:` paragraph", "source": "`Source:`",
     "scenes": "a `## <scene id>` section", "image": "`Image:`", "brief": "`Brief:`",
     "template": "`Template:`", "engine": "`Engine:`", "narration": "the `| Narration | On screen |` table",
-    "beats": "On screen", "speakers": "the speakers table in the header (`| Speaker | Backend | Voice | Speed | "
+    "beats": "On screen", "speakers": "the speakers table in the header (`| Speaker | Model | Voice | Speed | "
     "Style |`)", "no_speaker": "leave the cell empty for the default voice",
     "clip_scene": "an `Engine: clip` scene", "video_scene": "an `Engine: video` scene",
     "presenter_scene": "an `Engine: presenter` scene",
@@ -225,7 +225,7 @@ def _number(v) -> bool:
 
 
 def _voice_fields(v, path: tuple, label: str, err) -> None:
-    """Types of one voice object (`backend`, `name`, `speed`, `style`, each optional)."""
+    """Types of one voice object (`model`, `name`, `speed`, `style`, each optional)."""
     if not isinstance(v, dict):
         err(path, f"{label}: must be an object with any of {', '.join(VOICE_KEYS)}")
         return
@@ -400,18 +400,18 @@ def _cells(line: str) -> list[str]:
 
 def _columns(cells: list[str]) -> tuple[list[str] | None, str | None]:
     """The scene table's columns, lowercase: optional Speaker, Narration, On
-    screen, then any of Backend, Voice, Speed, Style once each; or None and
+    screen, then any of Model, Voice, Speed, Style once each; or None and
     what is wrong with the header."""
     head = [c.lower() for c in cells]
     lead = 1 if head[:1] == ["speaker"] else 0
     extra = head[lead + 2:]
     if head[lead:lead + 2] != TABLE_HEADER:
         return None, ("the table header must be `| Narration | On screen |`, optionally with a Speaker column "
-                      "first and any of Backend, Voice, Speed, Style after On screen")
+                      "first and any of Model, Voice, Speed, Style after On screen")
     unknown = [c for c in extra if c not in VOICE_COLUMNS]
     if unknown:
         return None, (f"unknown table column {cells[lead + 2 + extra.index(unknown[0])]!r}; after On screen "
-                      "only Backend, Voice, Speed, Style")
+                      "only Model, Voice, Speed, Style")
     repeated = [c for i, c in enumerate(extra) if c in extra[:i]]
     if repeated:
         return None, f"table column {COLUMN_TITLES[repeated[0]]!r} given twice"
@@ -516,7 +516,7 @@ def parse_markdown(text: str) -> dict:
                 if speakers_table is None:
                     if [c.lower() for c in cells] != SPEAKERS_HEADER:
                         err(n, "table outside a scene; put it under a `## <scene id>` heading (the header "
-                               "holds only the `| Speaker | Backend | Voice | Speed | Style |` table)")
+                               "holds only the `| Speaker | Model | Voice | Speed | Style |` table)")
                     speakers_table = "header"
                 elif speakers_table == "header":
                     if not all(SEPARATOR_CELL_RE.match(c) for c in cells) or len(cells) != 5:
@@ -666,32 +666,33 @@ def _line_of(message: str) -> int:
 def _speaker_row(cells: list[str], n: int, speakers: dict, lines: dict, err) -> None:
     """Add one row of the header's speakers table to `speakers`."""
     if len(cells) != 5:
-        err(n, f"speakers table row has {len(cells)} cells, needs 5 (Speaker, Backend, Voice, Speed, Style)")
+        err(n, f"speakers table row has {len(cells)} cells, needs 5 (Speaker, Model, Voice, Speed, Style)")
         return
-    name, backend, voice, speed, style = cells
+    name, model, voice, speed, style = cells
     if name in lines:
         err(n, f"duplicate speaker {name!r} (first at line {lines[name]})")
         return
     lines[name] = n
-    speakers[name] = {"backend": backend or None, "name": voice or None,
+    speakers[name] = {"model": model or None, "name": voice or None,
                       "speed": _speed(speed, n, f"speaker {name!r}", err), "style": style or None}
 
 
 def resolve_voice(data: dict, speaker: str | None = None, own: dict | None = None) -> dict:
-    """A voice as `backend`, `name`, `speed`, `style`: the speaker's (speaker
+    """A voice as `model`, `name`, `speed`, `style`: the speaker's (speaker
     None: `voice:` from the settings), with the set fields of `own` (a
-    sentence's settings) over it, then defaults filled in: a null `name` is
-    the backend's default voice from `voice.names`, a null `speed` 1.0. An
-    own `backend` that differs from the speaker's drops the speaker's `name`."""
+    sentence's settings) over it, then a null `speed` filled in as 1.0. A null
+    `model` is the `speech` model of config.yaml and a null `name` the model's
+    default voice, both as the voiceover skill resolves them. An own `model`
+    that differs from the speaker's drops the speaker's `name`."""
     v = settings.get()["voice"]
     src = v if speaker is None else (data.get("speakers") or {})[speaker]
     merged = {k: src.get(k) for k in VOICE_KEYS}
     own = {k: x for k, x in (own or {}).items() if x not in (None, "")}
-    if own.get("backend", merged["backend"]) != merged["backend"]:
-        merged["name"] = None  # another backend: its default voice unless `own` names one
+    if own.get("model", merged["model"]) != merged["model"]:
+        merged["name"] = None  # another model: its default voice unless `own` names one
     merged.update(own)
-    backend, speed = merged["backend"], merged["speed"]
-    return {"backend": backend, "name": merged["name"] or (v.get("names") or {}).get(backend),
+    speed = merged["speed"]
+    return {"model": merged["model"] or None, "name": merged["name"] or None,
             "speed": 1.0 if speed is None else speed, "style": merged["style"] or None}
 
 
@@ -838,21 +839,18 @@ def _same_file(project_dir: Path, preview: str, image: Path) -> bool:
 
 
 def voice_errors(voice: dict, label) -> list[str]:
-    """Problems of one voice (`backend`, `speed`, `style`) under the rules of
-    `voice:` in the settings; `label(key)` names a field in the messages."""
+    """Problems of one voice (`model`, `speed`) under the rules of `voice:` in
+    the settings; `label(key)` names a field in the messages. Whether the model
+    takes the speed and the style, the voiceover skill checks when it voices."""
     rules = settings.get()["voice"]
-    names = rules.get("names") or {}
-    styles = rules.get("style_backends") or []
     out = []
-    if voice.get("backend") not in names:
-        out.append(f"{label('backend')} must be one of {', '.join(sorted(names))}")
-    if voice.get("style") and voice.get("backend") not in styles:
-        out.append(f"{label('style')} needs one of these backends: {', '.join(styles)}")
+    model = voice.get("model")
+    if model is not None and (not isinstance(model, str) or ":" not in model.strip(":")):
+        out.append(f"{label('model')} must be a speech model id <provider>:<model> of config.yaml, or empty for "
+                   "its `speech` model")
     speed = voice.get("speed")
     if not _number(speed) or not rules["speed_min"] <= speed <= rules["speed_max"]:
         out.append(f"{label('speed')} must be a number between {rules['speed_min']} and {rules['speed_max']}")
-    elif speed != 1.0 and voice.get("backend") in names and voice.get("backend") not in (rules.get("speed_backends") or []):
-        out.append(f"{label('speed')} must be 1.0 for {voice['backend']}, which has no speed setting")
     return out
 
 
@@ -869,6 +867,9 @@ def validate_settings(project_dir: Path, brand_dir: Path | None = None) -> Valid
     elif not settings.authors():
         r.warnings.append(f"no `author:` in {settings.PROJECT_FILE}: the film has no creator credit")
 
+    if s["voice"].get("backend") is not None:
+        err("`voice.backend` is no longer read: set `voice.model` to a speech model id of config.yaml "
+            "(the voiceover skill's `routes` lists them), or leave it null for its `speech` model")
     r.errors.extend(voice_errors(s["voice"], lambda key: f"`voice.{key}`"))
     gap = s["voice"].get("speaker_gap")
     if not _number(gap) or gap < 0:

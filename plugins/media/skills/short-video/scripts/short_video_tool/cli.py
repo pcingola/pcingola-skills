@@ -220,7 +220,7 @@ def _targets(data: dict, ids: list[str] | None, pending) -> list[dict]:
 
 def _voice_line(speaker: str | None, voice: dict) -> str:
     """The voice to voice a script with, as `script` prints it."""
-    return " ".join(([f"speaker={speaker}"] if speaker else []) + [f"backend={voice['backend']}"]
+    return " ".join(([f"speaker={speaker}"] if speaker else []) + ([f"model={voice['model']}"] if voice["model"] else [])
                     + ([f"name={voice['name']}"] if voice["name"] else [])
                     + [f"speed={voice['speed']}"] + ([f"style={voice['style']}"] if voice["style"] else []))
 

@@ -24,7 +24,9 @@
 # azure (Azure OpenAI, needs api_version), google (Gemini, Lyria; vertex: true
 # for a Vertex endpoint; predict_models lists the music models served by the
 # Vertex predict endpoint, the others stream), diffusers (local models of the diffusers section),
-# vllm-omni (a local speech model served by vLLM-Omni; keys in its entry below).
+# vllm-omni (a local speech model served by vLLM-Omni; keys in its entry below),
+# kokoro and chatterbox (local speech on the CPU), torchaudio (the word
+# aligner of media:voiceover); keys in their entries below.
 # Every kind except diffusers takes timeout (seconds per request, default 600).
 # Delete the providers you do not use; replace each replace-me with a key.
 # azure and vertex below point at a company (enterprise) gateway that serves
@@ -46,6 +48,24 @@ providers:
   # more server arguments (eager: the weights load in 34 s instead of 4.5 min
   # on a unified-memory GPU); env: server environment variables (FlashInfer's
   # sampler needs nvcc to JIT-compile on GPUs without prebuilt kernels).
+  # Kokoro 82M, local speech on the CPU in the skill's process (about 340 MB,
+  # English US and UK voices, no style): model_url and voices_url are its
+  # files; langs maps a voice-name prefix to its espeak language (voices of
+  # other prefixes are refused); voice is the default voice. The files go to
+  # <dir>/<model>/; dir defaults to ~/.cache/ai-models ($XDG_CACHE_HOME).
+  kokoro:      {kind: kokoro, model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx, voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin, langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}, voice: af_heart}
+  # torchaudio forced-alignment pipelines (models.align): word times of
+  # media:voiceover on the CPU. torch.hub downloads the weights (MMS_FA:
+  # 1.26 GB) to <dir>/<model lowercased>/.
+  torchaudio:  {kind: torchaudio}
+  # Chatterbox Turbo, local speech with voice cloning from one recording, on
+  # the CPU (about 3 GB), in a worker process of its own environment
+  # (chatterbox-tts pins torch 2.6):
+  #   uv venv <env dir> --python 3.12
+  #   uv pip install --python <env dir>/bin/python chatterbox-tts==0.1.7 soundfile "setuptools<81"
+  # url and files: the model files, downloaded to <dir>/<model>/; voice:
+  # default is the model's built-in voice.
+  #chatterbox:  {kind: chatterbox, python: /path/to/env/bin/python, url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master, files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]}
   #fish:        {kind: vllm-omni, python: /path/to/env/bin/python, repo: fishaudio/drama-3, deploy: fish_omni.yaml, memory_share: 0.6, style: "[{instructions}] {text}", args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager], env: {VLLM_USE_FLASHINFER_SAMPLER: 0}}
 
 # The model of each task. The skills ask for these tasks:
@@ -61,7 +81,8 @@ providers:
 #   image_multi_ref  media:image-gen --tier multi-ref, with and without --ref:
 #               several reference images, a character or product kept the
 #               same across images (Studio "Multi-reference")
-#   speech      media:voiceover (speech backend)
+#   speech      media:voiceover
+#   align       media:voiceover word times (a forced aligner, kind torchaudio)
 #   music       media:music generate
 #   video       media:short-video video scenes (Engine: video): an image
 #               animated into a clip
@@ -81,7 +102,9 @@ models:
   image_edit: local:flux2-klein-4b
   image_best: azure:gpt-image-2
   image_multi_ref: openrouter:google/gemini-3-pro-image
-  speech: azure:gpt-4o-mini-tts
+  speech: kokoro:kokoro-v1.0
+  #speech: azure:gpt-4o-mini-tts
+  align: torchaudio:MMS_FA
   music: local:ace-step
   #music: vertex:lyria-002
   audio: vertex:gemini-3.1-pro-preview
@@ -179,15 +202,15 @@ settings:
   # where the HTTP, TLS and Hugging Face libraries and child processes read
   # them.
   #
-  # Proxies. Read by the HTTP clients of the model layer and by the httpx and
-  # requests of media:voiceover (weight downloads).
+  # Proxies. Read by the HTTP clients of the model layer, its weight downloads
+  # included.
   #HTTP_PROXY: http://proxy.example.com:8080
   #HTTPS_PROXY: http://proxy.example.com:8080
   #ALL_PROXY: http://proxy.example.com:8080
   #NO_PROXY: localhost,127.0.0.1
-  # PEM bundle that replaces the default trust store. Read by httpx's default
-  # TLS context (media:voiceover weight downloads).
-  # The remote calls of the model layer do not read it: they
+  # PEM bundle that replaces the default trust store. Read by Python's default
+  # TLS context (the torch.hub download of the align model's weights).
+  # The other remote calls of the model layer do not read it: they
   # use certifi's roots plus EXTRA_CA_CERT.
   #SSL_CERT_FILE: /path/to/ca_bundle.pem
   # Hugging Face cache, where the local diffusers models (media:image-gen,
@@ -198,38 +221,10 @@ settings:
   #HF_TOKEN: hf_replace-me
 
   # --- media:voiceover -------------------------------------------------------
-  # The speech backend takes the task speech (models above).
-  # Kokoro, MMS_FA and Chatterbox weights. Default <media data dir>/voiceover.
-  #VOICEOVER_MODEL_DIR: /path/to/voiceover
-  # Chatterbox voice recordings written by `add-voice`.
-  # Default <VOICEOVER_MODEL_DIR>/voices.
+  # The speech and align models are in models above. Reference recordings
+  # written by `add-voice` (voices of the models that clone one: chatterbox,
+  # vllm-omni). Default <media data dir>/voiceover/voices.
   #VOICEOVER_VOICES_DIR: /path/to/voices
-  # Model weights and default voices. Required by the backend that uses them.
-  # Kokoro (kokoro backend): the ONNX model and voices files, stored in
-  # <VOICEOVER_MODEL_DIR>/<model file name without suffix>/.
-  VOICEOVER_KOKORO_MODEL_URL: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
-  VOICEOVER_KOKORO_VOICES_URL: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
-  VOICEOVER_KOKORO_VOICE: af_heart
-  # Kokoro voice name prefix -> espeak language, comma-separated
-  # prefix=language pairs; `voices` lists the voices of these prefixes.
-  VOICEOVER_KOKORO_LANGS: af_=en-us,am_=en-us,bf_=en-gb,bm_=en-gb
-  # Word aligner (every backend, unless --no-align): a torchaudio pipeline
-  # (torchaudio.pipelines.<name>) and its weights file.
-  VOICEOVER_ALIGNER: MMS_FA
-  VOICEOVER_ALIGNER_URL: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt
-  # Chatterbox Turbo (chatterbox backend): model name (also its directory),
-  # base URL of the repository files, the file names, and the default voice
-  # (`default` is the model's built-in voice).
-  VOICEOVER_CHATTERBOX_MODEL: chatterbox-turbo
-  VOICEOVER_CHATTERBOX_URL: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master
-  VOICEOVER_CHATTERBOX_FILES: t3_turbo_v1.safetensors,s3gen_meanflow.safetensors,ve.safetensors,conds.pt,vocab.json,merges.txt,tokenizer_config.json,added_tokens.json,special_tokens_map.json
-  VOICEOVER_CHATTERBOX_VOICE: default
-  # Default voice of the `speech` model (marin: OpenAI; Kore: Gemini TTS;
-  # default: Ollama; lfm3-audio on Ollama, for tests only, takes female or male, optionally
-  # with a language: female-british-english). VOICEOVER_SPEECH_VOICES,
-  # optional: the voices `voices` lists for the speech backend, comma-separated.
-  VOICEOVER_SPEECH_VOICE: marin
-  #VOICEOVER_SPEECH_VOICES: alloy,ash,ballad,cedar,coral,echo,fable,marin,nova,onyx,sage,shimmer,verse
 
   # --- media:image-gen -------------------------------------------------------
   # Size limits. Required for OpenAI-kind models (openai, azure, openrouter,

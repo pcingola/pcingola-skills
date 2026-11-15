@@ -27,7 +27,7 @@
 # versions.
 # <project> is the uv project's path inside the plugin without `skills/` and
 # `/scripts`, with "/" turned into "-": `pptx`, `short-video-scripts-manim`.
-# The path is kept short because espeak-ng (voiceover's kokoro backend) cannot
+# The path is kept short because espeak-ng (Kokoro speech models of ai_models) cannot
 # open a data directory whose path is 160 characters or longer.
 #
 # plugin_env <uv project dir>

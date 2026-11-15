@@ -30,7 +30,7 @@ JSON_SCENE = {"id": "host", "engine": "presenter", "image": "host.png", "narrati
               "beats": ["host speaks"]}
 
 TIMING = {
-    "audio": "narration.wav", "sample_rate": 24000, "duration": 2.5, "backend": "kokoro", "voice": "af_heart",
+    "audio": "narration.wav", "sample_rate": 24000, "duration": 2.5, "model": "kokoro:kokoro-v1.0", "voice": "af_heart",
     "speed": 1.0, "sentences": [{"index": 1, "text": "Welcome to the harbour.", "start": 0.25, "end": 2.2,
                                  "aligned": True, "words": [{"text": "Welcome", "start": 0.25, "end": 0.6}]}],
 }

@@ -90,9 +90,9 @@ scene.
    Set `author:` (a list of names) to the authors the user names, and set
    `voice:` in `settings.yaml`. An empty `author:` gives a film without a
    creator credit. For narration in a real person's voice ("in
-   my voice"), set `voice.backend: chatterbox` and `voice.name` to that
-   person's cloned voice; `media:voiceover` lists the cloned voices and
-   explains how to add one. For several voices, see "Speakers" in
+   my voice"), set `voice.model` to a speech model that clones a voice and
+   `voice.name` to that person's voice; `media:voiceover` lists the models
+   (`routes`) and the cloned voices, and explains how to add one. For several voices, see "Speakers" in
    `references/storyboard.md`.
 2. Storyboard: fill `storyboard.md` following `references/storyboard.md`.
    The story comes from what the user gave, or from your research of the

@@ -59,6 +59,30 @@ def test_endpoint_reads_config(tmp_path):
         {"id": "fast", "model": "local:z-image-turbo", "ref_model": "local:flux2-klein-4b"}]
 
 
+def test_speech_models_from_the_routes(tmp_path):
+    """`speech` lists the speech routes: the default (models.speech) first, then the configured escalation rows,
+    each with what the model takes; a row of a provider without speech models, or not in config.yaml, is left out.
+    Guards the voice picker's choices."""
+    cfg = write_config(tmp_path / "config.yaml",
+                       providers={"k": {"kind": "kokoro"}, "cb": {"kind": "chatterbox"}, "oai": {"kind": "openai"},
+                                  "local": {"kind": "diffusers"}},
+                       models={"speech": "k:kokoro-v1.0"})
+    (tmp_path / "routes.md").write_text(
+        "| task | model | when | why |\n|---|---|---|---|\n| speech | k:kokoro-v1.0 | default | calm |\n"
+        "| speech | cb:chatterbox-turbo | only when cloned | clones |\n| speech | local:x | only when never | no |\n"
+        "| speech | gone:tts | only when never | no |\n| speech | oai:tts | only when styled | styles |\n",
+        encoding="utf-8")
+    with server(tmp_path, cfg) as url:
+        got = get_models(url)["speech"]
+    assert got == [
+        {"id": "k:kokoro-v1.0", "default": True, "when": "default", "why": "calm", "voice": "af_heart",
+         "speed": [0.5, 2.0], "style": False, "clones": False},
+        {"id": "cb:chatterbox-turbo", "default": False, "when": "only when cloned", "why": "clones",
+         "voice": "default", "speed": None, "style": False, "clones": True},
+        {"id": "oai:tts", "default": False, "when": "only when styled", "why": "styles", "voice": "marin",
+         "speed": [0.25, 4.0], "style": True, "clones": False}]
+
+
 def test_endpoint_without_or_broken_config(tmp_path):
     """A missing config.yaml, or one broken after the server started (the server does not start with a broken
     file), gives every task no model. Guards the page against a 500 when the settings file is absent
@@ -66,7 +90,7 @@ def test_endpoint_without_or_broken_config(tmp_path):
     with server(tmp_path, tmp_path / "missing.yaml") as url:
         got = get_models(url)
     assert set(got["tasks"].values()) == {None}
-    assert not any(t["model"] or t["ref_model"] for t in got["tiers"])
+    assert not any(t["model"] or t["ref_model"] for t in got["tiers"]) and got["speech"] == []
     cfg = write_config(tmp_path / "config.yaml", models=MODELS)
     with server(tmp_path, cfg) as url:
         cfg.write_text("models: [", encoding="utf-8")

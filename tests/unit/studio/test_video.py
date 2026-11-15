@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from studio_server.video import check_storyboard, default_film, scene_state
+from studio_server.video import check_storyboard, default_film, film_of, scene_state
 
 from tests.settings_env import write_config
 from tests.subproc import child_env, py_value
@@ -103,7 +103,7 @@ def test_new_video_project(client, studio):
     assert p.parent == studio.root / "short-video"
     meta = json.loads((p / "project.json").read_text())
     assert meta["film"] == default_film() and meta["style"] is None and meta["scene_styles"] == {}
-    assert default_film()["voice"] == {"backend": "kokoro", "name": None, "speed": 1.0, "style": None}
+    assert default_film()["voice"] == {"model": None, "name": None, "speed": 1.0, "style": None}
 
 
 def test_video_list(client, studio):
@@ -128,9 +128,9 @@ def test_video_details(client, studio):
     (p / "sources" / "music").mkdir(parents=True)
     (p / "sources" / "notes.md").write_text("notes")
     (p / "sources" / "music" / "made.mp3").write_bytes(b"x")
-    version(p, "voice", "injection", "v1", meta={"duration": 4.5, "voice": {"backend": "kokoro"}, "created_at": "a"},
+    version(p, "voice", "injection", "v1", meta={"duration": 4.5, "voice": {"model": "kokoro:kokoro-v1.0"}, "created_at": "a"},
             files=("narration.wav",))
-    version(p, "voice", "injection", "v2", meta={"duration": 5.0, "voice": {"backend": "kokoro", "voice": "voice-a"},
+    version(p, "voice", "injection", "v2", meta={"duration": 5.0, "voice": {"model": "kokoro:kokoro-v1.0", "voice": "voice-a"},
                                                   "created_at": "b"}, files=("narration.wav",))
     version(p, "voice", "injection", "v3")  # not complete
     version(p, "voice", "injection", "v4", meta="[1]")  # metadata not an object: left out
@@ -151,7 +151,7 @@ def test_video_details(client, studio):
         (p / "samples" / f"voice-{k}").mkdir()
         (p / "samples" / f"voice-{k}" / "narration.wav").write_bytes(b"x")
         if k < 3:  # sample 3 has no sidecar yet
-            (p / "samples" / f"voice-{k}.json").write_text(json.dumps({"voice": {"backend": "kokoro"},
+            (p / "samples" / f"voice-{k}.json").write_text(json.dumps({"voice": {"model": "kokoro:kokoro-v1.0"},
                                                                        "text": f"s{k}"}))
     (p / "samples" / "voice-4.json").write_text("{}")  # no WAV
     (p / "status.json").write_text(json.dumps({"created": "2026-11-12T11:00:00+01:00", "film": default_film(),
@@ -166,7 +166,7 @@ def test_video_details(client, studio):
     assert injection["pictures"][0]["image"] == str(p / "images" / "injection" / "v2.png")
     assert injection["picture"] == 1 and opening["picture"] is None and morph["pictures"] == []
     assert injection["recording"] == {"n": 2, "path": str(p / "voice" / "injection" / "v2" / "narration.wav"),
-                                      "duration": 5.0, "voice": {"backend": "kokoro", "voice": "voice-a"},
+                                      "duration": 5.0, "voice": {"model": "kokoro:kokoro-v1.0", "voice": "voice-a"},
                                       "created": "b"}
     assert injection["clip"] == {"n": 1, "path": str(p / "scenes" / "injection" / "v1" / "scene.mp4"),
                                  "contact": str(p / "scenes" / "injection" / "v1" / "contact.png"), "duration": 5.2,
@@ -244,7 +244,7 @@ def test_scene_state_rules():
     # Rule 2: the film's voice or the speakers changed, for narrated scenes only.
     other = {**film, "voice": {**film["voice"], "speed": 1.1}}
     assert [scene_state(s, sb, status, other) for s in sb["scenes"]] == ["voice", "voice", "ready"]
-    with_speakers = {**sb, "speakers": {"host": {"backend": "kokoro"}}}
+    with_speakers = {**sb, "speakers": {"host": {"model": "kokoro:kokoro-v1.0"}}}
     assert scene_state(injection, with_speakers, status, film) == "voice"
     # Rule 3: narration, speakers or voices.
     assert scene_state({**injection, "narration": ["A shot.", "It learns."]}, sb, status, film) == "voice"
@@ -380,7 +380,7 @@ def test_film(client, studio):
     """/api/film replaces each given key whole and answers the whole film settings. Guards the voice and music
     controls."""
     p = make_video(studio.root, storyboard=None)
-    voice = {"backend": "speech", "name": "marin", "speed": 1.1, "style": "warm"}
+    voice = {"model": "oai:tts", "name": "marin", "speed": 1.1, "style": "warm"}
     status, body = client.post("/api/film", {"project": str(p), "film": {"voice": voice, "length": 30}})
     assert status == 200 and body["film"] == {**default_film(), "voice": voice, "length": 30}
     assert json.loads((p / "project.json").read_text())["film"] == body["film"]
@@ -390,16 +390,24 @@ def test_film(client, studio):
     assert client.post("/api/film", {"project": str(p), "film": {"brand": None}})[1]["film"]["brand"] is None
 
 
+def test_film_voice_of_the_earlier_form_reads_as_the_default():
+    """A stored film voice without `model` (the earlier `backend` form) reads as the default voice, so the page can
+    save the film again. Guards projects made before the voice named a speech model."""
+    assert film_of({"film": {"voice": {"backend": "kokoro", "name": "af_heart", "speed": 1.0, "style": None},
+                             "length": 30}}) == {**default_film(), "length": 30}
+
+
 BAD_FILMS = [
     None, [], {}, {"colour": 1},
-    {"voice": None}, {"voice": {"backend": "kokoro", "name": None, "speed": 1.0}},
+    {"voice": None}, {"voice": {"model": "kokoro:kokoro-v1.0", "name": None, "speed": 1.0}},
     {"voice": {"backend": "espeak", "name": None, "speed": 1.0, "style": None}},
-    {"voice": {"backend": "kokoro", "name": "", "speed": 1.0, "style": None}},
-    {"voice": {"backend": "kokoro", "name": None, "speed": 2.5, "style": None}},
-    {"voice": {"backend": "kokoro", "name": None, "speed": 0.4, "style": None}},
-    {"voice": {"backend": "kokoro", "name": None, "speed": True, "style": None}},
-    {"voice": {"backend": "kokoro", "name": None, "speed": 1.0, "style": 3}},
-    {"voice": {"backend": "kokoro", "name": None, "speed": 1.0, "style": None, "pitch": 1}},
+    {"voice": {"model": "kokoro", "name": None, "speed": 1.0, "style": None}},
+    {"voice": {"model": "kokoro:kokoro-v1.0", "name": "", "speed": 1.0, "style": None}},
+    {"voice": {"model": "kokoro:kokoro-v1.0", "name": None, "speed": 2.5, "style": None}},
+    {"voice": {"model": "kokoro:kokoro-v1.0", "name": None, "speed": 0.4, "style": None}},
+    {"voice": {"model": "kokoro:kokoro-v1.0", "name": None, "speed": True, "style": None}},
+    {"voice": {"model": "kokoro:kokoro-v1.0", "name": None, "speed": 1.0, "style": 3}},
+    {"voice": {"model": "kokoro:kokoro-v1.0", "name": None, "speed": 1.0, "style": None, "pitch": 1}},
     {"music": {"mode": "made", "brief": ""}},
     {"music": {"mode": "loud", "brief": "", "volume": "normal", "version": None}},
     {"music": {"mode": "made", "brief": 3, "volume": "normal", "version": None}},
@@ -696,7 +704,7 @@ def test_scene_actions(client, studio, emitted):
     (p / "sources" / "song.mp3").write_bytes(b"x")
     (p / "sources" / "notes.md").write_text("n")
     (p / "sources" / "music" / "made.mp3").write_bytes(b"x")
-    voice = {"backend": "speech", "name": "Kore", "speed": 1.0, "style": "calm"}
+    voice = {"model": "oai:tts", "name": "Kore", "speed": 1.0, "style": "calm"}
     ok = [vreq(p, "add-scene", after="opening", text="a lab"), vreq(p, "add-scene", after=None, text="a lab"),
           vreq(p, "remake-scene", scene="morph"), vreq(p, "music", brief="calm piano"),
           vreq(p, "own-music", file=str(p / "sources" / "song.mp3")), vreq(p, "voice-sample", voice=voice),

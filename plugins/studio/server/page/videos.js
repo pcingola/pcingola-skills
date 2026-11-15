@@ -23,24 +23,19 @@
   const LENGTHS = [[30, "About 30 seconds", "about 30 seconds"], [60, "About 1 minute", "about 1 minute"],
     [120, "About 2 minutes", "about 2 minutes"], [180, "About 3 minutes", "about 3 minutes"]];
   const aim = s => (LENGTHS.find(l => l[0] === s) || [s, "", `about ${s} seconds`])[2];
-  const BACKENDS = [["kokoro", "Kokoro, on this computer"], ["speech", "Speech model, online"],
-    ["chatterbox", "Your own voice"]];
-  /** The line of each backend's card in the voice step (the online one's is made by cardLine). */
-  const BACKEND_LINES = { kokoro: "Made on this computer.", chatterbox: "Copied from a 20-second recording of you reading aloud." };
-  const backendLabel = b => (BACKENDS.find(x => x[0] === b) || [b, b || ""])[1];
   /** The model id of a config.yaml task (speech, music, video, presenter), or null. */
   const taskModel = task => Studio.models().tasks[task] || null;
-  /** A backend's short name; the online one with its speech model. */
-  const backendName = b => (b === "speech" ? Studio.withModel("Speech model", taskModel("speech")) : backendLabel(b).split(",")[0]);
-  /** A voice card's line; the online voice's names its speech model. */
-  const cardLine = b => (b === "speech" ? `Natural, takes a speaking style. Made online by ${taskModel("speech") || "no model: config.yaml names no speech model"}.` : BACKEND_LINES[b]);
+  /** The speech models of the voice picker (media:voiceover's routes), the default (config.yaml's speech model) first. */
+  const speechModels = () => Studio.models().speech || [];
+  /** The entry of a voice's model id; the default one for null. */
+  const speechModel = id => speechModels().find(m => (id ? m.id === id : m.default)) || null;
+  /** A voice's model id; null is the default, shown by its id. */
+  const modelName = id => id || (speechModel(null) || {}).id || "no speech model in config.yaml";
   const SPEEDS = [[0.9, "Slower"], [1, "Normal"], [1.1, "Faster"]];
   const speedLabel = v => (SPEEDS.find(s => s[0] === Number(v)) || [v, `${v}×`])[1];
-  const hasSpeed = b => b === "kokoro" || b === "speech";
-  const hasStyle = b => b === "speech";
-  /** Whether a backend takes a voice name; one without a name uses the backend's default voice. */
-  const hasName = b => b !== "chatterbox";
-  const voiceLabel = v => (hasName(v.backend) ? `${backendName(v.backend)}, ${v.name || "default voice"}` : backendLabel(v.backend));
+  const hasSpeed = id => Boolean((speechModel(id) || {}).speed);
+  const hasStyle = id => Boolean((speechModel(id) || {}).style);
+  const voiceLabel = v => `${modelName(v.model)}, ${v.name || "default voice"}`;
   /** The settings of a new film, from /api/config (its "Made by" from the AUTHOR_NAME setting). */
   const defaultFilm = () => Studio.config().film;
   const MUSIC_MODES = [["made", "Made for this film"], ["own", "My own track"], ["none", "No music"]];
@@ -216,25 +211,24 @@
   /* ---------- voices ---------- */
 
   /**
-   * The voice of a sentence from levels, the most specific first (per-sentence settings, the speaker, the film):
-   * each field from the first level that sets it; the name only from a level whose voice is of the chosen backend;
-   * speed and style only for the backends that take them.
+   * The voice of a sentence as media:short-video resolves it: `own` (per-sentence settings) over `base` (its
+   * speaker's voice, else the film's); an own model other than the base's drops the base's name. A null model is
+   * config.yaml's speech model; speed and style only for a model that takes them.
    */
-  function resolve(levels) {
-    const pick = key => { for (const l of levels) if (l && l[key] != null && l[key] !== "") return l[key]; return null; };
-    const backend = pick("backend") || "kokoro";
-    let name = null;
-    for (const l of levels) {
-      if (!l || l.name == null) continue;
-      if (l.backend == null || l.backend === backend) { name = l.name; break; }
-    }
-    return { backend, name, speed: hasSpeed(backend) ? Number(pick("speed") || 1) : 1, style: hasStyle(backend) ? pick("style") : null };
+  function resolve(own, base) {
+    const set = Object.fromEntries(Object.entries(own || {}).filter(([, x]) => x != null && x !== ""));
+    const v = { model: null, name: null, speed: null, style: null, ...(base || {}) };
+    if ("model" in set && set.model !== (v.model ?? null)) v.name = null;
+    Object.assign(v, set);
+    const model = v.model || null;
+    return { model, name: v.name || null, speed: hasSpeed(model) ? Number(v.speed ?? 1) : 1, style: hasStyle(model) ? v.style || null : null };
   }
   const speakerOf = (scene, k) => (scene.speakers ? scene.speakers[k] : null) || null;
   const speakerVoice = name => (name && sb && sb.speakers ? sb.speakers[name] || null : null);
-  const inherited = (scene, k) => resolve([speakerVoice(speakerOf(scene, k)), film.voice]);
-  const sentenceVoice = (scene, k) => resolve([(scene.voices || [])[k], speakerVoice(speakerOf(scene, k)), film.voice]);
-  const voiceText = v => [voiceLabel(v), hasSpeed(v.backend) ? `${speedLabel(v.speed).toLowerCase()} speed` : null].filter(Boolean).join(", ");
+  const baseVoice = (scene, k) => speakerVoice(speakerOf(scene, k)) || film.voice;
+  const inherited = (scene, k) => resolve(null, baseVoice(scene, k));
+  const sentenceVoice = (scene, k) => resolve((scene.voices || [])[k], baseVoice(scene, k));
+  const voiceText = v => [voiceLabel(v), hasSpeed(v.model) ? `${speedLabel(v.speed).toLowerCase()} speed` : null].filter(Boolean).join(", ");
   /** Number of different voices that speak the scene. */
   const voicesUsed = scene => new Set((scene.narration || []).map((_, k) => JSON.stringify(sentenceVoice(scene, k)))).size;
 
@@ -370,11 +364,11 @@
   }
   player.addEventListener("ended", () => { if (playing) play(null, playing); });
 
-  const sameVoice = (a, b) => a.backend === b.backend && (a.name || null) === (b.name || null)
+  const sameVoice = (a, b) => (a.model || null) === (b.model || null) && (a.name || null) === (b.name || null)
     && Number(a.speed || 1) === Number(b.speed || 1) && (a.style || null) === (b.style || null);
   /** Plays the newest sample of the voice, or asks for one. */
   async function sample(voice, button) {
-    const v = { backend: voice.backend, name: voice.name ?? null, speed: Number(voice.speed || 1), style: voice.style || null };
+    const v = { model: voice.model ?? null, name: voice.name ?? null, speed: Number(voice.speed || 1), style: voice.style || null };
     const s = (V().samples || []).find(x => x.voice && sameVoice(x.voice, v));
     if (s) return play(s.path, button);
     const waiting = "A sample is being made; press ▶ again once it is listed";
@@ -756,27 +750,30 @@
 
   function stepVoice() {
     const v = film.voice;
-    const pickVoice = b => ({ backend: b, name: b === v.backend ? v.name ?? null : null,
-      speed: hasSpeed(b) ? v.speed || 1 : 1, style: hasStyle(b) ? v.style : null });
-    const voices = h("div", { class: "voices" }, BACKENDS.map(([b, l]) => h("div", {
-      class: "voice" + (b === v.backend ? " on" : ""), onclick: () => setFilm({ voice: pickVoice(b) }) },
-      h("span", { class: "r" }), h("div", {}, h("b", {}, b === "speech" ? "Online voice" : l.split(",")[0]), h("span", {}, cardLine(b))),
-      playButton("Play a sample", btn => sample(pickVoice(b), btn)))));
-    const name = h("input", { type: "text", value: v.name || "", disabled: !hasName(v.backend), "data-k": "film-voice-name",
-      placeholder: hasName(v.backend) ? "Empty: the backend's default voice" : "Your own voice has no name",
+    const key = m => (m.default ? null : m.id);
+    const pickVoice = m => ({ model: key(m), name: key(m) === (v.model ?? null) ? v.name ?? null : null,
+      speed: m.speed ? v.speed || 1 : 1, style: m.style ? v.style : null });
+    const voices = speechModels().length ? h("div", { class: "voices" }, speechModels().map(m => h("div", {
+      class: "voice" + (key(m) === (v.model ?? null) ? " on" : ""), onclick: () => setFilm({ voice: pickVoice(m) }) },
+      h("span", { class: "r" }), h("div", {}, h("b", {}, m.id), h("span", {}, m.default ? m.why : `${m.when}: ${m.why}`)),
+      playButton("Play a sample", btn => sample(pickVoice(m), btn)))))
+      : h("div", { class: "hint" }, "config.yaml names no speech model: the setup:settings skill adds one.");
+    const cur = speechModel(v.model) || {};
+    const name = h("input", { type: "text", value: v.name || "", "data-k": "film-voice-name",
+      placeholder: `Empty: the model's default voice${cur.voice ? ` (${cur.voice})` : ""}${cur.clones ? "; or a cloned voice" : ""}`,
       onchange: e => setFilm({ voice: { ...v, name: e.target.value.trim() || null } }) });
-    const style = h("input", { type: "text", value: v.style || "", disabled: !hasStyle(v.backend), "data-k": "film-style",
-      placeholder: hasStyle(v.backend) ? "For example: calm documentary narrator" : "Online voice only",
+    const style = h("input", { type: "text", value: v.style || "", disabled: !hasStyle(v.model), "data-k": "film-style",
+      placeholder: hasStyle(v.model) ? "For example: calm documentary narrator" : "This model takes no style",
       onchange: e => setFilm({ voice: { ...v, style: e.target.value.trim() || null } }) });
     const speed = seg(SPEEDS.map(([x, l]) => [x, l]), Number(v.speed || 1), x => setFilm({ voice: { ...v, speed: +x } }));
-    if (!hasSpeed(v.backend)) speed.classList.add("off");
+    if (!hasSpeed(v.model)) speed.classList.add("off");
     return h("section", { class: "card", id: "sv-voices" },
       h("h2", {}, h("span", { class: "num" }, String(voiceNum())), "Voice", h("span", { class: "hint" }, "for the whole film. Press ▶ to hear a sample")),
       voices,
       h("div", { class: "opts" },
         h("div", {}, h("label", { class: "f" }, "Voice name (optional)"), name),
         h("div", {}, h("label", { class: "f" }, "Speed"), speed),
-        h("div", {}, h("label", { class: "f" }, "Speaking style (online voice only)"), style)),
+        h("div", {}, h("label", { class: "f" }, "Speaking style (models that take one)"), style)),
       scenes().length ? speakersPart() : null);
   }
 
@@ -839,22 +836,21 @@
     const row = ([name, v]) => {
       const set = patch => { sb.speakers[name] = { ...v, ...patch }; commit(); };
       const engine = h("select", { onchange: e => {
-        const b = e.target.value;
-        set({ backend: b, name: null, speed: hasSpeed(b) ? v.speed ?? 1 : null, style: hasStyle(b) ? v.style : null });
-      } }, BACKENDS.map(([x, l]) => h("option", { value: x, disabled: x === "speech" && !taskModel("speech") },
-        x === "speech" ? Studio.withModel(l, taskModel("speech")) : l)));
-      engine.value = v.backend || "kokoro";
-      const voice = h("input", { type: "text", value: v.name || "", disabled: !hasName(v.backend || "kokoro"), "data-k": `spk-voice-${name}`,
-        placeholder: hasName(v.backend || "kokoro") ? "Default voice" : "", onchange: e => set({ name: e.target.value.trim() || null }) });
+        const m = e.target.value || null;
+        set({ model: m, name: null, speed: hasSpeed(m) ? v.speed ?? 1 : null, style: hasStyle(m) ? v.style : null });
+      } }, speechModels().map(m => h("option", { value: m.default ? "" : m.id }, m.default ? `${m.id} (default)` : m.id)));
+      engine.value = v.model || "";
+      const voice = h("input", { type: "text", value: v.name || "", "data-k": `spk-voice-${name}`,
+        placeholder: "Default voice", onchange: e => set({ name: e.target.value.trim() || null }) });
       const speed = seg(SPEEDS, Number(v.speed || 1), x => set({ speed: +x }));
-      if (!hasSpeed(v.backend)) speed.classList.add("off");
+      if (!hasSpeed(v.model)) speed.classList.add("off");
       return h("div", { class: "spk" },
         h("input", { type: "text", value: name, "data-k": `spk-${name}`, onchange: e => renameSpeaker(name, e.target.value.trim()) }),
         engine, voice, speed,
-        h("input", { type: "text", value: v.style || "", disabled: !hasStyle(v.backend), "data-k": `spk-style-${name}`,
-          placeholder: hasStyle(v.backend) ? "For example: warm, unhurried" : "Online speech model only",
+        h("input", { type: "text", value: v.style || "", disabled: !hasStyle(v.model), "data-k": `spk-style-${name}`,
+          placeholder: hasStyle(v.model) ? "For example: warm, unhurried" : "This model takes no style",
           onchange: e => set({ style: e.target.value.trim() || null }) }),
-        playButton("Play a sample", b => sample(resolve([v, film.voice]), b)),
+        playButton("Play a sample", b => sample(resolve(null, v), b)),
         h("button", { class: "mini danger", title: "Delete speaker", onclick: () => deleteSpeaker(name) }, "Delete"));
     };
     return details("speakers", { class: "adv-in", id: "sv-speakers" },
@@ -1348,13 +1344,13 @@
   function voicePart(s, k) {
     const own = (s.voices || [])[k] || {}, inh = inherited(s, k), eff = sentenceVoice(s, k);
     const from = speakerOf(s, k) || "the film";
-    const set = [own.backend || own.name ? `voice ${voiceLabel(eff)} (${backendName(eff.backend)})` : null,
+    const set = [own.model || own.name ? `voice ${voiceLabel(eff)}` : null,
       own.speed != null ? `speed ${speedLabel(own.speed).toLowerCase()}` : null,
       own.style ? `tone “${own.style}”` : null].filter(Boolean);
     const line = set.length ? `Voice: ${set.join(", ")}` : `Voice: as ${from} (${voiceText(inh)})`;
     const save = patch => {
-      const next = { backend: null, name: null, speed: null, style: null, ...own, ...patch };
-      const b = next.backend || inh.backend;
+      const next = { model: null, name: null, speed: null, style: null, ...own, ...patch };
+      const b = next.model || inh.model;
       if (!hasSpeed(b)) next.speed = null;
       if (!hasStyle(b)) next.style = null;
       const empty = Object.values(next).every(x => x == null);
@@ -1366,20 +1362,19 @@
     };
     const opt = (value, label) => h("option", { value }, label);
     const model = h("select", { onchange: e => {
-      const b = e.target.value;
-      if (!b) return save({ backend: null, name: null });
-      save({ backend: b, name: own.backend === b ? own.name : null });
-    } }, opt("", `As ${from}: ${backendName(inh.backend)}`),
-      BACKENDS.filter(([b]) => b !== "chatterbox").map(([b]) => opt(b, backendName(b))));
-    model.value = own.backend || "";
-    const voice = h("input", { type: "text", value: own.name || "", disabled: !hasName(eff.backend), "data-k": `voice-${view}-${k}`,
+      const m = e.target.value;
+      if (!m) return save({ model: null, name: null });
+      save({ model: m, name: own.model === m ? own.name : null });
+    } }, opt("", `As ${from}: ${modelName(inh.model)}`), speechModels().map(m => opt(m.id, m.id)));
+    model.value = own.model || "";
+    const voice = h("input", { type: "text", value: own.name || "", "data-k": `voice-${view}-${k}`,
       placeholder: `As ${from}: ${voiceLabel(inh)}`, onchange: e => save({ name: e.target.value.trim() || null }) });
-    const speed = h("select", { disabled: !hasSpeed(eff.backend), onchange: e => save({ speed: e.target.value ? +e.target.value : null }) },
-      opt("", hasSpeed(eff.backend) ? `As ${from}: ${speedLabel(inh.speed)}` : "Normal (this voice has one speed)"),
+    const speed = h("select", { disabled: !hasSpeed(eff.model), onchange: e => save({ speed: e.target.value ? +e.target.value : null }) },
+      opt("", hasSpeed(eff.model) ? `As ${from}: ${speedLabel(inh.speed)}` : "Normal (this voice has one speed)"),
       SPEEDS.map(([x, l]) => opt(x, l)));
     speed.value = own.speed != null ? String(own.speed) : "";
-    const tone = h("input", { type: "text", value: own.style || "", disabled: !hasStyle(eff.backend), "data-k": `tone-${view}-${k}`,
-      placeholder: hasStyle(eff.backend) ? (inh.style ? `As ${from}: ${inh.style}` : "For example: whispering, excited") : "Online speech model only",
+    const tone = h("input", { type: "text", value: own.style || "", disabled: !hasStyle(eff.model), "data-k": `tone-${view}-${k}`,
+      placeholder: hasStyle(eff.model) ? (inh.style ? `As ${from}: ${inh.style}` : "For example: whispering, excited") : "This model takes no style",
       onchange: e => save({ style: e.target.value.trim() || null }) });
     const field = (label, control) => h("div", {}, h("label", { class: "f" }, label), control);
     return details(`voice-${view}-${k}`, { class: "svoice" + (set.length ? " set" : "") },
@@ -1599,7 +1594,7 @@
       case "remake-scene": return { text: `Remake ${k(req.scene)}` };
       case "music": return { text: `Make new music:\n${req.brief}` };
       case "own-music": return { text: `Use my own track ${baseName(req.file || "")}` };
-      case "voice-sample": return { text: `A sample of the voice ${voiceText(resolve([req.voice]))}` };
+      case "voice-sample": return { text: `A sample of the voice ${voiceText(resolve(null, req.voice))}` };
       case "make-film": return { text: "Make the film" };
       case "review": return { text: `Review film v${req.version}` };
       case "fix": {

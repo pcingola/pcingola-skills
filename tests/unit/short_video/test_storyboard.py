@@ -104,10 +104,10 @@ SPEAKERS_MD = """\
 
 Topic: Two people talk.
 
-| Speaker | Backend | Voice | Speed | Style |
+| Speaker | Model | Voice | Speed | Style |
 |---|---|---|---|---|
-| host | kokoro | bm_george | 1.1 | |
-| guest | speech | | | warm, curious |
+| host | kokoro:kokoro-v1.0 | bm_george | 1.1 | |
+| guest | oai:tts | | | warm, curious |
 
 ## talk
 Image: a.png
@@ -128,8 +128,8 @@ class TestSpeakers(unittest.TestCase):
         a scene's Speaker column, empty for the default voice. Guards the speakers format."""
         data = storyboard.parse_markdown(SPEAKERS_MD)
         self.assertEqual(data["speakers"], {
-            "host": {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None},
-            "guest": {"backend": "speech", "name": None, "speed": None, "style": "warm, curious"},
+            "host": {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": 1.1, "style": None},
+            "guest": {"model": "oai:tts", "name": None, "speed": None, "style": "warm, curious"},
         })
         [scene] = data["scenes"]
         self.assertEqual(scene["narration"], ["Welcome.", "Thank you.", "They talk."])
@@ -148,13 +148,13 @@ class TestSpeakers(unittest.TestCase):
         cell counts, a second header table, a table outside a scene, an undefined speaker and a wrong rule
         width, each with its line. Guards the speaker table checks."""
         cases = [  # (replace, with, line, fragment)
-            ("| guest | speech |", "| host | speech |", 8, "duplicate speaker 'host' (first at line 7)"),
-            ("| guest | speech |", "| Guest-2 | speech |", 8, "invalid speaker name 'Guest-2'"),
+            ("| guest | oai:tts |", "| host | oai:tts |", 8, "duplicate speaker 'host' (first at line 7)"),
+            ("| guest | oai:tts |", "| Guest-2 | oai:tts |", 8, "invalid speaker name 'Guest-2'"),
             ("| 1.1 |", "| fast |", 7, "Speed 'fast' is not a number"),
-            ("| host | kokoro | bm_george | 1.1 | |", "| host | kokoro | bm_george |", 7, "needs 5"),
-            ("Topic: Two people talk.\n", "Topic: Two people talk.\n\n| Speaker | Backend | Voice | Speed | Style |\n"
-             "|---|---|---|---|---|\n| x | kokoro | | | |\n", 9, "a second table in the header"),
-            ("| Speaker | Backend |", "| Name | Backend |", 5, "table outside a scene"),
+            ("| host | kokoro:kokoro-v1.0 | bm_george | 1.1 | |", "| host | kokoro:kokoro-v1.0 | bm_george |", 7, "needs 5"),
+            ("Topic: Two people talk.\n", "Topic: Two people talk.\n\n| Speaker | Model | Voice | Speed | Style |\n"
+             "|---|---|---|---|---|\n| x | kokoro:kokoro-v1.0 | | | |\n", 9, "a second table in the header"),
+            ("| Speaker | Model |", "| Name | Model |", 5, "table outside a scene"),
             ("| guest | Thank you. |", "| critic | Thank you. |", 17, "speaker 'critic' is not defined"),
             ("| guest | Thank you. | guest face |", "| Thank you. | guest face |", 17, "has 2 cells, needs 3"),
             ("| On screen |\n|---|---|---|\n", "| On screen |\n|---|---|\n", 15, "`|---|---|---|`"),
@@ -167,14 +167,15 @@ class TestSpeakers(unittest.TestCase):
                 self.assertTrue(any(m.startswith(prefix) and fragment in m for m in msg.splitlines()), msg)
 
     def test_resolve_voice(self) -> None:
-        """storyboard.resolve_voice fills a speaker's empty cells with the backend's defaults and gives the
-        settings voice for no speaker. Guards the voice each part is checked against."""
+        """storyboard.resolve_voice fills a speaker's empty speed with 1.0, keeps an empty voice name null (the
+        model's default) and gives the settings voice, whose null model is config.yaml's `speech` model, for no
+        speaker. Guards the voice each part is checked against."""
         settings.use_project(None)
         data = storyboard.parse_markdown(SPEAKERS_MD)
         self.assertEqual(storyboard.resolve_voice(data, "guest"),
-                         {"backend": "speech", "name": None, "speed": 1.0, "style": "warm, curious"})
+                         {"model": "oai:tts", "name": None, "speed": 1.0, "style": "warm, curious"})
         self.assertEqual(storyboard.resolve_voice(data),
-                         {"backend": "kokoro", "name": None, "speed": 1.0, "style": None})
+                         {"model": None, "name": None, "speed": 1.0, "style": None})
 
 
 class TestValidate(unittest.TestCase):
@@ -211,13 +212,13 @@ class TestValidate(unittest.TestCase):
 
     def test_errors(self) -> None:
         """storyboard.validate reports a missing image or source, invalid voice, music, critic and speaker
-        settings and backend limits on style and speed. Guards the checks the parser cannot do, before any voice
+        settings, an obsolete `voice.backend` and a model that is not a model id. Guards the checks the parser cannot do, before any voice
         or render."""
         for settings_text, md, fragment in [
             ("", MD.replace("Image: a.png", "Image: b.png"), "image 'b.png' not found"),
             ("", MD.replace("notes.md", "other.md"), "sources/other.md does not exist"),
-            ("voice: {backend: kokoro, style: calm}", MD, "`voice.style` needs"),
-            ("voice: {backend: elevenlabs}", MD, "`voice.backend` must be"),
+            ("voice: {backend: kokoro}", MD, "`voice.backend` is no longer read"),
+            ("voice: {model: elevenlabs}", MD, "`voice.model` must be a speech model id"),
             ("voice: {speed: 3}", MD, "`voice.speed` must be"),
             ("music: {prompt: piano}", MD, "`music.prompt` is no longer read"),
             ("music: {file: m.mp3}", MD, "'m.mp3' does not exist"),
@@ -228,13 +229,8 @@ class TestValidate(unittest.TestCase):
             ("critic: {rounds: 1.5}", MD, "`critic.rounds` must be"),
             ("critic: {max_findings: -2}", MD, "`critic.max_findings` must be"),
             ("critic: {max_findings: true}", MD, "`critic.max_findings` must be"),
-            ("", SPEAKERS_MD.replace("| speech |", "| elevenlabs |"), "speaker 'guest': backend must be"),
+            ("", SPEAKERS_MD.replace("| oai:tts |", "| elevenlabs |"), "speaker 'guest': model must be"),
             ("", SPEAKERS_MD.replace("| 1.1 |", "| 9 |"), "speaker 'host': speed must be"),
-            ("", SPEAKERS_MD.replace("| kokoro | bm_george | 1.1 | |", "| kokoro | bm_george | 1.1 | calm |"),
-             "speaker 'host': style needs"),
-            ("", SPEAKERS_MD.replace("| speech | | | warm, curious |", "| chatterbox | | 0.9 | |"),
-             "speaker 'guest': speed must be 1.0 for chatterbox"),
-            ("voice: {backend: chatterbox, speed: 1.2}", MD, "`voice.speed` must be 1.0 for chatterbox"),
         ]:
             with self.subTest(fragment=fragment):
                 self.settings(f"author: [Jane Doe]\nlength: {{min_seconds: 1}}\n{settings_text}")

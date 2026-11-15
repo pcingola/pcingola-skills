@@ -1,0 +1,81 @@
+"""The narrator: the speech model of the config (or `--model`), its default voice and voices, the speed and style it
+refuses before any request, and audio decoding (no model call)."""
+
+import io
+import wave
+
+import numpy as np
+
+from tests.settings_env import write_config
+from tests.unit.voiceover.cli_run import voiceover
+from voiceover_tool.speech import decode
+from voiceover_tool.timing import build_timing
+
+OAI = {"kind": "openai", "base_url": "http://127.0.0.1:1/v1"}
+
+
+def test_decode_wav_and_raw_pcm():
+    """A stereo 16 kHz WAV is mixed to mono at its rate; bytes without a RIFF header are 24 kHz PCM."""
+    pcm = np.array([[16384, 0], [-16384, 0]], dtype="<i2")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(pcm.tobytes())
+    samples, rate = decode(buf.getvalue())
+    assert rate == 16000 and np.allclose(samples, [0.25, -0.25])
+    samples, rate = decode(np.array([16384, -32768], dtype="<i2").tobytes())
+    assert rate == 24000 and np.allclose(samples, [0.5, -1.0])
+
+
+def test_voices_of_the_speech_model_and_of_another(tmp_path):
+    """`voices` lists the provider's `voices` with its `voice` marked default; `--model` lists that model's voices,
+    the kind's default voice without a `voice`; no `speech` task is an error naming it."""
+    config = write_config(tmp_path / "config.yaml", providers={"oai": {**OAI, "voice": "two", "voices": ["one", "two"]},
+                                                               "g": {"kind": "google"}}, models={})
+    p = voiceover("voices", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "no model for task 'speech'" in p.stderr
+    config = write_config(tmp_path / "config.yaml", providers={"oai": {**OAI, "voice": "two", "voices": ["one", "two"]},
+                                                               "g": {"kind": "google"}}, models={"speech": "oai:tts-1"})
+    p = voiceover("voices", SKILLS_CONFIG=str(config))
+    assert p.returncode == 0 and p.stdout.splitlines() == ["one", "two  (default)"], p.stderr
+    p = voiceover("voices", "--model", "g:gemini-tts", SKILLS_CONFIG=str(config))
+    assert p.returncode == 0 and p.stdout.splitlines() == ["Kore  (default)"], p.stderr
+
+
+def test_speed_and_style_refused_before_any_request(tmp_path):
+    """A speed outside the kind's range, a speed with a model that has none, and a style with a model that takes
+    none, also as a line's own `[style]`, are refused before any request (the OpenAI provider points at a closed
+    port, the Kokoro files at a closed port); a model of a provider kind
+    without speech models is refused."""
+    config = write_config(tmp_path / "config.yaml",
+                          providers={"oai": OAI, "g": {"kind": "google"},
+                                     "k": {"kind": "kokoro", "model_url": "http://127.0.0.1:1/m.onnx",
+                                           "voices_url": "http://127.0.0.1:1/v.bin", "langs": {"af_": "en-us"}},
+                                     "local": {"kind": "diffusers"}},
+                          models={"speech": "oai:tts-1"})
+    script = tmp_path / "s.txt"
+    script.write_text("Hello there.\n")
+    synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
+    p = voiceover(*synth, "--speed", "5", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "between 0.25 and 4" in p.stderr, p.stderr
+    p = voiceover(*synth, "--model", "g:gemini-tts", "--speed", "1.2", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "no speed setting" in p.stderr, p.stderr
+    p = voiceover(*synth, "--model", "k:kokoro-v1.0", "--style", "calm", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "takes no instructions" in p.stderr, p.stderr
+    styled = tmp_path / "styled.txt"
+    styled.write_text("Hello there.\n[whisper] Keep it quiet.\n")
+    p = voiceover("synth", "--script", str(styled), "--out-dir", str(tmp_path / "o"), "--no-align",
+                  "--model", "k:kokoro-v1.0", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "takes no instructions" in p.stderr, p.stderr
+    p = voiceover(*synth, "--model", "local:flux", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "has no speech models" in p.stderr, p.stderr
+    assert not (tmp_path / "o").exists()
+
+
+def test_timing_records_the_model_and_style_only_when_set():
+    kw = dict(audio="a.wav", sample_rate=24000, duration=1.0, model="k:kokoro-v1.0", voice="v", speed=1.0,
+              sentences=[])
+    assert build_timing(**kw)["model"] == "k:kokoro-v1.0" and "style" not in build_timing(**kw)
+    assert build_timing(style="calm", **kw)["style"] == "calm"

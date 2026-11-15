@@ -17,5 +17,15 @@ class TestScript(unittest.TestCase):
         )
 
 
+def test_line_style():
+    """A line that starts with `[style]` gives that style and the sentence without it; any other line no style."""
+    from voiceover_tool.script import split_style
+
+    assert split_style("[whisper]  Keep it quiet.") == ("whisper", "Keep it quiet.")
+    assert split_style("[calm  narrator] Hi.") == ("calm narrator", "Hi.")
+    assert split_style("Keep [this] in.") == (None, "Keep [this] in.")
+    assert split_style("[only a tag]") == (None, "[only a tag]")
+
+
 if __name__ == "__main__":
     unittest.main()

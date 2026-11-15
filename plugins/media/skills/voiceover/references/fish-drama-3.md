@@ -1,7 +1,7 @@
-# Fish Audio Drama 3 (speech backend, provider kind vllm-omni)
+# Fish Audio Drama 3 (provider kind vllm-omni)
 
-Fish Audio Drama 3 (`fishaudio/drama-3`) is a local speech model served by vLLM-Omni. It is used through the
-`speech` backend when the `speech` task of `config.yaml` names a provider of kind `vllm-omni`.
+Fish Audio Drama 3 (`fishaudio/drama-3`) is a local speech model served by vLLM-Omni. It is used when
+`models.speech` of `config.yaml`, or `--model`, names a model of a provider of kind `vllm-omni`.
 
 ## Running
 
@@ -32,5 +32,7 @@ card: `whisper`, `excited`, `sighs`. The model card reports that a tag at the st
 silence after the first word. A plain-word style ("calm documentary narrator") becomes one bracketed tag; how
 the model reads such a tag is not measured.
 
-Tags written into script lines are spoken as direction too, but the word aligner then looks for the tag words in
-the audio, and the alignment of that sentence fails unless `--no-align` is given.
+A tag at the start of a script line, `[whisper] Keep it quiet.`, is that sentence's style: `synth` sends the
+sentence with that tag instead of `--style` and aligns the sentence without it, so one command (one model load)
+voices several tags. A tag inside a line is spoken as direction too, but the word aligner then looks for the tag
+words in the audio, and the alignment of that sentence fails unless `--no-align` is given.

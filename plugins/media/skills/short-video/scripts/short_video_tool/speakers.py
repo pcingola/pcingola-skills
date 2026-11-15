@@ -69,33 +69,35 @@ def _style(v) -> str | None:
     return " ".join(str(v or "").split()) or None
 
 
-def _voice_name(backend: str | None, name):
-    """A chatterbox voice given as a file path, resolved (the shell may have
+def _voice_name(name):
+    """A reference recording given as a file path, resolved (the shell may have
     expanded `~` or the agent passed a relative path); any other name as is."""
     s = str(name) if name is not None else None
-    if backend == "chatterbox" and s and ("/" in s or s.startswith("~")):
+    if s and ("/" in s or s.startswith("~")):
         return str(Path(s).expanduser().resolve())
     return name
 
 
 def check_voice(timing: dict, voice: dict, speaker: str | None, label: str | None = None) -> None:
     """Raise NarrationError unless `timing.json` was voiced with `voice`, the
-    resolved voice (`backend`, `name`, `speed`, `style`) of `speaker`; the
-    message starts with `label`, by default the speaker's. A null `name` is
-    the backend's default as voiceover resolved it (the `speech` default
-    depends on the configured provider), so any recorded voice matches it;
-    `join` checks that parts with the same speaker and voice settings keep
-    one voice."""
+    resolved voice (`model`, `name`, `speed`, `style`) of `speaker`; the
+    message starts with `label`, by default the speaker's. A null `model` is
+    the `speech` model of config.yaml and a null `name` the model's default
+    voice, as voiceover resolved them, so any recorded model or voice matches
+    them; `join` checks that parts with the same speaker and voice settings
+    keep one voice."""
     label = label or _label(speaker)
-    got = {"backend": timing.get("backend"), "voice": _voice_name(timing.get("backend"), timing.get("voice")),
+    got = {"model": timing.get("model"), "voice": _voice_name(timing.get("voice")),
            "speed": timing.get("speed"), "style": _style(timing.get("style"))}
-    want = {"backend": voice.get("backend"), "voice": _voice_name(voice.get("backend"), voice.get("name")),
+    want = {"model": voice.get("model"), "voice": _voice_name(voice.get("name")),
             "speed": voice.get("speed"), "style": _style(voice.get("style"))}
     if want["voice"] is None:
         if not got["voice"]:
             raise narration.NarrationError(f"{label}: timing.json records no voice; voice it again")
         want["voice"] = got["voice"]
-    for key in ("backend", "voice", "style"):
+    if want["model"] is None:
+        want["model"] = got["model"]
+    for key in ("model", "voice", "style"):
         if got[key] != want[key]:
             raise narration.NarrationError(f"{label}: voiced with {key} {got[key]!r}, "
                                  f"the storyboard gives {want[key]!r}; voice it again")
@@ -155,8 +157,8 @@ def join(parts: list[tuple[str | None, np.ndarray, int, dict]], gap: float,
     `names` is the voice name the storyboard gives each part (its resolved
     voice's `name`; None for every part when not given). A part with a name
     may use any voice name (`check_voice` compares it with the storyboard);
-    parts with a null name (the backend's default) and the same speaker,
-    backend, speed and style must share one voice."""
+    parts with a null name (the model's default) and the same speaker,
+    model, speed and style must share one voice."""
     if not parts:
         raise narration.NarrationError("no parts to join")
     rates = {sr for _, _, sr, _ in parts}
@@ -167,7 +169,7 @@ def join(parts: list[tuple[str | None, np.ndarray, int, dict]], gap: float,
     for k, ((speaker, _, _, timing), name) in enumerate(zip(parts, names or [None] * len(parts))):
         if name is not None:
             continue
-        key = (speaker, timing.get("backend"), timing.get("speed"), _style(timing.get("style")))
+        key = (speaker, timing.get("model"), timing.get("speed"), _style(timing.get("style")))
         v = resolved.setdefault(key, timing.get("voice"))
         if v != timing.get("voice"):
             raise narration.NarrationError(f"part {k + 1} ({_label(speaker)}) is voiced with voice "
@@ -200,12 +202,12 @@ def join(parts: list[tuple[str | None, np.ndarray, int, dict]], gap: float,
                           for w in s.get("words") or []],
                 "speaker": speaker,
             })
-        voices.append({"speaker": speaker, "backend": timing.get("backend"), "voice": timing.get("voice"),
+        voices.append({"speaker": speaker, "model": timing.get("model"), "voice": timing.get("voice"),
                        "speed": timing.get("speed"), "style": timing.get("style"), "sentences": len(sent)})
     audio = np.concatenate(chunks)
     first = parts[0][3]
     out = {"audio": "narration.wav", "sample_rate": sr, "duration": _ms(audio.size / sr)}
-    for key in ("backend", "model", "style", "voice", "speed"):
+    for key in ("model", "style", "voice", "speed"):
         if first.get(key) is not None:
             out[key] = first[key]
     out["speakers"] = voices

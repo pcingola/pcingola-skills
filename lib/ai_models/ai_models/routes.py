@@ -6,10 +6,8 @@ A row's `when` is `default` (the recommended default model of the task, at most 
 `only when` (an escalation). The model in use is `models.<task>` of the config file, its one home: `table` prints
 each task's default row with that model, and when it differs from the table's default model, says so in `why`. The
 escalation rows follow, without the rows whose model is not configured: a provider missing from `providers`, or a
-`diffusers` provider's model missing from `diffusers`. A task in `BACKENDS` may name one of its backends as `model`
-instead of a `<provider>:<model>` id; such a model needs no configuration and is not replaced by `models.<task>`,
-which names a model of another backend. Without the file, `table` has only the defaults of `models.<task>`. No code
-matches `when`; the agent reads it. `command` adds the `routes` command to a skill's CLI.
+`diffusers` provider's model missing from `diffusers`. Without the file, `table` has only the defaults of
+`models.<task>`. No code matches `when`; the agent reads it. `command` adds the `routes` command to a skill's CLI.
 """
 
 from __future__ import annotations
@@ -31,8 +29,6 @@ DEFAULT = "default"
 ESCALATION = "only when"
 # The `why` of a default row from `models.<task>` when the table has no default row for the task.
 DEFAULT_WHY = "set in config.yaml"
-# Per task, the backend names a row may give as `model` (media:voiceover's local TTS backends).
-BACKENDS: dict[str, tuple[str, ...]] = {"speech": ("kokoro", "chatterbox")}
 
 
 @dataclass(frozen=True)
@@ -48,9 +44,6 @@ class Route:
     def is_default(self) -> bool:
         return self.when.lower() == DEFAULT
 
-    @property
-    def is_backend(self) -> bool:
-        return self.model in BACKENDS.get(self.task, ())
 
 
 def user_path() -> Path:
@@ -72,7 +65,7 @@ def parse(path: Path) -> list[Route]:
     """The rows of the table in `path` (empty when the file is missing); `ConfigError` naming the file and line
     for a header other than `| task | model | when | why |`, a row of another width, an empty cell among task,
     model and when, a `when` that is neither `default` nor begins with `only when`, a second default row of a
-    task, or a model that is neither `<provider>:<model>` nor a backend of the task (`BACKENDS`)."""
+    task, or a model that is not `<provider>:<model>`."""
     if not path.is_file():
         return []
     rows: list[Route] = []
@@ -101,11 +94,10 @@ def parse(path: Path) -> list[Route]:
             defaults.add(route.task)
         elif not route.when.lower().startswith(ESCALATION):
             raise ConfigError(f"{where}: `when` must be {DEFAULT!r} or begin with {ESCALATION!r}")
-        if not route.is_backend:
-            try:
-                config.split_id(route.model)
-            except ConfigError as e:
-                raise ConfigError(f"{where}: {e}") from None
+        try:
+            config.split_id(route.model)
+        except ConfigError as e:
+            raise ConfigError(f"{where}: {e}") from None
         rows.append(route)
     return rows
 
@@ -120,10 +112,8 @@ def configured(model_id: str, cfg: dict[str, Any]) -> bool:
 
 
 def _default(task: str, recommended: Route | None, cfg: dict[str, Any]) -> Route | None:
-    """The default row of `task`: the table's backend row as is, else the model of `models.<task>` (none when
-    unset), with the table's `why` when the models agree and the table's recommendation when they differ."""
-    if recommended and recommended.is_backend:
-        return recommended
+    """The default row of `task`: the model of `models.<task>` (none when unset), with the table's `why` when the
+    models agree and the table's recommendation when they differ."""
     model = (cfg.get("models") or {}).get(task)
     if not model:
         return None
@@ -138,7 +128,7 @@ def _default(task: str, recommended: Route | None, cfg: dict[str, Any]) -> Route
 
 def table(tasks: Iterable[str]) -> list[Route]:
     """Per task of `tasks`, in order: the default row (`_default`), then the table's escalation rows,
-    configured models and backends only."""
+    configured models only."""
     cfg = config.load()
     rows = parse(user_path())
     out: list[Route] = []
@@ -147,7 +137,7 @@ def table(tasks: Iterable[str]) -> list[Route]:
         default = _default(task, next((r for r in mine if r.is_default), None), cfg)
         if default:
             out.append(default)
-        out += [r for r in mine if not r.is_default and (r.is_backend or configured(r.model, cfg))]
+        out += [r for r in mine if not r.is_default and configured(r.model, cfg)]
     return out
 
 

@@ -114,7 +114,7 @@ The film settings, `film` in `project.json`:
 
 | Key | Value | Default |
 |---|---|---|
-| `voice` | `backend` (`kokoro`, `speech` for the configured online speech model, `chatterbox` for the user's cloned voice), `name` (null: the backend's default voice), `speed`, `style` | `kokoro`, no name |
+| `voice` | `model` (a speech model id; null: the `speech` model of `config.yaml`), `name` (null: the model's default voice), `speed`, `style`; a stored voice without `model` reads as the default | `speech` model, no name |
 | `music` | `mode` (`made`, `own`, `none`), `brief`, `volume`, `version` (the track to use, or the newest) | `made` |
 | `shape` | `16:9` or `9:16`, fixed once the storyboard has scenes | `16:9` |
 | `length` | 30, 60, 120 or 180 seconds | 60 |
@@ -167,10 +167,13 @@ a short-video body its `scene` where the endpoint acts on one. Errors answer `{"
 
 `/api/models` resolves image-gen's tiers as `media:image-gen` does: `fast` takes the task `image`, `image_edit` with
 reference images; `best` takes `image_best` and `multi-ref` `image_multi_ref`, with and without them. `tasks` also
-holds `speech` (the online voice), `music` (made music), `video` (the `video` scene engine) and `presenter` (the
+holds `speech`, `music` (made music), `video` (the `video` scene engine) and `presenter` (the
 `presenter` scene engine). A task that
 `config.yaml` does not name, or a missing or broken `config.yaml`, gives null. The page labels each choice with its model
-and disables a choice without one. `POST /api/request` adds the same `tasks` to each request as `models`, and the
+and disables a choice without one. `speech` (`models.speech_models`) lists the voice picker's models: the rows of
+`media:voiceover`'s routes for the task `speech` (`ai_models.routes`), the default first, each with its `when` and
+`why` and what `ai_models.speech` says it takes (default voice, speed range, style, cloning); the server depends on
+`ai-models` for it. `POST /api/request` adds the same `tasks` to each request as `models`, and the
 agent records the model id that made a picture in its sidecar (`model_id`).
 
 The mod's endpoints are `POST /event` (send an event to the pages) and `POST /heartbeat`.

@@ -18,7 +18,7 @@ from tests.integration.short_video.wrapper_env import NODE_DIR
 DURATION = 2.0
 TIMING = {
     "audio": "narration.wav", "sample_rate": 24000, "duration": DURATION,
-    "backend": "kokoro", "voice": "af_heart", "speed": 1.0,
+    "model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0,
     "sentences": [{
         "index": 1, "text": "Hello world.", "start": 0.25, "end": 1.4, "aligned": True,
         "words": [{"text": "Hello", "start": 0.25, "end": 0.7}, {"text": "world.", "start": 0.75, "end": 1.4}],

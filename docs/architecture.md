@@ -47,12 +47,13 @@ Each concern has one location, and every other skill reaches it through that loc
 
 - Shared Python code: the packages in the repo-root `lib/` (see Shared packages).
 - Every model call: `lib/ai_models`, on Pydantic-AI (`docs/ai_models.md`). TLS and the providers' clients are set up
-  there once. No module of a plugin project that depends on `ai-models` imports google-genai or the OpenAI SDK
+  there once, and the local models (diffusers, Kokoro, Chatterbox, the torchaudio aligner) are loaded there. No
+  module of a plugin project that depends on `ai-models` imports google-genai, the OpenAI SDK or a model library
   (`test_model_calls_only_through_ai_models`).
 - Settings: one file, `config.yaml` (`$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`). It holds the
   providers with their keys, the model of each task, the local `diffusers` models and, under `settings`, every other
   setting. A skill has no model setting and no model default in code; it asks `ai_models` for a task (`chat`,
-  `vision`, `system1`, `image`, `image_edit`, `speech`, `music`, `audio`) or passes the user's `--model`.
+  `vision`, `system1`, `image`, `image_edit`, `speech`, `align`, `music`, `audio`) or passes the user's `--model`.
 - Reading the settings file and the plugin data directory: `lib/plugin_settings`. `ai_models` reads the file through
   it.
 - Model routes, per task the recommended default model and the escalations from it to another model for some
@@ -122,8 +123,8 @@ and `CLAUDE_PLUGIN_DATA` is unset, and points the uv environment, Python bytecod
 Plugins read in place all resolve to the working tree's `plugins/`, so installed skills and wrappers run by hand share
 one set of environments. A cache copy has another parent and gets its own environment; its versions
 share a parent, so they share that environment. `<project>` is the uv project's path inside the plugin without
-`skills/` and `/scripts`, `/` as `-`. The path is kept short for espeak-ng, used by voiceover's kokoro backend
-(`docs/voiceover.md`).
+`skills/` and `/scripts`, `/` as `-`. The path is kept short for espeak-ng, used by the Kokoro speech models
+of `ai_models` (`docs/ai_models.md`).
 
 A wrapper can source no file outside its plugin, so each plugin with wrappers carries its own copy of `uv_env.sh`.
 Tests: `test_every_plugin_with_wrappers_has_uv_env`, `test_uv_env_copies_identical`, `test_uv_env_data_dir` (runs

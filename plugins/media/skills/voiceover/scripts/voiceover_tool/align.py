@@ -4,14 +4,13 @@
 `align_fn` for the time span of every aligner token, and places each written
 word. If `align_fn` raises, the words are spread over the sentence in
 proportion to their character length and the sentence is marked unaligned.
-`MMSAligner` is the real `align_fn` (a torchaudio forced-alignment pipeline, CPU).
+`clip_aligner` gives the real `align_fn`: the align model of the `ai_models` config (a torchaudio forced-alignment
+pipeline, CPU).
 """
 
 from __future__ import annotations
 
 import sys
-import warnings
-from pathlib import Path
 from typing import Callable, Sequence
 
 import numpy as np
@@ -94,36 +93,11 @@ def sentence_words(
     return [(w, s, e) for w, (s, e) in zip(words, times)], aligned
 
 
-class MMSAligner:
-    """torchaudio forced aligner `torchaudio.pipelines.<pipeline>`, loaded from a pre-downloaded file."""
+def clip_aligner(model: str | None = None) -> Callable[[np.ndarray, int], AlignFn]:
+    """The `align_fn` maker of align model `model` (else `models.align` of the `ai_models` config): for a clip and
+    its sample rate, the function that aligns tokens against that clip. Loads the model; `AIModelsError` when it
+    cannot."""
+    from ai_models import align
 
-    def __init__(self, pipeline: str, weights_dir: str | Path) -> None:
-        import torch
-        import torchaudio
-
-        self._torch = torch
-        self._resample = torchaudio.functional.resample
-        bundle = getattr(torchaudio.pipelines, pipeline)
-        # model_dir makes torch.hub find <weights_dir>/model.pt and skip the download
-        self.model = bundle.get_model(dl_kwargs={"model_dir": str(weights_dir)})
-        self.model.eval()
-        self.tokenizer = bundle.get_tokenizer()
-        self.aligner = bundle.get_aligner()
-        self.sample_rate = int(bundle.sample_rate)
-
-    def for_clip(self, clip: np.ndarray, sr: int) -> AlignFn:
-        return lambda tokens: self.align(clip, sr, tokens)
-
-    def align(self, clip: np.ndarray, sr: int, tokens: Sequence[str]) -> list[tuple[float, float]]:
-        torch = self._torch
-        wav = torch.from_numpy(np.ascontiguousarray(clip, dtype=np.float32)).unsqueeze(0)
-        if sr != self.sample_rate:
-            wav = self._resample(wav, sr, self.sample_rate)
-        with torch.inference_mode():
-            emission, _ = self.model(wav)
-        with warnings.catch_warnings():
-            # torchaudio 2.11 (its last release) keeps forced_align but flags it deprecated
-            warnings.filterwarnings("ignore", message=".*forced_align has been deprecated.*")
-            spans = self.aligner(emission[0], self.tokenizer(list(tokens)))
-        ratio = wav.size(1) / emission.size(1) / self.sample_rate
-        return [(sp[0].start * ratio, sp[-1].end * ratio) for sp in spans]
+    aligner = align.aligner(model)
+    return lambda clip, sr: (lambda tokens: aligner.align(clip, sr, tokens))

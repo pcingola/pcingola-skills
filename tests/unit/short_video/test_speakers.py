@@ -34,7 +34,7 @@ def part(sentences: list[tuple[str, float]], lead: float = 0.25, gap: float = 0.
     chunks.append(np.zeros(int(tail * SR), dtype="<i2"))
     samples = np.concatenate(chunks)
     return samples, {"audio": "narration.wav", "sample_rate": SR, "duration": samples.size / SR,
-                     "backend": "kokoro", "voice": voice, "speed": 1.0, "sentences": timing_sentences}
+                     "model": "kokoro:kokoro-v1.0", "voice": voice, "speed": 1.0, "sentences": timing_sentences}
 
 
 class TestRuns(unittest.TestCase):
@@ -66,19 +66,19 @@ class TestRuns(unittest.TestCase):
         got = speakers.runs(DATA_HOST, scene)
         self.assertEqual([(r[2], r[3]) for r in got], [(0, ["A."]), (1, ["B.", "C."]), (3, ["D."])])
         self.assertEqual([r[1] for r in got], [
-            {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None},
-            {"backend": "kokoro", "name": "bm_george", "speed": 1.2, "style": None},
-            {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None}])
+            {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": 1.1, "style": None},
+            {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": 1.2, "style": None},
+            {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": 1.1, "style": None}])
 
     def test_same_resolved_voice_one_run(self) -> None:
         """speakers.runs keeps a sentence whose own settings equal its speaker's voice in the speaker's run.
         Guards splitting on the resolved voice, not on the presence of settings."""
         settings.use_project(None)
-        scene = {"narration": ["A.", "B."], "voices": [None, {"backend": "kokoro", "speed": 1.0}]}
+        scene = {"narration": ["A.", "B."], "voices": [None, {"speed": 1.0}]}
         self.assertEqual(len(speakers.runs({}, scene)), 1)
 
 
-DATA_HOST = {"speakers": {"host": {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None}}}
+DATA_HOST = {"speakers": {"host": {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": 1.1, "style": None}}}
 
 
 class TestJoin(unittest.TestCase):
@@ -128,8 +128,8 @@ class TestJoin(unittest.TestCase):
     def test_voice_fields(self) -> None:
         """speakers.join takes the top-level voice fields from the first part and lists every part's speaker and
         voice. Guards the voice record in meta.json."""
-        self.assertEqual((self.timing["backend"], self.timing["voice"], self.timing["speed"]),
-                         ("kokoro", "af_heart", 1.0))
+        self.assertEqual((self.timing["model"], self.timing["voice"], self.timing["speed"]),
+                         ("kokoro:kokoro-v1.0", "af_heart", 1.0))
         self.assertEqual([(v["speaker"], v["voice"], v["sentences"]) for v in self.timing["speakers"]],
                          [(None, "af_heart", 2), ("guest", "bm_george", 1), (None, "af_heart", 1)])
 
@@ -196,46 +196,49 @@ class TestCheckVoice(unittest.TestCase):
     def test_wrong_voice_refused(self) -> None:
         """speakers.check_voice refuses a recording in another voice, naming the speaker and both voices. Guards
         a part voiced in the wrong voice."""
-        timing = {"backend": "kokoro", "voice": "af_heart", "speed": 1.0}
-        voice = {"backend": "kokoro", "name": "bm_george", "speed": 1.0, "style": None}
+        timing = {"model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0}
+        voice = {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": 1.0, "style": None}
         with self.assertRaisesRegex(narration.NarrationError, "speaker 'guest'.*'af_heart'.*'bm_george'"):
             speakers.check_voice(timing, voice, "guest")
 
     def test_wrong_speed_and_style_refused(self) -> None:
         """speakers.check_voice refuses a missing style and a wrong speed, naming the default voice. Guards
         every voice field being checked."""
-        voice = {"backend": "speech", "name": "Kore", "speed": 1.0, "style": "warm"}
+        voice = {"model": "oai:tts", "name": "Kore", "speed": 1.0, "style": "warm"}
         with self.assertRaisesRegex(narration.NarrationError, "style"):
-            speakers.check_voice({"backend": "speech", "voice": "Kore", "speed": 1.0}, voice, "guest")
+            speakers.check_voice({"model": "oai:tts", "voice": "Kore", "speed": 1.0}, voice, "guest")
         with self.assertRaisesRegex(narration.NarrationError, "default voice.*speed 1.2"):
-            speakers.check_voice({"backend": "speech", "voice": "Kore", "speed": 1.2, "style": "warm"},
+            speakers.check_voice({"model": "oai:tts", "voice": "Kore", "speed": 1.2, "style": "warm"},
                                  voice, None)
 
     def test_chatterbox_path_compared_resolved(self) -> None:
-        """speakers.check_voice compares a chatterbox voice path after expanding ~ and refuses another path.
+        """speakers.check_voice compares a reference recording path after expanding ~ and refuses another path.
         Guards voice-cloning paths recorded as absolute by voiceover."""
-        voice = {"backend": "chatterbox", "name": "~/voices/anna.wav", "speed": 1.0, "style": None}
+        voice = {"model": "cb:chatterbox-turbo", "name": "~/voices/anna.wav", "speed": 1.0, "style": None}
         recorded = str(Path("~/voices/anna.wav").expanduser())
-        speakers.check_voice({"backend": "chatterbox", "voice": recorded, "speed": 1.0}, voice, "anna")
+        speakers.check_voice({"model": "cb:chatterbox-turbo", "voice": recorded, "speed": 1.0}, voice, "anna")
         with self.assertRaisesRegex(narration.NarrationError, "voice"):
-            speakers.check_voice({"backend": "chatterbox", "voice": "/other/anna.wav", "speed": 1.0}, voice, "anna")
+            speakers.check_voice({"model": "cb:chatterbox-turbo", "voice": "/other/anna.wav", "speed": 1.0}, voice, "anna")
 
-    def test_null_name_resolves_to_backend_default(self) -> None:
-        """storyboard.resolve_voice resolves an empty voice to the backend default (null for speech, whose
-        default depends on the provider); check_voice accepts the voice recorded with it and refuses a recording
-        without one. Guards speakers defined with empty Voice cells."""
-        data = {"speakers": {"guest": {"backend": "speech", "name": None, "speed": None, "style": None}}}
+    def test_null_name_and_model_accept_what_voiceover_resolved(self) -> None:
+        """storyboard.resolve_voice keeps an empty voice null (the model's default, which depends on the model);
+        check_voice accepts the voice recorded with it and refuses a recording without one; a null model (the
+        settings voice) accepts the recorded model, a set model refuses another. Guards speakers defined with
+        empty Voice and Model cells."""
+        data = {"speakers": {"guest": {"model": "oai:tts", "name": None, "speed": None, "style": None}}}
         voice = storyboard.resolve_voice(data, "guest")
-        self.assertEqual(voice, {"backend": "speech", "name": None, "speed": 1.0, "style": None})
-        speakers.check_voice({"backend": "speech", "voice": "Kore", "speed": 1.0}, voice, "guest")
-        speakers.check_voice({"backend": "speech", "voice": "marin", "speed": 1.0}, voice, "guest")
+        self.assertEqual(voice, {"model": "oai:tts", "name": None, "speed": 1.0, "style": None})
+        speakers.check_voice({"model": "oai:tts", "voice": "Kore", "speed": 1.0}, voice, "guest")
+        speakers.check_voice({"model": "oai:tts", "voice": "marin", "speed": 1.0}, voice, "guest")
         with self.assertRaisesRegex(narration.NarrationError, "records no voice"):
-            speakers.check_voice({"backend": "speech", "speed": 1.0}, voice, "guest")
-        speakers.check_voice({"backend": "kokoro", "voice": "af_heart", "speed": 1.0},
+            speakers.check_voice({"model": "oai:tts", "speed": 1.0}, voice, "guest")
+        speakers.check_voice({"model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0},
                              storyboard.resolve_voice(data), None)
+        with self.assertRaisesRegex(narration.NarrationError, "model"):
+            speakers.check_voice({"model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0}, voice, "guest")
 
 
-DATA = {"speakers": {"guest": {"backend": "kokoro", "name": "bm_george", "speed": None, "style": None}}}
+DATA = {"speakers": {"guest": {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": None, "style": None}}}
 ONE = {"id": "talk", "narration": ["Hello.", "Hi."]}
 TWO = {"id": "talk", "narration": ["Hello.", "Hi."], "speakers": [None, "guest"]}
 

@@ -18,6 +18,7 @@ class SentenceTiming:
     end: float
     aligned: bool
     words: list[tuple[str, float, float]] = field(default_factory=list)
+    style: str | None = None  # the sentence's own style (a `[style]` line)
 
 
 def _ms(t: float) -> float:
@@ -29,21 +30,19 @@ def build_timing(
     audio: str,
     sample_rate: int,
     duration: float,
-    backend: str,
+    model: str,
     voice: str,
     speed: float,
     sentences: list[SentenceTiming],
-    model: str | None = None,
     style: str | None = None,
 ) -> dict:
-    """`model` and `style` are written only when set: `model` for every backend except kokoro, `style` when given."""
-    extra = {k: v for k, v in (("model", model), ("style", style)) if v}
+    """`model` is the speech model id; `style` is written only when given."""
     return {
         "audio": audio,
         "sample_rate": sample_rate,
         "duration": _ms(duration),
-        "backend": backend,
-        **extra,
+        "model": model,
+        **({"style": style} if style else {}),
         "voice": voice,
         "speed": speed,
         "sentences": [
@@ -52,6 +51,7 @@ def build_timing(
                 "text": s.text,
                 "start": _ms(s.start),
                 "end": _ms(s.end),
+                **({"style": s.style} if s.style else {}),
                 "aligned": s.aligned,
                 "words": [{"text": w, "start": _ms(ws), "end": _ms(we)} for w, ws, we in s.words],
             }

@@ -5,8 +5,12 @@
     models   Pydantic-AI providers per kind; `chat_model`, `agent`, `embedder`
     images   `image_generator` (generation, edits with reference images, masks)
     system1  `system1_model`, `decide`
-    speech   `speak` (OpenAI-style `audio/speech`, Gemini TTS, vLLM-Omni)
+    speech   `speak`, `voices`, `check` (OpenAI-style `audio/speech`, Gemini TTS, vLLM-Omni, Kokoro, Chatterbox)
     omni     the vLLM-Omni server of a `vllm-omni` provider, one per process
+    kokoro   Kokoro in process on the CPU (extra `ai-models[kokoro]`)
+    chatterbox  Chatterbox Turbo in a worker process of its own environment
+    align    `aligner` (forced alignment of speech against its text, torchaudio, extra `ai-models[align]`)
+    weights  weight files of the kokoro, chatterbox and torchaudio kinds
     music    `compose` (Google predict and stream models, local diffusers)
     video    `animate`, `aanimate` (image to video), `present`, `apresent` (portrait and speech to video), local diffusers
     local    diffusers image, music, video and presenter models (extra `ai-models[diffusers]`)

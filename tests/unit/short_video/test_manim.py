@@ -116,7 +116,7 @@ def _sentence(i: int, text: str, start: float) -> dict:
     return {"index": i, "text": text, "start": start, "end": words[-1]["end"], "words": words, "aligned": True}
 
 
-TIMING = {"duration": 4.5667, "backend": "kokoro", "sentences": [
+TIMING = {"duration": 4.5667, "model": "kokoro:kokoro-v1.0", "sentences": [
     _sentence(1, "A virus enters the cell.", 0.37),
     _sentence(2, "The cell copies the virus, virus after Virus.", 2.111),
 ]}

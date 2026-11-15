@@ -39,7 +39,7 @@ files, brand files and style samples are read in place.
 | `music/v<N>/studio.json` | `source` (`made` or `own`), `brief` (the request's; `""` for an own track), `note` (one line on how it sounds), `duration` (seconds), `created`; written after the `music` command imported the version |
 | `film/v<N>/studio.json` | `changes` (one line: what is new since the previous film), `created`; written after the film is checked |
 | `film/v<N>/review.json` | the film critic's findings on film N that hold: `{"created", "model": <the critic's model>, "findings": [{"k": 1, "start": <s>, "end": <s>, "problem": "...", "change": "..."}]}`, `k` numbered from 1, `start` and `end` film time in seconds, `findings` `[]` when none holds; written whole by each review ([Film review](#film-review)) |
-| `samples/voice-<k>/narration.wav`, `samples/voice-<k>.json` | voice samples, k from 1, never overwritten; the directory is `media:voiceover`'s output directory; the sidecar, written after the WAV: `voice` (`backend`, `name`, `speed`, `style`), `text`, `created` |
+| `samples/voice-<k>/narration.wav`, `samples/voice-<k>.json` | voice samples, k from 1, never overwritten; the directory is `media:voiceover`'s output directory; the sidecar, written after the WAV: `voice` (`model`, `name`, `speed`, `style`), `text`, `created` |
 
 - `created` is the request's `time`.
 - `project.json` and `storyboard.json` are read right before each write and rewritten whole; only what the request
@@ -85,7 +85,7 @@ Before each `media:short-video` command of a request, write `settings.yaml` from
 
 | `film` | `settings.yaml` |
 |---|---|
-| `voice` | `voice.backend`, `voice.name`, `voice.speed`, `voice.style` |
+| `voice` | `voice.model`, `voice.name`, `voice.speed`, `voice.style` |
 | `music.mode` `none` | `music.file: null` |
 | `music.volume` | `mix.music_db`: `quiet` -20, `normal` -14, `louder` -9 |
 | `shape` | `video.width` and `video.height`: `16:9` 1920 by 1080, `9:16` 1080 by 1920 |

@@ -38,30 +38,23 @@ encode:
 pronounce: {}
 
 # Narration voice: the voice of every sentence without a named speaker,
-# passed to the voiceover skill. backend: kokoro (local), chatterbox (local, a
-# cloned voice stored with the voiceover skill), speech (the `speech` model of
-# the ai_models config.yaml).
-# name: null = the backend's default under `names`; for speech the default
-# depends on the provider kind of the configured model, so `names.speech` is
-# null and the voice voiceover resolved is the one recorded in timing.json.
-# speed: other than 1.0 only for `speed_backends` (speech: not with Gemini
-# TTS). style: delivery instructions, only for `style_backends`; null = none.
-# speaker_gap: seconds of silence at a speaker change inside a scene (0.35 s
-# is the voiceover skill's gap between sentences).
+# passed to the voiceover skill. model: a speech model id <provider>:<model>
+# of config.yaml (the voiceover skill's `routes` lists them); null = its
+# `speech` model. name: null = the model's default voice; the voice voiceover
+# resolved is the one recorded in timing.json. speed: other than 1.0 only for
+# a model with a speed setting. style: delivery instructions, only for a model
+# that takes them; null = none. The voiceover skill refuses a speed or style
+# the model does not take. speaker_gap: seconds of silence at a speaker
+# change inside a scene (0.35 s is the voiceover skill's gap between
+# sentences).
 voice:
-  backend: kokoro
+  model: null
   name: null
   speed: 1.0
   style: null
   speaker_gap: 0.35
   speed_min: 0.5
   speed_max: 2.0
-  style_backends: [speech]   # backends that accept `style=`
-  speed_backends: [kokoro, speech]   # backends that accept a speed other than 1.0
-  names:          # default voice per backend; null = voiceover's default
-    kokoro: null
-    chatterbox: null
-    speech: null
 
 # preview_width: width of the image preview in storyboard.md; a percentage of
 # the editor or preview pane. image_scene_id: id of the n-th image scene `init` writes.

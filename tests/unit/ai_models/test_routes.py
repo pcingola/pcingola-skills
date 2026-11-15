@@ -42,19 +42,17 @@ def template_default(task: str) -> routes.Route:
 
 
 def test_template_rows_name_models_of_the_config_template():
-    """The setup:settings template `routes.md` is valid; each model is a backend of its task or a `local` model that
-    `config.example.yaml` names in `diffusers`, commented or not; each default row that is not a backend names the
-    config template's `models.<task>`."""
+    """The setup:settings template `routes.md` is valid; each model is a `local` model that `config.example.yaml`
+    names in `diffusers`, or a model of a provider it names in `providers`, commented or not; each default row names
+    the config template's `models.<task>`."""
     rows = routes.parse(TEMPLATE)
     assert rows
     text = EXAMPLE.read_text(encoding="utf-8")
     template = yaml.safe_load(text)
     for r in rows:
-        if r.is_backend:
-            continue
         provider, name = config.split_id(r.model)
-        assert provider == "local"
-        assert re.search(rf"^\s*#?{re.escape(name)}:", text, re.M), r.model
+        key = name if provider == "local" else provider
+        assert re.search(rf"^\s*#?{re.escape(key)}:", text, re.M), r.model
         if r.is_default:
             assert template["models"][r.task] == r.model, r
 
@@ -102,17 +100,6 @@ def test_task_without_table_default_or_without_config_model(write_config, tmp_pa
     assert models(routes.table(["image"])) == ["ollama:x"]
 
 
-def test_speech_backend_is_kept_and_not_replaced_by_the_config_model(write_config, tmp_path):
-    """A speech row may name a voiceover backend (`kokoro`, `chatterbox`): it needs no provider, and a `kokoro`
-    default row stays even when `models.speech` names a model of the speech backend."""
-    write_config({**LOCAL, "models": {"speech": "ollama:tts"}})
-    user_table(tmp_path, "| speech | kokoro | default | calm |\n"
-                         "| speech | chatterbox | only when the user gives a voice recording | cloned voice |\n")
-    assert routes.table(["speech"]) == [
-        routes.Route("speech", "kokoro", routes.DEFAULT, "calm"),
-        routes.Route("speech", "chatterbox", "only when the user gives a voice recording", "cloned voice")]
-
-
 def test_missing_file_gives_config_defaults_and_a_note(write_config, tmp_path, capsys):
     """Without the user's `routes.md`, `table` has only the default rows of `models.<task>`, and the `routes`
     command prints them and, on stderr, that the table is missing and that setup:settings creates it."""
@@ -137,12 +124,13 @@ def test_missing_file_gives_config_defaults_and_a_note(write_config, tmp_path, c
     (HEADER + "| image | local:a | any other image | y |\n", 3, "must be 'default' or begin with 'only when'"),
     (HEADER + "| image | local:a | default | y |\n| image | local:b | default | z |\n", 4, "a second 'default' row"),
     (HEADER + "| image | qwen | only when x | y |\n", 3, "<provider>:<model>"),
-    (HEADER + "| image | kokoro | default | y |\n", 3, "<provider>:<model>"),
+    (HEADER + "| speech | kokoro | default | y |\n", 3, "<provider>:<model>"),
 ])
 def test_malformed_table_names_file_and_line(write_config, tmp_path, table, line, message):
     """A wrong header (including the old column order), a row of another width, an empty task/model/when cell, a
     `when` that is neither `default` nor an `only when` condition, a second default row of a task, or a model
-    without a provider (a backend name outside its task) is a `ConfigError` naming the user's file and the line."""
+    without a provider (a bare name such as `kokoro`, also for task speech) is a `ConfigError` naming the user's file
+    and the line."""
     write_config(LOCAL)
     (tmp_path / routes.FILE_NAME).write_text(table, encoding="utf-8")
     with pytest.raises(ConfigError, match=re.escape(message)) as e:

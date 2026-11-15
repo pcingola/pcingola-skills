@@ -8,6 +8,8 @@ Provider kinds and the Pydantic-AI provider each builds:
     azure       AzureProvider (`base_url` is the Azure endpoint, `api_version`)
     google      GoogleProvider, or GoogleCloudProvider (Vertex) with `vertex: true`
     diffusers   local images and music in process (`local`), no provider
+    vllm-omni, kokoro, chatterbox   local speech (`speech`), no provider
+    torchaudio  forced alignment (`align`), no provider
 
 Remote clients trust certifi's roots plus EXTRA_CA_CERT (`tls`).
 """

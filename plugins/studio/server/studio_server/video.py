@@ -39,13 +39,12 @@ PICTURE_FILE = re.compile(r"^v([1-9][0-9]*)\.(?:png|json)$")
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
 SCENE_KEYS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
               "voices")
-VOICE_KEYS = ("backend", "name", "speed", "style")
+VOICE_KEYS = ("model", "name", "speed", "style")
 ENGINES = ("html", "manim", "video", "presenter", "clip")
 # The template names of media:short-video's default settings, which Studio's settings.yaml does not change.
 TEMPLATES = ("title", "summary", "end")
 
 # Film settings (`film` in project.json).
-BACKENDS = ("kokoro", "speech", "chatterbox")
 SPEED = (0.5, 2.0)
 MUSIC_MODES = ("made", "own", "none")
 VOLUMES = ("quiet", "normal", "louder")
@@ -53,7 +52,7 @@ SHAPES = ("16:9", "9:16")
 LENGTHS = (30, 60, 120, 180)
 FILM_KEYS = ("voice", "music", "shape", "length", "author", "brand", "review")
 FILM_DEFAULTS = {
-    "voice": {"backend": "kokoro", "name": None, "speed": 1.0, "style": None},
+    "voice": {"model": None, "name": None, "speed": 1.0, "style": None},
     "music": {"mode": "made", "brief": "", "volume": "normal", "version": None},
     "shape": "16:9",
     "length": 60,
@@ -302,9 +301,13 @@ def next_picture(directory: Path) -> int:
 # Film settings
 
 def film_of(meta: object) -> dict:
-    """`film` of project.json over the defaults, so every key is present."""
+    """`film` of project.json over the defaults, so every key is present. A voice without `model` (one of the
+    earlier `backend` form) is the default voice."""
     film = meta.get("film") if isinstance(meta, dict) else None
-    return {**default_film(), **(film if isinstance(film, dict) else {})}
+    out = {**default_film(), **(film if isinstance(film, dict) else {})}
+    if not isinstance(out["voice"], dict) or "model" not in out["voice"]:
+        out["voice"] = default_film()["voice"]
+    return out
 
 
 def _fail(message: str) -> HttpError:
@@ -312,11 +315,12 @@ def _fail(message: str) -> HttpError:
 
 
 def check_voice(v: object, what: str = "voice") -> dict:
-    """A voice `{"backend", "name", "speed", "style"}` as film.voice takes it; 400 otherwise."""
+    """A voice `{"model", "name", "speed", "style"}` as film.voice takes it (a null `model` is the `speech` model
+    of config.yaml); 400 otherwise."""
     if not isinstance(v, dict) or set(v) != set(VOICE_KEYS):
         raise _fail(f"{what} must be an object with exactly {', '.join(VOICE_KEYS)}")
-    if v["backend"] not in BACKENDS:
-        raise _fail(f"{what}.backend must be one of {', '.join(BACKENDS)}")
+    if v["model"] is not None and not (isinstance(v["model"], str) and ":" in v["model"].strip(":")):
+        raise _fail(f"{what}.model must be a speech model id <provider>:<model> or null")
     for k in ("name", "style"):
         if v[k] is not None and not (isinstance(v[k], str) and v[k].strip()):
             raise _fail(f"{what}.{k} must be a non-empty string or null")

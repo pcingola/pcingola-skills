@@ -44,7 +44,7 @@
     "source": "sources/notes.md",
     "speakers": {
      "host": {
-      "backend": "kokoro",
+      "model": "kokoro:kokoro-v1.0",
       "name": null,
       "speed": 1,
       "style": null
@@ -192,14 +192,14 @@
       "voices": [
        {
         "speed": 1.2,
-        "backend": null
+        "model": null
        }
       ]
      }
     ],
     "speakers": {
      "host": {
-      "backend": "speech"
+      "model": "oai:tts"
      }
     }
    }
@@ -571,7 +571,7 @@
     ],
     "speakers": {
      "h": {
-      "backend": 1
+      "model": 1
      }
     }
    }

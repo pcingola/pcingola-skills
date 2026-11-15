@@ -51,7 +51,7 @@ the same, with these differences:
 - One message, three to five scenes of about 10 seconds each. The first
   sentence states the most striking result; the title scene, if kept, shows
   it, and the summary scene is dropped. Short sentences, and a faster voice
-  (`voice.speed` 1.1 to 1.2 on a backend in `voice.speed_backends`).
+  (`voice.speed` 1.1 to 1.2, on a speech model with a speed setting).
 - Images: a 16:9 image fills less than a third of a 9:16 frame. Make a 9:16
   version of each original with `media:image-gen`, the original as reference
   image and the same style, or fill the frame height with the original and

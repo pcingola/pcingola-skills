@@ -238,7 +238,7 @@ def import_voice(project: Path, data: dict, scene: dict, src: Path) -> Path:
     for f in ("script.txt", "narration.wav"):
         shutil.copyfile(src / f, out / f)
     _write_timing(out / "timing.json", timing)
-    voice = {k: timing[k] for k in ("backend", "voice", "speed", "model", "style") if timing.get(k) is not None}
+    voice = {k: timing[k] for k in ("model", "voice", "speed", "style") if timing.get(k) is not None}
     meta = {
         "scene": scene["id"],
         "version": out.name,

@@ -1,17 +1,41 @@
-"""Integration: real `voiceover synth` with Kokoro and the MMS_FA aligner.
+"""Integration: real `voiceover synth` with the Kokoro model and the MMS_FA aligner of the config template.
 
-Runs the shell wrapper as a subprocess; synth downloads missing weights.
+Runs the CLI in a child process with a config holding the template's `kokoro` and `torchaudio` providers; the
+first run downloads their weights to the `ai-models` cache (about 1.6 GB).
 """
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 import wave
 from pathlib import Path
 
-WRAPPER = Path(__file__).resolve().parents[3] / "plugins" / "media" / "skills" / "voiceover" / "scripts" / "voiceover.sh"
-SCRIPT = "The heart pumps blood through the body.\n\nCount to five.\nIn 1995, about 42% of pumps failed.\n"
+import yaml
+
+from tests.settings_env import write_config
+from tests.subproc import child_env
+
+ROOT = Path(__file__).resolve().parents[3]
+EXAMPLE = ROOT / "plugins/setup/skills/settings/assets/config.example.yaml"
+SCRIPTS = ROOT / "plugins/media/skills/voiceover/scripts"
+SCRIPT = ("The heart pumps blood through the body.\n\nCount to five.\nIn 1995, about 42% of pumps failed.\n"
+          "[calm] Keep it quiet.\n")
+
+
+def template_config(path: Path) -> Path:
+    """A config with the template's `kokoro` and `torchaudio` providers and its `speech` and `align` models."""
+    t = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
+    return write_config(path, providers={k: t["providers"][k] for k in ("kokoro", "torchaudio")},
+                        models={k: t["models"][k] for k in ("speech", "align")})
+
+
+def synth(script: Path, out: Path, config: Path, *args: str) -> subprocess.CompletedProcess:
+    env = child_env(SKILLS_CONFIG=str(config), HOME=str(Path.home()))
+    env["PYTHONPATH"] = f"{SCRIPTS}:{env['PYTHONPATH']}"
+    return subprocess.run([sys.executable, "-m", "voiceover_tool", "synth", "--script", str(script),
+                           "--out-dir", str(out), *args], capture_output=True, text=True, timeout=1200, env=env)
 
 
 class TestSynth(unittest.TestCase):
@@ -20,15 +44,11 @@ class TestSynth(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.TemporaryDirectory()
         tmp = Path(cls._tmp.name)
-        script = tmp / "script.txt"
-        script.write_text(SCRIPT, encoding="utf-8")
+        cls.config = template_config(tmp / "config.yaml")
+        cls.script = tmp / "script.txt"
+        cls.script.write_text(SCRIPT.replace("[calm] ", ""), encoding="utf-8")
         cls.out = tmp / "out"
-        r = subprocess.run(
-            [str(WRAPPER), "synth", "--script", str(script), "--out-dir", str(cls.out)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
+        r = synth(cls.script, cls.out, cls.config)
         if r.returncode != 0:
             raise AssertionError(f"synth failed ({r.returncode}):\n{r.stderr}")
         cls.stdout = r.stdout
@@ -39,27 +59,26 @@ class TestSynth(unittest.TestCase):
         cls._tmp.cleanup()
 
     def test_prints_both_paths(self) -> None:
-        """voiceover.sh synth prints the WAV path and the timing.json path, one per line.
+        """voiceover synth prints the WAV path and the timing.json path, one per line.
         Guards that stdout holds the two paths and nothing else (cli._cmd_synth)."""
-        self.assertEqual(
-            self.stdout.split(),
-            [str(self.out / "narration.wav"), str(self.out / "timing.json")],
-        )
+        self.assertEqual(self.stdout.split(), [str(self.out / "narration.wav"), str(self.out / "timing.json")])
 
     def test_wav_duration_matches_timing(self) -> None:
-        """voiceover.sh synth with Kokoro writes a 24 kHz mono WAV whose length equals timing.json's duration, with the default backend and voice af_heart.
-        Guards the default backend and the duration bookkeeping on real audio."""
+        """voiceover synth with Kokoro writes a 24 kHz mono WAV whose length equals timing.json's duration, with the
+        model of models.speech and its default voice af_heart.
+        Guards the default model and voice and the duration bookkeeping on real audio."""
         with wave.open(str(self.out / "narration.wav")) as w:
             self.assertEqual((w.getnchannels(), w.getsampwidth(), w.getframerate()), (1, 2, 24000))
             duration = w.getnframes() / w.getframerate()
         self.assertAlmostEqual(duration, self.timing["duration"], places=3)
-        self.assertEqual((self.timing["backend"], self.timing["voice"]), ("kokoro", "af_heart"))
+        self.assertEqual((self.timing["model"], self.timing["voice"]), ("kokoro:kokoro-v1.0", "af_heart"))
 
     def test_words_monotonic_inside_sentences(self) -> None:
-        """voiceover.sh synth aligns every sentence with MMS_FA, a blank line skipped, numbers and percent included, with word times monotonic inside each sentence.
+        """voiceover synth aligns every sentence with MMS_FA, a blank line skipped, numbers and percent included,
+        with word times monotonic inside each sentence.
         Guards normalize and place_words on real model output."""
         sentences = self.timing["sentences"]
-        self.assertEqual(len(sentences), 3)
+        self.assertEqual(len(sentences), 4)
         prev_end = 0.0
         for s in sentences:
             self.assertTrue(s["aligned"], s["text"])
@@ -75,7 +94,7 @@ class TestSynth(unittest.TestCase):
         self.assertLessEqual(prev_end, self.timing["duration"])
 
     def test_known_word_in_second_half(self) -> None:
-        """voiceover.sh synth places the long last word of "Count to five." in the second half of the sentence.
+        """voiceover synth places the long last word of "Count to five." in the second half of the sentence.
         Guards that the aligner returns real times, not evenly spread ones."""
         s = self.timing["sentences"][1]
         self.assertEqual(s["text"], "Count to five.")
@@ -85,6 +104,16 @@ class TestSynth(unittest.TestCase):
         # sentence midpoint because "Count to" is short and "five" is long.
         self.assertGreater((five["start"] + five["end"]) / 2, (s["start"] + s["end"]) / 2)
         self.assertGreater(five["start"], s["words"][1]["end"] - 1e-9)
+
+    def test_line_style_refused_by_kokoro_before_synthesis(self) -> None:
+        """A `[style]` line with the Kokoro model fails before any synthesis and writes no output.
+        Guards the per-line style check against the model."""
+        script = self.script.with_name("styled.txt")
+        script.write_text(SCRIPT, encoding="utf-8")
+        r = synth(script, self.out.with_name("styled"), self.config)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("takes no instructions", r.stderr)
+        self.assertFalse(self.out.with_name("styled").exists())
 
 
 if __name__ == "__main__":

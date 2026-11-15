@@ -9,7 +9,7 @@ SCENE = {"id": "intro", "narration": ["Count to five.", "Then  stop."]}
 
 
 def timing(*texts: str) -> dict:
-    return {"duration": 3.2, "backend": "kokoro", "voice": "af_heart", "speed": 1.0,
+    return {"duration": 3.2, "model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0,
             "sentences": [{"index": i, "text": t} for i, t in enumerate(texts, 1)]}
 
 
@@ -48,7 +48,7 @@ class TestNarration(unittest.TestCase):
             self.assertTrue((out / f).is_file(), f)
         meta = state.read_meta(out)
         self.assertEqual(meta["duration"], 3.2)
-        self.assertEqual(meta["voice"], {"backend": "kokoro", "voice": "af_heart", "speed": 1.0})
+        self.assertEqual(meta["voice"], {"model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0})
         self.assertEqual(meta["source"], "sources/narration/intro")
         self.assertEqual(state.latest_voice(self.project, "intro"), out)
 

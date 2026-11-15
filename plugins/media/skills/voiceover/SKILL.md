@@ -1,6 +1,6 @@
 ---
 name: voiceover
-description: "Generates narration audio from a script with sentence and word timings (Kokoro, Chatterbox voice cloning, or the configured speech model). TRIGGER when: user asks for a voiceover, narration, TTS, a cloned voice, 'in my voice', or word timings."
+description: "Generates narration audio from a script with sentence and word timings, with the speech models of config.yaml (Kokoro, Chatterbox cloning, API). TRIGGER when: user asks for a voiceover, narration, TTS, a cloned voice, 'in my voice', or word timings."
 allowed-tools: Bash(${CLAUDE_SKILL_DIR}/scripts/voiceover.sh:*) Read Skill
 metadata:
   version: "0.1.0"
@@ -8,52 +8,58 @@ metadata:
 
 # Voiceover
 
-Turns a script into `narration.wav` plus `timing.json` with the start and end
-of every sentence and every word. A TTS backend synthesises each sentence, and
-torchaudio's MMS_FA aligner (local, CPU) force-aligns each sentence against
-its known text to get word times.
+Turns a script into `narration.wav` plus `timing.json` with the start and
+end of every sentence and every word. A speech model of the settings file
+`config.yaml` synthesises each sentence: `--model <provider>:<model>`, else
+the model of the `speech` task. The model of the `align` task (torchaudio's
+MMS_FA, local, CPU) force-aligns each sentence against its known text to get
+word times.
 
-| backend | runs | default voice | speed | style |
+What the speech model takes depends on the kind of its provider:
+
+| kind | runs | default voice | speed | style |
 |---|---|---|---|---|
-| `kokoro` (default) | local CPU, `kokoro-onnx` | `af_heart` | yes | no |
-| `chatterbox` | local CPU, Chatterbox-Turbo | `default` | no | no |
-| `speech` | the `speech` model of the `ai_models` config | `Kore` (Gemini TTS), `default` (Ollama, vllm-omni), else `marin` | yes, OpenAI-style models (0.25 to 4); not Gemini TTS or vllm-omni | yes |
+| `kokoro` | local CPU, Kokoro 82M | `af_heart` | 0.5 to 2 | no |
+| `chatterbox` | local CPU, Chatterbox Turbo, clones a voice | `default` | no | no |
+| `vllm-omni` | local GPU, Fish Audio Drama 3, clones a voice | `default` | no | inline tags |
+| `openai`, `azure`, `openrouter` | API, `audio/speech` | `marin` | 0.25 to 4 | yes |
+| `ollama` | Ollama `audio/speech` | `default` | refused by the server | refused by the server |
+| `google` | API, Gemini TTS | `Kore` | no | yes |
 
-Use `kokoro` unless the user asks for another backend. The `speech` backend
-sends each sentence to the model that the settings file `config.yaml` names
-for the `speech` task: an
-OpenAI-style `audio/speech` model (OpenAI, Azure, OpenRouter, Ollama) or a
-Gemini TTS model. The provider checks the voice; `voices --backend speech`
-lists the documented voices for the configured provider kind. In listening
-tests, `gemini-2.5-pro-tts` over-acted, or with a style became slow and flat;
-`gemini-3.8-flash-tts` sounded natural with and without a style;
-gpt-4o-mini-tts has an audible synthetic buzz in the model's own output.
-Gemini takes `--style` literally: "unhurried pace" gives long pauses. Ollama
-speech models refuse `--style` and a speed other than 1. Ollama's
-`lfm3-audio` has odd, uncontrolled intonation: it is for tests, not for
-narration. `kokoro` sounds calm and clear and takes about 10 s for three
-sentences.
+A provider's `voice` in `config.yaml` replaces the default voice. `synth`
+refuses a speed or a style the model does not take before any request.
 
-A `speech` model of provider kind `vllm-omni` (Fish Audio Drama 3) runs on
-the local GPU: the first sentence starts its server, which loads for minutes
-and stops when the command ends, so give it the whole script in one `synth`.
-It has no speed. Its voice is `default` or a voice of `add-voice` stored with
-`--text` (the transcript), which it clones. With `default` the model picks a
-new speaker per request, so `synth` uses the first sentence's take as the
-reference for the rest and writes it to the output directory as `voice.wav`
-and `voice.txt`. For several commands in one voice (the scenes of one film),
-voice the first, then pass `--voice <its out dir>/voice.wav` to the others. `--style` becomes inline tags of
-the model: `--style whisper` sends `[whisper] <sentence>` (tags `whisper`,
-`excited`, `sighs`). See `references/fish-drama-3.md`.
+Use the `speech` model unless the routes or the user say otherwise. A Kokoro
+model sounds calm and clear and takes about 10 s for three sentences. The
+provider checks the voice of an API model; `voices` lists the voices of a
+model. In listening tests, `gemini-2.5-pro-tts` over-acted, or with a style
+became slow and flat; `gemini-3.8-flash-tts` sounded natural with and without
+a style; gpt-4o-mini-tts has an audible synthetic buzz in the model's own
+output. Gemini takes `--style` literally: "unhurried pace" gives long pauses.
+Ollama's `lfm3-audio` has odd, uncontrolled intonation: it is for tests, not
+for narration.
 
-Use `chatterbox` when the narration must sound like a specific person, such
-as the user ("in my voice"): run `voices --backend chatterbox` and pass the
-person's voice name. If they have no voice yet, see "Cloned voices" below.
+A model of provider kind `vllm-omni` (Fish Audio Drama 3) runs on the local
+GPU: the first sentence starts its server, which loads for minutes and stops
+when the command ends, so give it the whole script in one `synth`. Its voice
+is `default` or a voice of `add-voice` stored with `--text` (the transcript),
+which it clones. With `default` the model picks a new speaker per request, so
+`synth` uses the first sentence's take as the reference for the rest and
+writes it to the output directory as `voice.wav` and `voice.txt`. For
+several commands in one voice (the scenes of one film), voice the first, then
+pass `--voice <its out dir>/voice.wav` to the others. `--style` becomes
+inline tags of the model: `--style whisper` sends `[whisper] <sentence>`
+(tags `whisper`, `excited`, `sighs`). See `references/fish-drama-3.md`.
+
+When the narration must sound like a specific person, such as the user ("in
+my voice"), use a model that clones a voice (the routes name one), run
+`voices --model <model>` and pass the person's voice name. If they have no
+voice yet, see "Cloned voices" below.
 
 `--style` is a delivery instruction in plain words ("calm documentary
 narrator, unhurried pace"); it is not spoken. Kokoro voices: those whose
-name prefix the setting `VOICEOVER_KOKORO_LANGS` maps to an espeak language
-(`af_`/`am_` American, `bf_`/`bm_` British English in the example config).
+name prefix the provider's `langs` maps to an espeak language (`af_`/`am_`
+American, `bf_`/`bm_` British English in the example config).
 
 ## Model routes
 
@@ -68,17 +74,8 @@ prints only the default rows. Use the default row and pass no `--model`.
 Take a later row, and pass its `model` with `--model`, only when its
 `when` condition holds for the request; the first such row wins. A model
 that the user or a calling skill names is passed as given, without the
-table.
-
-The routes cover the `speech` task. A row whose model is a backend name
-(`kokoro`, `chatterbox`) selects `--backend <name>` instead of `--model`.
-A row with a `<provider>:<model>` id selects `--backend speech`, with
-`--model <model>` for an escalation row and no `--model` for the default
-row. Without a matching escalation row, the backend choice above holds.
-`synth` refuses a `--model` whose provider kind differs from that of
-`models.speech` without `--voice`, because the voice settings name voices of
-the configured model. Then run `voices --backend speech --model <model>` and
-pass one of its voices with `--voice`.
+table. The routes cover the `speech` task. Without `--voice`, `synth` uses
+the default voice of the model it runs.
 
 ## Script format
 
@@ -87,32 +84,41 @@ split further: sentence `n` in `timing.json` is the `n`-th non-blank line.
 Write numbers the way they should be read; `1995` alone is read as a year,
 `42%` as "forty-two percent".
 
+A line may start with its own style in square brackets: `[whisper] Keep it
+quiet.` speaks "Keep it quiet." with the style `whisper` instead of
+`--style`, so one `synth` (one model load) voices several styles. The
+bracket is not part of the sentence in `timing.json`, which records the
+sentence's `style`. `synth` refuses the script before the first request when
+the model takes no style. With a Fish model the style becomes the inline tag
+(`[whisper] Keep it quiet.` is sent as is).
+
 ## Commands
 
 ```bash
-# First run: download the weights (Kokoro 350 MB, MMS_FA 1.26 GB) to the plugin's data directory
-# (synth with another backend downloads only MMS_FA)
-${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup
+# First run: download the weights of the speech model (local kinds: Kokoro
+# 350 MB, Chatterbox 3 GB) and of the align model (MMS_FA 1.26 GB)
+${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup [--model ID]
 
 # Script -> DIR/narration.wav + DIR/timing.json (prints both paths)
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out/
 
 # Options
-#   --backend kokoro|chatterbox|speech   default kokoro
-#   --voice NAME     default per backend     --speed 1.0 (kokoro; speech except Gemini TTS)
-#   --style TEXT     delivery instruction (speech only)
-#   --model ID       <provider>:<model> of config.yaml (speech only; default: its speech model)
+#   --model ID       <provider>:<model> of config.yaml (default: models.speech)
+#   --voice NAME     default: the model's default voice; for a model that
+#                    clones a voice also a voice of add-voice or a path
+#   --speed 1.0      models with a speed setting
+#   --style TEXT     delivery instruction, models that take one
 #   --lead 0.25      silence before the first sentence (s)
 #   --gap 0.35       silence between sentences (s)
 #   --tail 0.6       silence after the last sentence (s)
 #   --no-align       sentence times only, no word alignment
 
-# List the voices of a backend (default kokoro), the backend's default voice
-# marked `(default)`; with chatterbox: `default` plus every recording
+# List the voices of a model (default models.speech), its default voice
+# marked `(default)`; a model that clones a voice also lists every recording
 # (.wav/.flac/.mp3/.m4a) in the voices directory
-${CLAUDE_SKILL_DIR}/scripts/voiceover.sh voices [--backend kokoro|chatterbox|speech] [--model ID]
+${CLAUDE_SKILL_DIR}/scripts/voiceover.sh voices [--model ID]
 
-# Store a recording (.wav/.flac/.mp3/.m4a, longer than 5 s) as a chatterbox voice:
+# Store a recording (.wav/.flac/.mp3/.m4a, longer than 5 s) as a voice:
 # copied to <voices dir>/NAME.<suffix of the recording>; prints the path
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh add-voice NAME recording.wav [--force] [--text "transcript"]
 
@@ -121,18 +127,19 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh play out/narration.wav
 ```
 
 `synth` downloads missing weights itself; `setup` only moves the wait earlier.
-Set `VOICEOVER_MODEL_DIR` to store weights elsewhere. Play the result to the
+The weights directory of a local model is its provider's `dir` in
+`config.yaml` (default `~/.cache/ai-models`). Play the result to the
 user with `play`. Do not use QuickTime or a bare `open`.
 
 ## Cloned voices
 
-The `chatterbox` backend (Chatterbox-Turbo, Resemble AI, English, MIT) clones
-a voice from one reference recording, with no transcript and no training. A
-voice is `<name>.wav`, `.flac`, `.mp3` or `.m4a` in the voices directory,
-`VOICEOVER_VOICES_DIR` (default `<model dir>/voices`, model dir `VOICEOVER_MODEL_DIR`,
-default under the plugin's data directory); `--voice` also takes a path to a recording;
-`default` is the model's built-in voice. The model uses the first 10-15 s of
-the recording, which must be longer than 5 s.
+A model of provider kind `chatterbox` (Chatterbox-Turbo, Resemble AI,
+English, MIT) clones a voice from one reference recording, with no
+transcript and no training. A voice is `<name>.wav`, `.flac`, `.mp3` or
+`.m4a` in the voices directory, `VOICEOVER_VOICES_DIR` (default
+`voiceover/voices` under the plugin's data directory); `--voice` also takes
+a path to a recording; `default` is the model's built-in voice. The model
+uses the first 10-15 s of the recording, which must be longer than 5 s.
 
 It copies the recording's delivery, microphone and room as well as the
 speaker, so the recording decides the result. To make one: the person reads
@@ -146,8 +153,9 @@ breaths and silence at both ends and raise a quiet recording to about −20 LUFS
 (e.g. `highpass=f=70,afftdn=nf=-70:nr=10,loudnorm=I=-20:TP=-2`) before
 `add-voice`. Light denoising only: the model copies artefacts.
 
-The weights (3 GB) come from the ModelScope mirror on first use, or with
-`setup --chatterbox`. One sentence takes about 3 s per second of audio on
+It runs in its own Python environment (the provider's `python`). The
+weights (3 GB) come from the URL of the provider on first use, or with
+`setup --model <model>`. One sentence takes about 3 s per second of audio on
 CPU. Output carries Resemble's inaudible Perth watermark. Clone only a voice
 whose owner has agreed.
 
@@ -156,7 +164,7 @@ whose owner has agreed.
 ```json
 {
   "audio": "narration.wav", "sample_rate": 24000, "duration": 9.02,
-  "backend": "kokoro", "voice": "af_heart", "speed": 1.0,
+  "model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0,
   "sentences": [
     {"index": 1, "text": "Count to five.", "start": 0.25, "end": 1.31, "aligned": true,
      "words": [{"text": "Count", "start": 0.27, "end": 0.55}, ...]}
@@ -174,6 +182,6 @@ those sentences by ear before relying on their word times.
 ## Limits
 
 English only (the voices and the text normalisation are English). Each
-sentence is synthesised separately; with the `speech` models, tone can drift
+sentence is synthesised separately; with the API models, tone can drift
 a little between sentences. Gemini's length varies from run to run for the same
 text.

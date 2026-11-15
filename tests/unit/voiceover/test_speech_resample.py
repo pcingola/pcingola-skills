@@ -1,4 +1,4 @@
-"""`speech.resample`: the speech backend brings a model's own rate (Fish Audio Drama 3: 44.1 kHz) to its 24 kHz
+"""`speech.resample`: the narrator brings a model's own rate (Fish Audio Drama 3: 44.1 kHz) to its 24 kHz
 (voiceover_tool/speech.py docstring)."""
 
 import numpy as np

@@ -32,7 +32,7 @@ JSON_SCENE = {"id": "swim", "engine": "video", "image": "a.png", "brief": "Drift
               "narration": ["The cell moves."], "beats": ["drift"]}
 
 TIMING = {
-    "audio": "narration.wav", "sample_rate": 24000, "duration": 3.5, "backend": "kokoro", "voice": "af_heart",
+    "audio": "narration.wav", "sample_rate": 24000, "duration": 3.5, "model": "kokoro:kokoro-v1.0", "voice": "af_heart",
     "speed": 1.0, "sentences": [{"index": 1, "text": "The cell moves.", "start": 0.25, "end": 3.0, "aligned": True,
                                  "words": [{"text": "The", "start": 0.25, "end": 0.4}]}],
 }

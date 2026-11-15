@@ -12,12 +12,12 @@ from short_video_tool import cli, narration, scenes, settings, state, status, st
 
 DATA = {
     "title": "Interview", "topic": "Two people talk.",
-    "speakers": {"host": {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None}},
+    "speakers": {"host": {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": 1.1, "style": None}},
     "scenes": [
         {"id": "title", "template": "title", "narration": ["Welcome."], "beats": ["Interview"]},
         {"id": "talk", "image": "a.png", "brief": "Two faces.", "narration": ["Hello.", "Hi.", "Bye."],
          "beats": ["host", "guest", "both"], "speakers": ["host", None, None],
-         "voices": [None, {"backend": "speech", "style": "calm"}, None]},
+         "voices": [None, {"model": "oai:tts", "style": "calm"}, None]},
     ],
 }
 
@@ -26,18 +26,18 @@ VOICES_MD = """\
 
 Topic: Two people talk.
 
-| Speaker | Backend | Voice | Speed | Style |
+| Speaker | Model | Voice | Speed | Style |
 |---|---|---|---|---|
-| host | kokoro | bm_george | 1.1 | |
+| host | kokoro:kokoro-v1.0 | bm_george | 1.1 | |
 
 ## talk
 Image: a.png
 Brief: Two faces.
 
-| Speaker | Narration | On screen | Style | Backend |
+| Speaker | Narration | On screen | Style | Model |
 |---|---|---|---|---|
 | host | Hello. | host | | |
-| | Hi. | guest | calm | speech |
+| | Hi. | guest | calm | oai:tts |
 | | Bye. | both | | |
 """
 
@@ -61,7 +61,7 @@ class TestJson(unittest.TestCase):
         self.assertEqual(storyboard.parse_json(json.dumps(data)), DATA)
 
     def test_markdown_voice_columns_same_dict(self) -> None:
-        """storyboard.parse_markdown reads Backend, Voice, Speed and Style columns after On screen, in any order,
+        """storyboard.parse_markdown reads Model, Voice, Speed and Style columns after On screen, in any order,
         into `voices` (empty cells unset, a row with none null), the same dict as the JSON form without the title
         scene. Guards one structure for both files."""
         want = copy.deepcopy(DATA)
@@ -79,21 +79,21 @@ class TestJson(unittest.TestCase):
                 with self.assertRaises(storyboard.StoryboardError) as cm:
                     storyboard.parse_markdown(VOICES_MD.replace(old, new))
                 self.assertIn(f"storyboard.md line {line}: {fragment}", str(cm.exception))
-        text = VOICES_MD.replace("| Style | Backend |", "| Style | Speed |").replace("| calm | speech |",
+        text = VOICES_MD.replace("| Style | Model |", "| Style | Speed |").replace("| calm | oai:tts |",
                                                                                     "| calm | fast |")
         with self.assertRaises(storyboard.StoryboardError) as cm:
             storyboard.parse_markdown(text)
         self.assertIn("storyboard.md line 16: scene 'talk' sentence 2: Speed 'fast' is not a number",
                       str(cm.exception))
 
-    def test_backend_override_takes_its_default_voice(self) -> None:
-        """storyboard.resolve_voice gives a sentence whose own Backend differs from its speaker's the new
-        backend's default voice, keeps the speaker's voice when the backend is the same, and uses an own Voice
-        when given. Guards a voice name of one backend sent to another."""
-        data = {"speakers": {"guest": {"backend": "kokoro", "name": "am_adam", "speed": None, "style": None}}}
-        self.assertIsNone(storyboard.resolve_voice(data, "guest", {"backend": "speech"})["name"])
-        self.assertEqual(storyboard.resolve_voice(data, "guest", {"backend": "kokoro"})["name"], "am_adam")
-        self.assertEqual(storyboard.resolve_voice(data, "guest", {"backend": "speech", "name": "Puck"})["name"],
+    def test_model_override_takes_its_default_voice(self) -> None:
+        """storyboard.resolve_voice gives a sentence whose own Model differs from its speaker's the new
+        model's default voice, keeps the speaker's voice when the model is the same, and uses an own Voice
+        when given. Guards a voice name of one model sent to another."""
+        data = {"speakers": {"guest": {"model": "kokoro:kokoro-v1.0", "name": "am_adam", "speed": None, "style": None}}}
+        self.assertIsNone(storyboard.resolve_voice(data, "guest", {"model": "oai:tts"})["name"])
+        self.assertEqual(storyboard.resolve_voice(data, "guest", {"model": "kokoro:kokoro-v1.0"})["name"], "am_adam")
+        self.assertEqual(storyboard.resolve_voice(data, "guest", {"model": "oai:tts", "name": "Puck"})["name"],
                          "Puck")
 
     def test_silent_clip_scene_without_lists(self) -> None:
@@ -114,11 +114,11 @@ class TestJson(unittest.TestCase):
         for new, fragment in [("| Speed | Voice | Speed |", "table column 'Speed' given twice"),
                               ("| Style | Tone |", "unknown table column 'Tone'")]:
             with self.subTest(new=new):
-                text = VOICES_MD.replace("| Style | Backend |", new)
+                text = VOICES_MD.replace("| Style | Model |", new)
                 with self.assertRaises(storyboard.StoryboardError) as cm:
                     storyboard.parse_markdown(text)
                 self.assertEqual(str(cm.exception), f"storyboard.md line 13: {fragment}" + (
-                    "; after On screen only Backend, Voice, Speed, Style" if "unknown" in fragment else ""))
+                    "; after On screen only Model, Voice, Speed, Style" if "unknown" in fragment else ""))
 
     def test_errors_name_scene_and_field(self) -> None:
         """storyboard.parse_json reports bad JSON with its line, and each structural problem naming the scene
@@ -210,15 +210,15 @@ class TestLoad(Project):
 
     def test_validate_json_voices_and_no_preview_warning(self) -> None:
         """storyboard.validate checks each sentence's resolved voice with the `voice:` rules and gives no image
-        preview warning for storyboard.json. Guards voice settings a backend cannot take."""
+        preview warning for storyboard.json. Guards a sentence model that is not a model id."""
         self.write()
         r = storyboard.validate(storyboard.load(self.project), self.project)
         self.assertEqual((r.errors, r.warnings), ([], []))
         bad = copy.deepcopy(DATA)
-        bad["scenes"][1]["voices"][1] = {"backend": "kokoro", "style": "calm"}
+        bad["scenes"][1]["voices"][1] = {"model": "kokoro", "style": "calm"}
         self.write(bad)
         r = storyboard.validate(storyboard.load(self.project), self.project)
-        self.assertTrue(any(e.startswith("scene talk sentence 2: style needs") for e in r.errors), r.errors)
+        self.assertTrue(any(e.startswith("scene talk sentence 2: model must be") for e in r.errors), r.errors)
 
     def test_storyboard_command(self) -> None:
         """cli storyboard prints the storyboard.md of a project as storyboard.json stores it, without the
@@ -254,13 +254,13 @@ class TestLoad(Project):
         d = narration.script_dir(self.project, "talk")
         self.assertEqual([(d / f"p{k}" / "script.txt").read_text() for k in (1, 2, 3)],
                          ["Hello.\n", "Hi.\n", "Bye.\n"])
-        self.assertIn("speaker=host backend=kokoro name=bm_george speed=1.1", out)
-        self.assertIn("backend=speech speed=1.0 style=calm", out)
-        self.assertEqual(out.count("backend="), 2)
+        self.assertIn("speaker=host model=kokoro:kokoro-v1.0 name=bm_george speed=1.1", out)
+        self.assertIn("model=oai:tts speed=1.0 style=calm", out)
+        self.assertEqual(out.count("model="), 2)
 
 
 def _timing(texts: list[str], voice: dict | None = None) -> dict:
-    v = voice or {"backend": "kokoro", "voice": "af_heart", "speed": 1.0}
+    v = voice or {"model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0}
     sentences = [{"index": i, "text": t, "start": i - 1.0, "end": i - 0.5, "words": []}
                  for i, t in enumerate(texts, 1)]
     return {"audio": "narration.wav", "sample_rate": 24000, "duration": float(len(texts)), **v,
@@ -364,9 +364,9 @@ class TestStatus(Project):
         """status marks a recording made in another voice than the film's `voice:` as needing a new voice.
         Guards the resolved-voice comparison for scenes without speakers."""
         self.done()
-        (self.project / "settings.yaml").write_text("author: [Jane Doe]\nvoice: {backend: speech}\n")
+        (self.project / "settings.yaml").write_text("author: [Jane Doe]\nvoice: {model: \"oai:tts\"}\n")
         settings.use_project(self.project)
-        self.assertTrue(any("voiced with backend 'kokoro', the storyboard gives 'speech'" in r
+        self.assertTrue(any("voiced with model 'kokoro:kokoro-v1.0', the storyboard gives 'oai:tts'" in r
                             for r in self.entry("a")["voice_reasons"]))
 
 

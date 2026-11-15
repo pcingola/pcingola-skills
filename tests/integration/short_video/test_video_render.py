@@ -19,7 +19,7 @@ from short_video_tool import media, settings, state, storyboard, versions, video
 DURATION = 3.0
 TIMING = {
     "audio": "narration.wav", "sample_rate": 24000, "duration": DURATION,
-    "backend": "kokoro", "voice": "af_heart", "speed": 1.0,
+    "model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0,
     "sentences": [{"index": 1, "text": "A red ball rolls.", "start": 0.25, "end": 2.6, "aligned": True,
                    "words": [{"text": "A", "start": 0.25, "end": 0.35}]}],
 }

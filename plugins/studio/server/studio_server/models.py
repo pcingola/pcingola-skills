@@ -1,4 +1,5 @@
-"""The model of each image-gen tier and of the media tasks the page shows, from `models` in config.yaml.
+"""The model of each image-gen tier and of the media tasks the page shows, from `models` in config.yaml, and the
+speech models the voice picker offers.
 
 A model id is `<provider>:<model>`. Nothing here calls a model.
 """
@@ -10,17 +11,45 @@ from plugin_settings import ConfigFileError, read_config
 # Each image-gen tier (`--tier`, in the order the page lists them): its task without and with reference images.
 TIERS = {"best": ("image_best", "image_best"), "multi-ref": ("image_multi_ref", "image_multi_ref"),
          "fast": ("image", "image_edit")}
-# The image tasks, then the tasks the Videos tab names: the online voice, made music, the `video` scene engine.
+# The image tasks, then the tasks the Videos tab names: the voice, made music, the `video` scene engine.
 TASKS = ("image", "image_edit", "image_best", "image_multi_ref", "speech", "music", "video", "presenter")
+
+
+def speech_models() -> list[dict]:
+    """The speech models of media:voiceover's routes (`ai_models.routes`, task `speech`): the default row (the
+    `speech` model of config.yaml) first, then the configured escalation rows, each once. Each: `id`, `default`
+    (the default row), `when`, `why`, and what the model takes (`ai_models.speech`): `voice` (its default voice),
+    `speed` ([low, high], or null for none), `style` and `clones` (a voice may be a reference recording). Empty
+    when config.yaml is missing or broken; a row whose provider has no speech models is left out."""
+    from ai_models import AIModelsError, routes, speech
+
+    try:
+        rows = routes.table(["speech"])
+    except AIModelsError:
+        return []
+    out: list[dict] = []
+    for r in rows:
+        if any(m["id"] == r.model for m in out):
+            continue
+        try:
+            m = speech.model_of(r.model)
+        except AIModelsError:
+            continue
+        rng = m.traits.speed
+        out.append({"id": m.id, "default": r.is_default, "when": r.when, "why": r.why, "voice": m.default_voice,
+                    "speed": list(rng) if rng else None, "style": m.instructions, "clones": m.traits.clones})
+    return out
 
 
 def read_models() -> dict:
     """`tasks`: the model id of each task of TASKS (None without one, or when config.yaml is missing or broken);
-    `tiers`: each tier's `id`, `model` (without reference images) and `ref_model` (with them)."""
+    `tiers`: each tier's `id`, `model` (without reference images) and `ref_model` (with them); `speech`: the speech
+    models of `speech_models`."""
     try:
         models = read_config().get("models") or {}
     except ConfigFileError:
         models = {}
     tasks = {t: models.get(t) or None for t in TASKS}
     return {"tasks": tasks,
-            "tiers": [{"id": tier, "model": tasks[task], "ref_model": tasks[ref]} for tier, (task, ref) in TIERS.items()]}
+            "tiers": [{"id": tier, "model": tasks[task], "ref_model": tasks[ref]} for tier, (task, ref) in TIERS.items()],
+            "speech": speech_models()}

@@ -8,6 +8,15 @@
     vllm-omni                           a vLLM-Omni server in its own environment, started once per
                                         process (`omni`); WAV at the model's rate; instructions through the
                                         provider's `style` format; no speed
+    kokoro                              Kokoro in process on the CPU (`kokoro`); 24 kHz WAV; speed 0.5 to 2;
+                                        no instructions
+    chatterbox                          Chatterbox Turbo in a worker of its own environment (`chatterbox`);
+                                        24 kHz WAV; voice cloning; no speed, no instructions
+
+`traits` gives what each kind takes (`Traits`): its default voice, speed range, instructions and whether a voice
+may be a reference recording. A provider's `voice` replaces the kind's default voice and its `voices` (a list)
+are what `voices` lists; without it `voices` lists the Kokoro voices of a `kokoro` model, else the default voice.
+`check` refuses a speed or instructions the model does not take, before any request or model load.
 """
 
 from __future__ import annotations
@@ -16,13 +25,111 @@ import asyncio
 import io
 import re
 import wave
+from dataclasses import dataclass
+from typing import Any
 
-from . import config, omni
+from . import chatterbox, config, kokoro, omni
 from .errors import AIModelsError, ConfigError, explained
 from .models import provider
 
 DEFAULT_PCM_RATE = 24_000
 OPENAI_KINDS = ("ollama", "openrouter", "openai", "azure")
+
+
+@dataclass(frozen=True)
+class Traits:
+    """What a provider kind's speech models take: the default `voice` when the provider sets none, the `speed`
+    range (None: only 1), whether they take `instructions` (vllm-omni: when the provider has `style`) and whether a
+    voice may be a reference recording (`clones`)."""
+
+    voice: str
+    speed: tuple[float, float] | None
+    instructions: bool
+    clones: bool = False
+
+
+OPENAI_TRAITS = Traits("marin", (0.25, 4.0), True)
+TRAITS: dict[str, Traits] = {
+    **{k: OPENAI_TRAITS for k in ("openrouter", "openai", "azure")},
+    "ollama": Traits("default", (0.25, 4.0), True),
+    "google": Traits("Kore", None, True),
+    omni.KIND: Traits(omni.DEFAULT_VOICE, None, False, clones=True),
+    kokoro.KIND: Traits("af_heart", (0.5, 2.0), False),
+    chatterbox.KIND: Traits(chatterbox.DEFAULT_VOICE, None, False, clones=True),
+}
+
+
+@dataclass(frozen=True)
+class SpeechModel:
+    """A speech model of the config: its id, provider name, provider settings and bare model name."""
+
+    id: str
+    provider: str
+    spec: dict[str, Any]
+    bare: str
+
+    @property
+    def kind(self) -> str:
+        return self.spec["kind"]
+
+    @property
+    def traits(self) -> Traits:
+        try:
+            return TRAITS[self.kind]
+        except KeyError:
+            raise ConfigError(f"provider {self.provider!r} of kind {self.kind!r} has no speech models") from None
+
+    @property
+    def default_voice(self) -> str:
+        return str(self.spec.get("voice") or self.traits.voice)
+
+    @property
+    def instructions(self) -> bool:
+        return bool(self.spec.get("style")) if self.kind == omni.KIND else self.traits.instructions
+
+
+def model_of(model: str | None = None) -> SpeechModel:
+    """`model` (else `models.speech`) as a `SpeechModel`; `ConfigError` for a kind without speech models."""
+    model_id = config.resolve(model, "speech")
+    name, bare = config.split_id(model_id)
+    m = SpeechModel(model_id, name, config.provider(name), bare)
+    m.traits  # noqa: B018 - refuses a kind without speech models
+    return m
+
+
+def check(model: str | None = None, *, speed: float = 1.0, instructions: str | None = None) -> SpeechModel:
+    """The `SpeechModel`; `AIModelsError` for a speed or instructions it does not take."""
+    m = model_of(model)
+    rng = m.traits.speed
+    if rng is None and speed != 1.0:
+        raise AIModelsError(f"{m.id} has no speed setting; ask for the pace in the instructions instead"
+                            if m.instructions else f"{m.id} has no speed setting")
+    if rng is not None and not rng[0] <= speed <= rng[1]:
+        raise AIModelsError(f"{m.id}: speed must be between {rng[0]:g} and {rng[1]:g}")
+    if instructions and not m.instructions:
+        raise AIModelsError(f"{m.id} takes no instructions (style)")
+    return m
+
+
+def voices(model: str | None = None) -> list[str]:
+    """The voices of `model` (else `models.speech`): the provider's `voices`, else a Kokoro model's voices, else
+    the default voice. A model whose kind `clones` also takes a reference recording, which is not listed."""
+    m = model_of(model)
+    if m.spec.get("voices"):
+        return [str(v) for v in m.spec["voices"]]
+    if m.kind == kokoro.KIND:
+        return kokoro.voices(m.spec, m.provider, m.bare)
+    return [m.default_voice]
+
+
+def fetch(model: str | None = None) -> None:
+    """Download the weights of a local speech model (kinds kokoro, chatterbox) when missing; other kinds have
+    none."""
+    m = model_of(model)
+    if m.kind == kokoro.KIND:
+        kokoro.files(m.spec, m.provider, m.bare)
+    elif m.kind == chatterbox.KIND:
+        chatterbox.fetch(m.spec, m.provider, m.bare)
 
 
 def wav(pcm: bytes, rate: int) -> bytes:
@@ -66,26 +173,26 @@ async def _google(client, model: str, text: str, voice: str, instructions: str |
     raise AIModelsError(f"{model} returned no audio")
 
 
-async def aspeak(text: str, *, voice: str, model: str | None = None, instructions: str | None = None,
-                 response_format: str = "wav", speed: float = 1.0) -> bytes:
-    """The audio of `text` by `model` (else `models.speech`) in `voice`. `instructions`
-    set the style, `speed` the pace (OpenAI-style kinds only). Google returns WAV whatever
-    `response_format` says."""
-    model_id = config.resolve(model, "speech")
-    name, bare = config.split_id(model_id)
-    kind = config.provider(name)["kind"]
+async def aspeak(text: str, *, voice: str | None = None, model: str | None = None,
+                 instructions: str | None = None, response_format: str = "wav", speed: float = 1.0) -> bytes:
+    """The audio of `text` by `model` (else `models.speech`) in `voice` (else the model's default voice).
+    `instructions` set the style, `speed` the pace, as far as `check` allows. Google, vLLM-Omni, Kokoro and
+    Chatterbox return WAV whatever `response_format` says."""
+    m = check(model, speed=speed, instructions=instructions)
+    model_id, name, bare, kind, spec = m.id, m.provider, m.bare, m.kind, m.spec
+    voice = voice or m.default_voice
     if kind == omni.KIND:
-        return omni.speak(name, config.provider(name), bare, text, voice, instructions, speed)
-    if kind == "google" and speed != 1.0:
-        raise AIModelsError(f"{model_id} has no speed setting; ask for the pace in the instructions instead")
-    p = provider(name) if kind in (*OPENAI_KINDS, "google") else None
+        return omni.speak(name, spec, bare, text, voice, instructions, speed)
+    if kind == kokoro.KIND:
+        return kokoro.speak(spec, name, bare, text, voice, speed)
+    if kind == chatterbox.KIND:
+        return chatterbox.speak(spec, name, bare, text, voice)
+    p = provider(name)
     with explained(model_id):
         if kind in OPENAI_KINDS:
             audio = await _openai(p.client, bare, text, voice, instructions, response_format, speed)
-        elif kind == "google":
-            audio = await _google(p.client, bare, text, voice, instructions)
         else:
-            raise ConfigError(f"provider {name!r} of kind {kind!r} has no speech models")
+            audio = await _google(p.client, bare, text, voice, instructions)
     if not audio:
         raise AIModelsError(f"{model_id} returned no audio")
     return audio

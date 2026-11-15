@@ -44,6 +44,7 @@ from typing import Any
 import yaml
 
 from . import local
+from .config import required
 from .errors import AIModelsError, ConfigError
 
 KIND = "vllm-omni"
@@ -116,12 +117,6 @@ def _raise_exit(signum: int, _frame) -> None:
     raise SystemExit(128 + signum)
 
 
-def required(spec: dict[str, Any], key: str, name: str) -> Any:
-    if spec.get(key) in (None, ""):
-        raise ConfigError(f"provider {name!r} of kind {KIND} needs `{key}`")
-    return spec[key]
-
-
 def deploy_path(python: str, deploy: str) -> Path:
     """`deploy` as a path: itself when it names a file, else a file of vLLM-Omni's `deploy/` directory, found with
     the server environment's `python` (`find_spec` does not import the package)."""
@@ -189,7 +184,7 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def _die_with_parent() -> None:
+def die_with_parent() -> None:
     """In the child before exec: SIGTERM when the parent dies (Linux `PR_SET_PDEATHSIG`)."""
     if sys.platform == "linux":
         import ctypes
@@ -231,7 +226,7 @@ def server(name: str, spec: dict[str, Any], model: str) -> Server:
           file=sys.stderr, flush=True)
     with log.open("wb") as out:
         proc = subprocess.Popen(command(python, repo, deploy, port, model, spec.get("args") or []), stdout=out, stderr=subprocess.STDOUT,
-                                stdin=subprocess.DEVNULL, start_new_session=True, preexec_fn=_die_with_parent,
+                                stdin=subprocess.DEVNULL, start_new_session=True, preexec_fn=die_with_parent,
                                 env=server_env(spec))
     srv = Server(proc, f"http://127.0.0.1:{port}", log, model)
     atexit.register(srv.stop)

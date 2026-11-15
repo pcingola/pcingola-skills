@@ -46,7 +46,7 @@ The narration is made by the agent with `media:voiceover` and the music with `me
 `voice` checks the voiced sentences against the storyboard, so a script voiced before a later edit cannot be imported.
 Each sentence has a resolved voice: its speaker's voice, or `voice:` without a speaker, with the sentence's own
 settings (`voices`) over it. A scene is voiced in parts, one per run of consecutive sentences with the same speaker and
-resolved voice. `voice` checks the backend, voice, speed and style in every recording's `timing.json` against its
+resolved voice. `voice` checks the speech model, voice, speed and style in every recording's `timing.json` against its
 run's resolved voice, and `script` deletes recordings that no longer match the scene's part layout, so a recording in
 another voice cannot be imported. A joined recording lists each part's voice and number of sentences, which `status`
 uses to check each sentence's recorded voice.

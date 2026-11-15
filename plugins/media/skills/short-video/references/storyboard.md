@@ -124,18 +124,18 @@ names a speaker. Speakers are defined in one header table, after
 `Topic:`/`Source:` and before the first scene:
 
 ```markdown
-| Speaker | Backend | Voice | Speed | Style |
+| Speaker | Model | Voice | Speed | Style |
 |---|---|---|---|---|
-| host | kokoro | bm_george | 1.0 | |
-| guest | kokoro | af_heart | 1.1 | |
+| host | | bm_george | 1.0 | |
+| guest | | af_heart | 1.1 | |
 ```
 
-Speaker names are `[a-z0-9_]+` and unique. The other columns follow the rules
-of `voice:`: a speed other than 1.0 needs a backend in `voice.speed_backends`,
-a style a backend in `voice.style_backends`. An empty Voice is the backend's
-default (`voice.names`; for `speech`, the default of the configured provider,
-as voiceover records it in `timing.json`), an empty Speed 1.0, an empty Style
-none.
+Speaker names are `[a-z0-9_]+` and unique. Model is a speech model id
+`<provider>:<model>` of `config.yaml`; an empty Model is its `speech` model.
+A speed other than 1.0 needs a model with a speed setting, a style a model
+that takes one; the voiceover skill refuses others when it voices. An empty
+Voice is the model's default voice, as voiceover records it in
+`timing.json`, an empty Speed 1.0, an empty Style none.
 
 A scene table may then start with a Speaker column:
 
@@ -157,7 +157,7 @@ possible.
 
 ## Voice settings per sentence
 
-After On screen, a scene table may have any of the columns Backend, Voice,
+After On screen, a scene table may have any of the columns Model, Voice,
 Speed and Style, in any order:
 
 ```markdown
@@ -168,9 +168,9 @@ Speed and Style, in any order:
 ```
 
 A set cell overrides that field of the sentence's voice: its speaker's, or
-`voice:` when it has no speaker. An empty cell keeps it. A Backend other
-than the speaker's, without a Voice, uses that backend's default voice
-(`voice.names`). The resolved voice follows the rules of `voice:`. `script`
+`voice:` when it has no speaker. An empty cell keeps it. A Model other
+than the speaker's, without a Voice, uses that model's default voice. The
+resolved voice follows the rules of `voice:`. `script`
 writes one part per run of consecutive sentences with the same speaker and
 resolved voice, so a change of settings starts a new part, and prints each
 part's voice when it is not `voice:`; `voice` checks every recording against
@@ -186,7 +186,7 @@ its sentences' resolved voice.
   "title": "Interview",
   "topic": "Two people talk.",
   "source": "sources/notes.md",
-  "speakers": {"host": {"backend": "kokoro", "name": "bm_george", "speed": null, "style": null}},
+  "speakers": {"host": {"model": null, "name": "bm_george", "speed": null, "style": null}},
   "scenes": [
     {"id": "title", "template": "title", "narration": ["Welcome."], "beats": ["Interview"]},
     {"id": "talk", "image": "a.png", "brief": "The camera swings between the two faces.",
@@ -197,13 +197,13 @@ its sentences' resolved voice.
 ```
 
 - Top level: `title`, `topic`, optional `source` and `speakers` (name to
-  `backend`, `name`, `speed`, `style`, each optional or null), and `scenes`.
+  `model`, `name`, `speed`, `style`, each optional or null), and `scenes`.
 - A scene: `id`; `template`, `image`, `brief`, `engine` as the `Template:`,
   `Image:`, `Brief:`, `Engine:` keys, under the same rules; `narration` and
   `beats` (the On screen cells), lists of one string per sentence (a clip
   scene may leave both out, which makes it silent); optional
   `speakers` (a speaker name or null per sentence), `voices` (null or an
-  object with any of `backend`, `name`, `speed`, `style` per sentence) and
+  object with any of `model`, `name`, `speed`, `style` per sentence) and
   `preview` (the image preview path of a storyboard.md; unused otherwise).
 - No other keys. The author is not stored: it comes from `author:` in the
   settings. Whitespace inside a string collapses to one space.

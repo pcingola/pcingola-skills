@@ -1,4 +1,4 @@
-"""Integration: kokoro-onnx phonemizes with the espeak-ng data path the backend picks.
+"""Integration: kokoro-onnx phonemizes with the espeak-ng data path `ai_models.espeak` picks.
 
 Needs no model weights. Each case runs in a fresh interpreter because
 espeak-ng keeps its data path for the life of the process.
@@ -27,10 +27,10 @@ def phonemize(data_path: str) -> subprocess.CompletedProcess:
 class TestEspeak(unittest.TestCase):
     def test_backend_data_path(self):
         """espeak.data_path returns a path shorter than PATH_LIMIT with which kokoro-onnx phonemizes.
-        Guards the espeak-ng 160-byte path limit stated in docs/voiceover.md."""
-        from voiceover_tool import espeak
+        Guards the espeak-ng 160-byte path limit stated in docs/ai_models.md."""
+        from ai_models import espeak
 
-        path = espeak.data_path()
+        path = espeak.data_path(Path(tempfile.gettempdir()))
         self.assertLess(len(path), espeak.PATH_LIMIT)
         r = phonemize(path)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -41,7 +41,7 @@ class TestEspeak(unittest.TestCase):
         Guards that the copy, with its .source marker, is complete enough for espeak-ng."""
         import espeakng_loader
 
-        from voiceover_tool import espeak
+        from ai_models import espeak
 
         with tempfile.TemporaryDirectory() as tmp:
             dest = espeak.ensure_copy(Path(espeakng_loader.get_data_path()), Path(tmp) / "espeak-ng-data")

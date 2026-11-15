@@ -1,18 +1,15 @@
-"""The `speech` backend: the `speech` model of the `ai_models` config (or a given model id) through
-`ai_models.speech.speak`, one request per sentence.
+"""The narrator: a speech model of the `ai_models` config (`--model`, else `models.speech`), one request per
+sentence through `ai_models.speech.speak`.
 
-A style goes as the model's `instructions` (OpenAI-style providers) or as a
-prefix of the text (Gemini TTS). A speed (0.25 to 4) goes to OpenAI-style
-providers, which may refuse it (Ollama does); Gemini TTS has none. The answer is
-a WAV file, resampled to 24 kHz when it has another rate (Drama 3: 44.1 kHz); raw 16-bit PCM (some
-OpenAI-compatible servers) is taken as 24 kHz. The voice is checked by the provider. The default voice is the setting
-VOICEOVER_SPEECH_VOICE; `voices` lists VOICEOVER_SPEECH_VOICES when set.
+`ai_models.speech.check` refuses a speed or a style the model does not take when the narrator is made, before
+any request or model load. The style goes as the model's instructions. The default voice is the model's
+(`ai_models` provider `voice`, else its kind's). A model whose kind clones a voice (chatterbox, vllm-omni) also
+takes a reference recording of `add-voice` (`voices.py`), passed as its path; `voices` lists those after the
+model's own voices. The answer is a WAV file, resampled to 24 kHz when it has another rate (Drama 3: 44.1 kHz); raw
+16-bit PCM (some OpenAI-compatible servers) is taken as 24 kHz.
 
-A model of kind vllm-omni (Fish Audio Drama 3) has no voices and no speed. Its voice is `default` (the model's
-own voice; the first sentence's take is the reference of the rest, so one command has one speaker, and
-`synth` writes it as `voice.wav` + `voice.txt`) or a reference voice of `add-voice` (a name in the voices directory, or a path) whose transcript
-`<name>.txt` lies beside it; the model clones it. A style becomes the provider's `style` format, inline tags for
-Drama 3 (`--style whisper` sends `[whisper] <sentence>`).
+A vllm-omni model (Fish Audio Drama 3) with the voice `default` keeps the first sentence's take as the reference
+of the rest, so one command has one speaker; `synth` writes it as `voice.wav` + `voice.txt`.
 """
 
 from __future__ import annotations
@@ -22,14 +19,9 @@ import wave
 
 import numpy as np
 
-SAMPLE_RATE = 24_000
-TASK = "speech"
+from . import voices
 
-SPEED_RANGE = (0.25, 4.0)
-# The default voice of a model whose provider kind differs from that of the config's `speech` model, whose
-# voices VOICEOVER_SPEECH_VOICE and VOICEOVER_SPEECH_VOICES name; other kinds (OpenAI-style): `marin`.
-KIND_VOICES = {"google": "Kore", "ollama": "default", "vllm-omni": "default"}
-KIND_VOICE = "marin"
+SAMPLE_RATE = 24_000
 
 
 class TTSError(Exception):
@@ -62,74 +54,56 @@ def resample(samples: np.ndarray, rate: int, target: int) -> np.ndarray:
     return F.resample(torch.from_numpy(np.ascontiguousarray(samples)), rate, target).numpy()
 
 
-def _configured_kind() -> str | None:
-    """The provider kind of the config's `speech` model; None when the config names none."""
-    from ai_models import AIModelsError
-    from ai_models import config as ai_config
-    from ai_models.models import kind
+class Narrator:
+    """Speech model `model` (else `models.speech`) with `style` and `speed`; `ValueError` when the config names no
+    such model or the model does not take the style or speed."""
 
-    try:
-        return kind(ai_config.model_for(TASK))
-    except AIModelsError:
-        return None
-
-
-class SpeechBackend:
-    """`model`, else the config's `speech` model. `ValueError` when the config names none. `own_voices`: the
-    model's provider kind is that of the config's `speech` model, so the voice settings apply to it; else the
-    default voice is the kind's (KIND_VOICES)."""
-
-    name = "speech"
     sample_rate = SAMPLE_RATE
 
-    def __init__(self, style: str | None = None, model: str | None = None) -> None:
+    def __init__(self, model: str | None = None, style: str | None = None, speed: float = 1.0) -> None:
         from ai_models import AIModelsError
-        from ai_models import config as ai_config
-        from ai_models.models import kind
+        from ai_models import speech
 
         try:
-            self.model = ai_config.resolve(model, TASK)
-            self.kind = kind(self.model)
+            m = speech.check(model, speed=speed, instructions=style)
         except AIModelsError as e:
             raise ValueError(str(e)) from None
-        self.style = style
-        self.own_voices = model is None or self.kind == _configured_kind()
-        if not self.own_voices:
-            self.default_voice = KIND_VOICES.get(self.kind, KIND_VOICE)
-            self._voices = [self.default_voice]
-            return
-        from . import config
+        self.model, self.kind, self.default_voice = m.id, m.kind, m.default_voice
+        self.clones = m.traits.clones
+        self.style, self.speed = style, speed
 
-        self.default_voice = config.require("VOICEOVER_SPEECH_VOICE")
-        listed = [v.strip() for v in (config.PLUGIN.get("VOICEOVER_SPEECH_VOICES") or "").split(",") if v.strip()]
-        self._voices = listed or [self.default_voice]
+    def check_style(self, style: str | None) -> None:
+        """`ValueError` when the model does not take `style` (a sentence's own style), before any request."""
+        from ai_models import AIModelsError
+        from ai_models import speech
+
+        try:
+            speech.check(self.model, speed=self.speed, instructions=style)
+        except AIModelsError as e:
+            raise ValueError(str(e)) from None
 
     def voices(self) -> list[str]:
-        return list(self._voices)
+        """The model's voices, then the reference recordings when the model clones a voice."""
+        from ai_models import speech
+
+        own = speech.voices(self.model)
+        return own + [v for v in voices.names() if v not in own] if self.clones else own
 
     def first_take(self) -> tuple[bytes, str] | None:
         """(WAV, text) of the first `default`-voice sentence of a vllm-omni model in this process, else None."""
-        from ai_models import config as ai_config
         from ai_models import omni
 
-        return omni.first_take(ai_config.split_id(self.model)[0]) if self.kind == omni.KIND else None
+        return omni.first_take(self.model.partition(":")[0]) if self.kind == omni.KIND else None
 
-    def synthesize(self, text: str, voice: str, speed: float) -> np.ndarray:
-        from ai_models import omni
-
-        if self.kind == omni.KIND and voice != omni.DEFAULT_VOICE:
-            from .chatterbox import reference_path
-
-            voice = str(reference_path(voice))
-        if speed != 1.0 and self.kind in ("google", omni.KIND):
-            raise ValueError(f"{self.model} has no speed setting; ask for the pace with --style instead")
-        lo, hi = SPEED_RANGE
-        if not lo <= speed <= hi:
-            raise ValueError(f"speech speed must be between {lo} and {hi}")
+    def synthesize(self, text: str, voice: str, style: str | None = None) -> np.ndarray:
+        """Mono float32 samples of `text` at `sample_rate`, with `style` (else the narrator's)."""
         from ai_models import AIModelsError, speech
 
+        if self.clones and voice != voices.DEFAULT_VOICE:
+            voice = str(voices.reference_path(voice))
         try:
-            data = speech.speak(text, voice=voice, model=self.model, instructions=self.style, speed=speed)
+            data = speech.speak(text, voice=voice, model=self.model, instructions=style or self.style,
+                                speed=self.speed)
         except AIModelsError as e:
             msg = str(e)
             raise TTSError(msg if msg.startswith(self.model) else f"{self.model}: {msg}") from None
