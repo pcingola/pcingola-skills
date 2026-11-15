@@ -20,6 +20,7 @@ per concern). It has three parts:
 | `speech` | `speak` |
 | `music` | `compose` |
 | `video` | `animate`, `aanimate`; `frame_count`, `frame_size`, `clip_size` |
+| `omni` | `speak` of a vLLM-Omni server (Speech models of vLLM-Omni) |
 | `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` (video), the pipeline cache, the lock, memory check and cap (Local model memory) |
 | `tls` | the TLS context of remote clients |
 | `errors` | `AIModelsError`, `ConfigError`, `explained` |
@@ -63,6 +64,7 @@ The image-gen, music and short-video wrappers install the extra when the config 
 | `azure` | `AzureProvider` | `base_url` (the Azure endpoint), `api_version`, `api_key` |
 | `google` | `GoogleProvider`, or `GoogleCloudProvider` (Vertex) with `vertex: true` | `api_key`, `base_url` |
 | `diffusers` | none; `local` | none |
+| `vllm-omni` | none; `omni` | `python`, `repo`, `deploy`, `memory_share`, `style`, `args`, `env`, `start_timeout` (Speech models of vLLM-Omni) |
 
 What each kind serves:
 
@@ -73,7 +75,7 @@ What each kind serves:
 | system1 | Pydantic-AI `SystemOneModel` on the provider's `base_url` (Ollama: `/v1/systemone`) | any with a `base_url` |
 | image, image_edit | Pydantic-AI `OpenAIImageGenerationModel`, `GoogleImageGenerationModel`; `local.DiffusersImageModel` | `ollama`, `openrouter`, `openai`, `azure`, `google`, `diffusers` |
 | image mask | `images.MaskedOpenAIImageModel`; the `inpaint` pipeline of a `diffusers` model | OpenAI kinds, `diffusers` |
-| speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, or Google `generate_content` | OpenAI kinds, `google` |
+| speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, Google `generate_content`, or `omni.speak` | OpenAI kinds, `google`, `vllm-omni` |
 | music | `music.compose`: Google predict or stream, or `local.DiffusersMusicModel` | `google`, `diffusers` |
 | video | `video.animate`: `local.animate` (image to video) | `diffusers` |
 
@@ -152,6 +154,48 @@ cache, but `mem_get_info()` reports `MemFree` and counts the page cache as used.
 safetensors files were read, `mem_get_info()` reported 83 GB free and `MemAvailable` 125 GB, and a 102 GB CUDA
 allocation succeeded.
 
+## Speech models of vLLM-Omni
+
+Fish Audio Drama 3 runs only through vLLM-Omni (or SGLang-Omni), which pins torch 2.14.0 and transformers below
+5.20; the skill environments have torch 2.14.1 and transformers 5.23. It therefore runs in its own environment,
+in a separate process. A provider of kind `vllm-omni` names that environment's interpreter (`python`) and the
+model (`repo`). `omni.speak`:
+
+1. On the first call of the process, makes SIGTERM raise `SystemExit` (`exit_on_sigterm`, so step 5 runs after a
+   SIGTERM), takes the local-model lock (`local.hold_lock`, Local model memory) and reads the free memory
+   (`local.free_memory`). After waiting for the lock, it reads the free memory until it stops rising
+   (`local.wait_for_settled_memory`: a rise under 0.5 GB between readings 0.5 s apart, at most 10 s), while the
+   previous holder's memory comes back. On an integrated GPU the free memory is at most
+   `torch.cuda.mem_get_info()[0]` (`vllm_free_memory`), because vLLM checks its share against that figure at start.
+2. Writes a deploy overlay that inherits `deploy` (a file of vLLM-Omni's `deploy/` directory, found with the
+   environment's `importlib.util.find_spec`, or a path) through vLLM-Omni's `base_config`. The overlay turns off
+   the CUDA MPS daemon (`platforms.cuda.cuda_mps: false`) and scales every stage's `gpu_memory_utilization` so
+   that their sum is `memory_share` times the free memory over the device total, in the deploy config's
+   proportions (Drama 3: 0.78 and 0.1). Without MPS the two stages share one GPU by time-slicing.
+3. Starts `vllm serve <repo> --omni --deploy-config <overlay>` plus the provider's `args` on a free loopback port,
+   with the provider's `env` added to the environment, in its own process group with `PR_SET_PDEATHSIG`, and polls
+   `/health` until `start_timeout` (default 1800 s).
+4. Sends each request to `POST /v1/audio/speech` (`response_format: wav`; the audio comes at the model's rate,
+   since Drama 3 refuses `sample_rate`).
+5. Stops the server at exit (`atexit`, `Server.stop`): SIGTERM to the group, a wait of up to 30 s for the main
+   process and then up to 30 s for the rest of the group (the stage workers, polled with `killpg(pgid, 0)`), then
+   SIGKILL to the group. The kernel sends SIGTERM to the main process when the caller dies (`PR_SET_PDEATHSIG`);
+   that signal does not reach the stage workers.
+
+On the GB10 (sm_121), Drama 3 needs three settings, all in config: `--safetensors-load-strategy eager` (the
+default memory-mapped load took 18 s per 2.5 GB shard, 4.5 min in all, past vLLM-Omni's 300 s stage start limit;
+eager took 34 s), `--stage-init-timeout 1800`, and `VLLM_USE_FLASHINFER_SAMPLER=0` (FlashInfer has no prebuilt
+sampling kernel for sm_121 and JIT-compiles it with nvcc, which is not installed). vllm-omni 0.32.0 needs vllm
+0.32 (with vllm 0.33 its CLI fails on `vllm.entrypoints.launchers.cli_args`).
+
+The server lives for one command, like a diffusers pipeline. The in-process `Omni` class was not used: it needs
+the model's prompt layout in our code (vLLM-Omni's TTS adapter builds it for the server, per architecture).
+
+Voice: `default` (the model's own voice), or a path to a reference recording with its transcript in a `.txt` file
+of the same stem, sent as `ref_audio` (a `data:` URI) and `ref_text`. Instructions go through the provider's
+`style`, a format string with `{instructions}` and `{text}` (Drama 3: `"[{instructions}] {text}"`, its inline
+tags); a provider without `style` refuses instructions. There is no speed.
+
 ## Video
 
 `video.animate(image, prompt, *, seconds, model=None, width=None, height=None, aspect=None, seed=None)` returns an MP4 of the
@@ -171,12 +215,40 @@ Only the `diffusers` kind serves video. A video model is a `diffusers.<name>` en
 The frame count is cut to `max_frames`, rounded down to the `frame_step * k + 1` form.
 
 The image is cropped to the clip's aspect ratio and scaled to its size (`ImageOps.fit`). The frames are encoded with
-diffusers' `export_to_video` (imageio-ffmpeg, H.264). An audio track the pipeline also generates is dropped, because the caller
-(media:short-video) adds the narration. Some image-to-video pipelines need PyAV to re-encode their conditioning image,
-so the `diffusers` extra installs `av`, `imageio` and `imageio-ffmpeg`.
+diffusers' `encode_video` (PyAV, H.264). A pipeline whose output has `audio` (LTX-2 generates a sound track with the
+frames) gets it muxed in as an AAC stereo stream at the rate `local.audio_rate` reads from the pipeline: its vocoder
+config's `output_sampling_rate`, else `sampling_rate`, else the pipeline's `audio_sample_rate` (Kandinsky 6), else its
+`sample_rate`. The track may be (channels, samples) or (samples,) per video, a tensor or a NumPy array
+(`local.waveform`). A pipeline without `audio`
+gives a clip without an audio stream. The caller decides what to do with the track (media:short-video mixes it under
+the narration as ambience). The `diffusers` extra installs `av` for the encoder; some image-to-video pipelines also
+need it to re-encode their conditioning image.
+
+`video.present(image, speech, *, model=None, aspect=None, prompt=None, seed=None)` returns an MP4 of the person in
+the image speaking `speech` (an audio file), as long as the speech, with the speech muxed in as AAC at the file's
+sample rate; `apresent` runs it in a worker thread. The model is `model`, else `models.presenter`, a `diffusers.<name>`
+entry with optional `steps`, `guidance`, `args` and `skip`, and these keys, all required (`video.presenter_spec`):
+
+| Key | Meaning |
+|---|---|
+| `pipeline` | the diffusers class to load, a `DiffusionPipeline` or a `ModularPipeline` class |
+| `fps` | frames per second of the clip |
+| `buckets` | the frame sizes the model makes, a list of `[width, height]`; the clip takes the one nearest `aspect` on a log scale (`video.bucket`), default the image's aspect |
+| `audio_rate` | the sample rate the model takes the speech at; the speech goes to the model mono at this rate |
+| `output` | the pipeline output that holds the videos (a modular pipeline's `output=` argument) |
+
+PyAV decodes and resamples the speech (`local.read_audio`). The image is cropped to the bucket (`ImageOps.fit`) and
+passed with its `width` and `height`; `prompt`, when given, replaces the pipeline's default prompt.
+
+`local.pipeline` loads a `ModularPipeline` class (`modular_model_index.json`, Kandinsky S2V) with `from_pretrained`
+then `load_components(dtype=bfloat16)` of every component outside `skip`, under the same lock, memory check of the
+loaded components' weights and CUDA cap as a `DiffusionPipeline`. diffusers 0.43 is the first release with the
+Kandinsky S2V modular pipeline.
 
 The models, their repositories and these keys are in `config.yaml`; `config.example.yaml` has a real model and a
-minimal test model.
+minimal test model. The presenter test (`tests/integration/ai_models/test_video.py`) uses
+`kandinskylab/tiny-kandinsky-s2v-distilled-modular-pipe` (32 MB, random weights, the diffusers test fixture); its text
+RoPE has 128 positions, so its config passes a short `prompt` in `args`.
 
 ## TLS
 

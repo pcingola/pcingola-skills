@@ -75,3 +75,39 @@ def test_model_failure_is_one_line(write_config):
         video.animate(b"", "p", seconds=1.0)
     assert type(e.value) is AIModelsError and "\n" not in str(e.value)
     assert str(e.value).startswith("local:v: AttributeError")
+
+
+BUCKETS = [[512, 512], [512, 768], [768, 512]]
+
+
+def test_bucket_is_nearest_aspect():
+    """bucket picks the [width, height] nearest the requested aspect on a log scale: 16:9 and 4:3 take the wide
+    bucket, 9:16 the tall one, 1:1 the square one. Guards a presenter clip of a 16:9 film made in a tall frame."""
+    assert video.bucket(BUCKETS, 16 / 9) == (768, 512)
+    assert video.bucket(BUCKETS, 4 / 3) == (768, 512)
+    assert video.bucket(BUCKETS, 9 / 16) == (512, 768)
+    assert video.bucket(BUCKETS, 1.0) == (512, 512)
+
+
+def test_missing_presenter_keys_are_named(write_config):
+    """A presenter model without a required key is a ConfigError that names each missing key; `buckets` that is
+    not a list of [width, height] is a ConfigError."""
+    write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {"presenter": "local:p"},
+                  "diffusers": {"p": {"repo": "r", "pipeline": "P", "fps": 25},
+                                "q": {"repo": "r", "pipeline": "P", "fps": 25, "buckets": [[512]], "audio_rate": 16000,
+                                      "output": "videos"}}})
+    with pytest.raises(ConfigError, match="lacks buckets, audio_rate, output"):
+        video.presenter_spec("p")
+    with pytest.raises(ConfigError, match="buckets"):
+        video.presenter_spec("q")
+
+
+def test_presenter_resolves_from_task_presenter(write_config):
+    """present takes the model of task `presenter`; a provider kind other than diffusers and a config without the
+    task are a ConfigError."""
+    write_config({"providers": {"ollama": {"kind": "ollama"}}, "models": {"presenter": "ollama:x"}})
+    with pytest.raises(ConfigError, match="no presenter models"):
+        video.present(b"", b"")
+    write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {}})
+    with pytest.raises(ConfigError, match="models.presenter"):
+        video.present(b"", b"")

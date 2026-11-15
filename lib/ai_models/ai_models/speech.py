@@ -5,6 +5,9 @@
     google                              `generate_content` with an AUDIO response
                                         and a prebuilt voice; raw PCM comes back as a WAV file;
                                         no speed
+    vllm-omni                           a vLLM-Omni server in its own environment, started once per
+                                        process (`omni`); WAV at the model's rate; instructions through the
+                                        provider's `style` format; no speed
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ import io
 import re
 import wave
 
-from . import config
+from . import config, omni
 from .errors import AIModelsError, ConfigError, explained
 from .models import provider
 
@@ -71,6 +74,8 @@ async def aspeak(text: str, *, voice: str, model: str | None = None, instruction
     model_id = config.resolve(model, "speech")
     name, bare = config.split_id(model_id)
     kind = config.provider(name)["kind"]
+    if kind == omni.KIND:
+        return omni.speak(name, config.provider(name), bare, text, voice, instructions, speed)
     if kind == "google" and speed != 1.0:
         raise AIModelsError(f"{model_id} has no speed setting; ask for the pace in the instructions instead")
     p = provider(name) if kind in (*OPENAI_KINDS, "google") else None

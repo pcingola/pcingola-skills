@@ -50,7 +50,7 @@ override-dependencies = [
     "torchaudio==2.11.*",
     "torchvision==0.26.*",
     "numpy>=2",
-    "diffusers>=0.42",
+    "diffusers>=0.43",
     "transformers>=5",
     "safetensors>=0.8",
     "gradio; sys_platform == 'never'",

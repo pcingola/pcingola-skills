@@ -10,7 +10,8 @@ caller's) and `skip` (optional: pipeline components loaded as None). A music mod
 `duration_arg` and `lyrics_arg`: the names of the pipeline call arguments that take the
 length in seconds and the lyrics; without one, the model does not take that option. A video model also has
 `pipeline` (the class to load), `fps`, `size_multiple`, `frame_step`, `width`, `height` and
-`max_frames` (see `video`). The device is CUDA, else MPS; `to_device` moves the weights there.
+`max_frames` (see `video`); a presenter model `pipeline`, `fps`, `buckets`, `audio_rate` and `output` (see
+`video`, `present`). `pipeline` may name a `ModularPipeline` class. The device is CUDA, else MPS; `to_device` moves the weights there.
 Pipelines stay loaded for the life of the process. torch and diffusers are
 imported only here.
 
@@ -58,6 +59,7 @@ GB = 1e9
 # its memory (docs/ai_models.md, Local model memory).
 SETTLE_SECONDS = 10.0
 SETTLE_POLL_SECONDS = 0.5
+SETTLE_BYTES = 0.5 * GB  # `wait_for_settled_memory`: a rise below this between two readings counts as settled
 
 
 def device() -> str:
@@ -72,7 +74,9 @@ def device() -> str:
 
 def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline", skip: Sequence[str] = ()):
     """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules.
-    `cls` is the diffusers class to load; the components in `skip` are loaded as None. A load first takes
+    `cls` is the diffusers class to load: a `DiffusionPipeline` class (`model_index.json`), or a `ModularPipeline`
+    class (`modular_model_index.json`, loaded with `load_components`, `_modular`); the components in `skip` are
+    loaded as None (a modular pipeline: not loaded). A load first takes
     the lock (`hold_lock`), caps the CUDA allocator (`cap_memory`) and checks the weights against the free
     memory (`check_memory`). After waiting for the lock, a check that fails reads the free memory again for up to
     `SETTLE_SECONDS` (`wait_for_memory`), while the previous holder's memory comes back."""
@@ -93,7 +97,11 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
             dev = device()
             free = free_memory(dev)
             cap_memory(dev, free)
-            pipe = _from_pretrained(getattr(diffusers, cls), repo, dtype=torch.bfloat16, **dict.fromkeys(skip))
+            klass = getattr(diffusers, cls)
+            if issubclass(klass, diffusers.ModularPipeline):
+                pipe = _modular(klass, repo, skip)
+            else:
+                pipe = _from_pretrained(klass, repo, dtype=torch.bfloat16, **dict.fromkeys(skip))
             weights = weight_bytes(pipe.components.values())
             if waited and weights > free:
                 free = wait_for_memory(dev, weights)
@@ -168,6 +176,20 @@ def wait_for_memory(dev: str, need: int) -> int:
     return free
 
 
+def wait_for_settled_memory(dev: str) -> int:
+    """The device's free memory, read every `SETTLE_POLL_SECONDS` until a reading rises less than `SETTLE_BYTES`
+    over the one before or `SETTLE_SECONDS` pass; the last reading. For a load whose size is not known before it
+    starts (a vLLM-Omni server), after waiting for the lock, while the previous holder's memory comes back."""
+    deadline = time.monotonic() + SETTLE_SECONDS
+    free = free_memory(dev)
+    while time.monotonic() < deadline:
+        time.sleep(SETTLE_POLL_SECONDS)
+        last, free = free, free_memory(dev)
+        if free - last < SETTLE_BYTES:
+            break
+    return free
+
+
 def release_lock() -> None:
     """Release the lock of `hold_lock` (after a load that failed while no pipeline was loaded)."""
     global _lock
@@ -195,9 +217,17 @@ def free_memory(dev: str) -> int:
     if dev == "mps":
         return min(torch.mps.recommended_max_memory() - torch.mps.driver_allocated_memory(),
                    psutil.virtual_memory().available)
-    if sys.platform == "linux" and torch.cuda.get_device_properties(torch.cuda.current_device()).is_integrated:
+    if integrated(dev):
         return psutil.virtual_memory().available
     return torch.cuda.mem_get_info()[0]
+
+
+def integrated(dev: str) -> bool:
+    """True for an integrated CUDA GPU under Linux (one that allocates system memory)."""
+    import torch
+
+    return (dev == "cuda" and sys.platform == "linux"
+            and torch.cuda.get_device_properties(torch.cuda.current_device()).is_integrated)
 
 
 def cap_memory(dev: str, free: int) -> None:
@@ -273,6 +303,16 @@ def resident_ollama_models() -> list[tuple[str, int]]:
             continue
         out.extend((f"{name}:{m.name}", m.size) for m in ps.models)
     return out
+
+
+def _modular(cls, repo: str, skip: Sequence[str]):
+    """The `ModularPipeline` class `cls` of `repo` (`modular_model_index.json`) with its components loaded in
+    bfloat16 on the CPU, except those in `skip`."""
+    import torch
+
+    pipe = cls.from_pretrained(repo)
+    pipe.load_components([n for n in pipe.pretrained_component_names if n not in skip], dtype=torch.bfloat16)
+    return pipe
 
 
 def _from_pretrained(cls, repo: str, **kwargs):
@@ -415,12 +455,25 @@ class DiffusersMusicModel:
         return buf.getvalue()
 
 
+def audio_rate(pipe) -> int:
+    """The sample rate of the audio a pipeline returns: its vocoder's output rate (`output_sampling_rate`, else
+    `sampling_rate` of the vocoder config), else the pipeline's `audio_sample_rate`, else its `sample_rate`."""
+    vocoder = getattr(getattr(pipe, "vocoder", None), "config", None)
+    for rate in (getattr(vocoder, "output_sampling_rate", None), getattr(vocoder, "sampling_rate", None),
+                 getattr(pipe, "audio_sample_rate", None), getattr(pipe, "sample_rate", None)):
+        if rate:
+            return int(rate)
+    raise AIModelsError(f"{type(pipe).__name__} returns audio but names no sample rate")
+
+
 def animate(name: str, image: bytes, prompt: str, *, seconds: float, width: int | None = None,
             height: int | None = None, aspect: float | None = None, seed: int | None = None) -> bytes:
-    """An MP4 (H.264, no audio) of the image-to-video model `diffusers.<name>`, at `width` x `height`, else
+    """An MP4 (H.264) of the image-to-video model `diffusers.<name>`, at `width` x `height`, else
     the model's size, reshaped to `aspect` when given (`video.clip_size`). The image is cropped to
-    the clip's aspect ratio and scaled to its size. An audio track the pipeline generates is dropped."""
-    from diffusers.utils import export_to_video
+    the clip's aspect ratio and scaled to its size. When the pipeline output has `audio` (a sound track generated
+    with the frames, (channels, samples) or (samples,) per video, a tensor or an array), the clip carries it as an AAC
+    stream at the pipeline's rate (`audio_rate`); else it has no audio stream. Encoded with diffusers' `encode_video`."""
+    from diffusers.utils import encode_video
     from PIL import Image, ImageOps
 
     from .video import clip_size, frame_count, video_spec
@@ -432,8 +485,83 @@ def animate(name: str, image: bytes, prompt: str, *, seconds: float, width: int 
     pipe = pipeline(spec["repo"], cls=spec["pipeline"], skip=spec.get("skip") or ())
     still = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
     with out_of_memory(spec["repo"]):
-        frames = pipe(image=still, prompt=prompt, output_type="np", **pipe_kwargs(spec, extra)).frames[0]
+        result = pipe(image=still, prompt=prompt, output_type="np", **pipe_kwargs(spec, extra))
+    audio = getattr(result, "audio", None)
+    track = {} if audio is None else {"audio": waveform(audio[0]), "audio_sample_rate": audio_rate(pipe)}
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "clip.mp4"
-        export_to_video(list(frames), str(out), fps=spec["fps"])
+        encode_video(result.frames[0], fps=spec["fps"], output_path=str(out), **track)
+        return out.read_bytes()
+
+
+def waveform(audio):
+    """A float32 CPU tensor (channels, samples) of `audio`: a tensor or array, (channels, samples) or (samples,)."""
+    import torch
+
+    t = torch.as_tensor(audio).float().cpu()
+    return t[None] if t.ndim == 1 else t
+
+
+def read_audio(data: bytes, rate: int | None = None, layout: str | None = None):
+    """(waveform, rate) of the audio file `data` (any format FFmpeg reads, decoded with PyAV): a float32 tensor
+    (channels, samples), resampled to `rate` and mixed to `layout` (`"mono"`, `"stereo"`) when given, else at the
+    file's own rate and channels."""
+    import av
+    import numpy as np
+    import torch
+
+    with av.open(io.BytesIO(data)) as f:
+        stream = f.streams.audio[0]
+        rate = rate or stream.rate
+        layout = layout or stream.layout.name
+        resampler = av.AudioResampler(format="fltp", layout=layout, rate=rate)
+        chunks = [r.to_ndarray() for frame in f.decode(stream) for r in resampler.resample(frame)]
+        chunks += [r.to_ndarray() for r in resampler.resample(None)]
+    if not chunks:
+        raise AIModelsError("the audio file has no samples")
+    return torch.from_numpy(np.concatenate(chunks, axis=1)), rate
+
+
+PRESENTER_CENTERING = (0.5, 0.3)  # `ImageOps.fit` centring of the bucket crop: biased upward, to keep the head
+
+
+def presenter_still(buckets: list[list[int]], image: bytes, aspect: float | None = None):
+    """`image` as an RGB PIL image cropped to the bucket of `buckets` nearest `aspect` (default the image's,
+    `video.bucket`) and scaled to it; the crop keeps more of the top (`PRESENTER_CENTERING`)."""
+    from PIL import Image, ImageOps
+
+    from .video import bucket
+
+    still = Image.open(io.BytesIO(image)).convert("RGB")
+    return ImageOps.fit(still, bucket(buckets, aspect or still.width / still.height), centering=PRESENTER_CENTERING)
+
+
+def present(name: str, image: bytes, speech: bytes, *, aspect: float | None = None, prompt: str | None = None,
+            seed: int | None = None) -> bytes:
+    """An MP4 (H.264, AAC) of the presenter model `diffusers.<name>`: the person in `image` speaks `speech` (an audio
+    file), as long as the speech, with the speech as its sound track (AAC, at the file's sample rate). The size is
+    the model's bucket nearest `aspect` (width / height; default the image's, `video.bucket`); the image is cropped
+    to it, biased upward, and scaled (`presenter_still`). The model takes the speech mono at its `audio_rate`;
+    `prompt` replaces the model's default prompt when given. Encoded with diffusers' `encode_video`."""
+    from diffusers.utils import encode_video
+
+    from .video import presenter_spec
+
+    spec = presenter_spec(name)
+    still = presenter_still(spec["buckets"], image, aspect)
+    w, h = still.size
+    drive, _ = read_audio(speech, int(spec["audio_rate"]), "mono")
+    track, rate = read_audio(speech)
+    extra: dict[str, Any] = {"width": w, "height": h, "fps": spec["fps"], "seed": seed}
+    if prompt:
+        extra["prompt"] = prompt
+    pipe = pipeline(spec["repo"], cls=spec["pipeline"], skip=spec.get("skip") or ())
+    with out_of_memory(spec["repo"]):
+        frames = pipe(image=still, audio=drive[0].numpy(), output=spec["output"], output_type="np",
+                      **pipe_kwargs(spec, extra))[0]
+    seconds = len(frames) / spec["fps"]
+    track = track[:, : round(seconds * rate)]
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "presenter.mp4"
+        encode_video(frames, fps=spec["fps"], output_path=str(out), audio=track, audio_sample_rate=rate)
         return out.read_bytes()
