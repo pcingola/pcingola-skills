@@ -40,6 +40,13 @@ TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
 SCENE_KEYS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
               "voices")
 VOICE_KEYS = ("model", "name", "speed", "style")
+# The voice field of an earlier version and the model id each of its values maps to (`speech`: config.yaml's
+# models.speech, a null model), as media:short-video maps them.
+OLD_VOICE_KEY = "backend"
+BACKEND_MODELS = {"kokoro": "kokoro:kokoro-v1.0", "chatterbox": "chatterbox:chatterbox-turbo", "speech": None}
+BACKEND_MOVED = ("Backend (`backend`) became Model (`model`), a speech model id of config.yaml: kokoro is "
+                 "kokoro:kokoro-v1.0, chatterbox is chatterbox:chatterbox-turbo, speech is config.yaml's models.speech "
+                 "(an empty Model, null `model`)")
 ENGINES = ("html", "manim", "video", "presenter", "clip")
 # The template names of media:short-video's default settings, which Studio's settings.yaml does not change.
 TEMPLATES = ("title", "summary", "end")
@@ -113,7 +120,9 @@ def _voice_fields(v: object, label: str, err) -> None:
         err(f"{label}: must be an object with any of {', '.join(VOICE_KEYS)}")
         return
     for k, x in v.items():
-        if k not in VOICE_KEYS:
+        if k == OLD_VOICE_KEY:
+            err(f"{label}: {BACKEND_MOVED}")
+        elif k not in VOICE_KEYS:
             err(f"{label}: unknown key `{k}`; allowed: {', '.join(VOICE_KEYS)}")
         elif x is not None and not (_number(x) if k == "speed" else isinstance(x, str)):
             err(f"{label}: `{k}` must be {'a number' if k == 'speed' else 'a string'} or null")
@@ -301,11 +310,16 @@ def next_picture(directory: Path) -> int:
 # Film settings
 
 def film_of(meta: object) -> dict:
-    """`film` of project.json over the defaults, so every key is present. A voice without `model` (one of the
-    earlier `backend` form) is the default voice."""
+    """`film` of project.json over the defaults, so every key is present. A voice of the earlier form has `backend`
+    in place of `model`: its backend becomes the model id of BACKEND_MODELS (an unknown one the default model), and
+    its name, speed and style are kept; any other voice without `model` is the default voice."""
     film = meta.get("film") if isinstance(meta, dict) else None
     out = {**default_film(), **(film if isinstance(film, dict) else {})}
-    if not isinstance(out["voice"], dict) or "model" not in out["voice"]:
+    v = out["voice"]
+    if isinstance(v, dict) and "model" not in v and OLD_VOICE_KEY in v:
+        out["voice"] = {**default_film()["voice"], **{k: v[k] for k in ("name", "speed", "style") if k in v},
+                        "model": BACKEND_MODELS.get(v[OLD_VOICE_KEY])}
+    elif not isinstance(v, dict) or "model" not in v:
         out["voice"] = default_film()["voice"]
     return out
 

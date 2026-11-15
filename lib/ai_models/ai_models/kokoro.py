@@ -25,9 +25,9 @@ _models: dict[Path, Any] = {}
 
 def files(spec: dict[str, Any], name: str, model: str) -> tuple[Path, Path]:
     """The model and voices files of provider `name`'s `model`, downloaded when missing."""
+    urls = (str(required(spec, "model_url", name)), str(required(spec, "voices_url", name)))
     d = weights.model_dir(spec, model)
-    return tuple(weights.ensure_file(url, d / weights.basename(url))
-                 for url in (str(required(spec, "model_url", name)), str(required(spec, "voices_url", name))))
+    return tuple(weights.ensure_file(url, d / weights.basename(url)) for url in urls)
 
 
 def langs(spec: dict[str, Any], name: str) -> dict[str, str]:

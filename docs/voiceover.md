@@ -47,10 +47,16 @@ among them `%` as "percent" and hyphenated words split into their parts).
 When alignment of a sentence fails, its words are spread over the sentence in proportion to their character length and
 the sentence is marked `"aligned": false`; a wrong word time is preferred to a failed run.
 
-`timing.json` records `model` (the speech model id) and `style` when one is given. A script line that starts with
-`[<style>]` is that sentence's style (`script.split_style`): the narrator passes it instead of `--style`, the
-sentence in `timing.json` has the text without it and a `style` key, and `synth` checks every line style against the
-model before the first request.
+`timing.json` records `model` (the speech model id) and `style` when one is given. For a model that takes a style, a
+script line that starts with `[<style>]` is that sentence's style (`Narrator.lines`, `script.split_style`): the
+narrator passes it instead of `--style`, and the sentence in `timing.json` has the text without it and a `style` key.
+A model that takes a style takes any style, so a line style is never refused. For a model that takes no style the
+line is literal text.
+
+`load_settings` refuses every `VOICEOVER_*` setting of the file other than `VOICEOVER_VOICES_DIR` (the model settings
+of an earlier version), naming the template's provider entries and models that replace them; when
+`VOICEOVER_MODEL_DIR` is among them, the message gives its value as the providers' `dir` and its `voices/` as
+`VOICEOVER_VOICES_DIR`.
 
 ## Model options
 

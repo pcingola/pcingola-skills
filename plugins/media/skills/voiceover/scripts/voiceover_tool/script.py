@@ -3,7 +3,8 @@
 No further sentence splitting: the caller decides sentence boundaries, and
 `timing.json` indexes exactly those lines. A line may start with its own
 style in square brackets, `[whisper] Keep it quiet.`: `split_style` takes it
-off the sentence, which is spoken with that style instead of `--style`.
+off the sentence, which is spoken with that style instead of `--style`. The
+narrator splits lines only for a model that takes styles.
 """
 
 from __future__ import annotations

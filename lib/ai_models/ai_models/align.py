@@ -2,22 +2,21 @@
 `ai-models[align]`).
 
 A model of provider kind `torchaudio` is a forced-alignment pipeline of `torchaudio.pipelines` by name
-(`torchaudio:MMS_FA`). torch.hub downloads its weights to `weights.model_dir` (the provider's `dir`, else the
-`ai-models` cache) on the first use and loads them from there afterwards; its download line goes to stderr, since
-the callers' stdout is read by programs. torchaudio 2.11, its last release,
+(`torchaudio:MMS_FA`). The provider's `url` is that pipeline's weights file. `weights.ensure_file` downloads it (with
+the TLS context of `tls`) to `weights.model_dir` under its own file name, the name torch.hub looks for, and the
+pipeline loads it from there (`model_dir`), so torch.hub downloads nothing. torchaudio 2.11, its last release,
 keeps `forced_align` and flags it deprecated. A model stays loaded for the life of the process; it needs no GPU
 and no local-model lock.
 """
 
 from __future__ import annotations
 
-import contextlib
-import sys
 import warnings
 from collections.abc import Sequence
 from typing import Any
 
 from . import config, weights
+from .config import required
 from .errors import AIModelsError, ConfigError
 
 KIND = "torchaudio"
@@ -65,22 +64,26 @@ class Aligner:
 def spec_of(model_id: str) -> tuple[str, dict[str, Any], str]:
     """(provider name, its settings, the pipeline name) of an align model id."""
     name, bare = config.split_id(model_id)
-    spec = config.provider(name)
+    spec = config.template_provider(name, KIND)
     if spec["kind"] != KIND:
         raise ConfigError(f"provider {name!r} of kind {spec['kind']!r} has no align models; kind: {KIND}")
     return name, spec, bare
 
 
+def fetch(spec: dict[str, Any], name: str, model: str):
+    """The weights file of the pipeline, downloaded when missing."""
+    url = str(required(spec, "url", name))
+    return weights.ensure_file(url, weights.model_dir(spec, model) / weights.basename(url))
+
+
 def aligner(model: str | None = None) -> Aligner:
     """The aligner of `model` (else `models.align`), loaded once per process."""
-    model_id = config.resolve(model, TASK)
+    model_id = config.resolve_template(model, TASK, KIND)
     if model_id not in _aligners:
-        _, spec, bare = spec_of(model_id)
-        d = weights.model_dir(spec, bare)
-        d.mkdir(parents=True, exist_ok=True)
+        name, spec, bare = spec_of(model_id)
+        fetch(spec, name, bare)
         try:
-            with contextlib.redirect_stdout(sys.stderr):  # torch.hub prints its download line on stdout
-                _aligners[model_id] = Aligner(bare, str(d))
+            _aligners[model_id] = Aligner(bare, str(weights.model_dir(spec, bare)))
         except (OSError, RuntimeError) as e:
             raise AIModelsError(f"{model_id}: cannot load the aligner: {e}") from e
     return _aligners[model_id]

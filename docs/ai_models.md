@@ -117,7 +117,7 @@ The template rows come from wall-time and quality measurements on an NVIDIA GB10
 | `diffusers` | none; `local` | none |
 | `kokoro` | none; `kokoro` | `model_url`, `voices_url`, `langs`, `dir` (Local speech and alignment) |
 | `chatterbox` | none; `chatterbox` | `python`, `url`, `files`, `dir` (Local speech and alignment) |
-| `torchaudio` | none; `align` | `dir` (Local speech and alignment) |
+| `torchaudio` | none; `align` | `url`, `dir` (Local speech and alignment) |
 | `vllm-omni` | none; `omni` | `python`, `repo`, `deploy`, `memory_share`, `style`, `args`, `env`, `start_timeout` (Speech models of vLLM-Omni) |
 
 What each kind serves:
@@ -214,10 +214,15 @@ allocation succeeded.
 A provider that serves speech takes `voice` (its default voice; else the kind's, `speech.TRAITS`) and `voices` (the
 list `speech.voices` returns; without it a `kokoro` model lists its voices and the others their default voice).
 `speech.check` refuses a speed outside the kind's range and instructions a kind does not take, before any request or
-model load; `speak` calls it.
+model load; `speak` calls it. A missing `kokoro`, `chatterbox` or `torchaudio` provider, and a missing `models.align`,
+is a `ConfigError` that names the template's entry for the kind (`config.template_hint`). A routes row whose model is
+the bare `kokoro` or `chatterbox` of an earlier media:voiceover is a `ConfigError` naming the model id and provider
+entry that replace it (`config.TEMPLATE_MODELS`).
 
 The `kokoro`, `chatterbox` and `torchaudio` kinds keep the files of model `<model>` in `<dir>/<model lowercased>/`
-(`weights.model_dir`): `dir` of the provider, else `$XDG_CACHE_HOME/ai-models` (default `~/.cache/ai-models`). Two
+(`weights.model_dir`): `dir` of the provider, else `voiceover/` in the data directory of the plugin that loaded the
+settings (`plugin_settings.data_dir`: the media plugin's for media:voiceover, where its earlier versions downloaded
+them); without either, a `ConfigError` asks for `dir`. Two
 providers with the same `dir` and model share the files. `weights.ensure_file` downloads a missing file to
 `<file>.part`, checks its length against Content-Length and renames it, so a failed download leaves no file under the
 final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files of a `kokoro` or `chatterbox` model.
@@ -234,7 +239,9 @@ final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files
   `python -I chatterbox_worker.py <model dir>`; it imports nothing of `ai_models`). The worker loads the model on the
   CPU, sets `HF_HUB_OFFLINE=1` unless set (the weights are local), and answers JSON request lines on stdin with JSON
   lines on a copy of stdout; its own stdout goes to stderr, which goes to a log file an error quotes. It stops at exit
-  (`atexit`, stdin closed, killed after 30 s) and with the caller (`PR_SET_PDEATHSIG`). `url` and `files` name the
+  (`atexit`, stdin closed, killed after 30 s; the log's directory is removed after a clean exit) and with the
+  thread that started it (`PR_SET_PDEATHSIG` follows the thread, not the process). A thread reads its answers, so a
+  wait has a limit: `start_timeout` for the load and `timeout` per answer (seconds, default 600 each). `url` and `files` name the
   model files (the template: the ModelScope mirror of Resemble AI's repository). A voice is `default` (the built-in
   voice) or the path of a recording longer than 5 s. Under numpy 2, Chatterbox's `norm_loudness` multiplies the
   float32 reference by a float64 gain and returns float64 (NEP 50 promotion), which its mel filter matmul rejects; the
@@ -242,8 +249,9 @@ final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files
   instructions.
 - `torchaudio`: a forced-alignment pipeline of `torchaudio.pipelines` by name (`torchaudio:MMS_FA`), task `align`, in
   the caller's process on the CPU (extra `ai-models[align]`, torchaudio 2.11, the last release with `forced_align`).
-  torch.hub downloads the weights into the model directory on the first use (`get_model(dl_kwargs={"model_dir":
-  ...})`) and loads them from there afterwards. `Aligner.align(samples, rate, tokens)` resamples to the pipeline's
+  `url` is the pipeline's weights file: `weights.ensure_file` downloads it (TLS context of `tls`, so
+  `EXTRA_CA_CERT` applies) into the model directory under its own file name, the name torch.hub looks for, and the
+  pipeline loads it from there (`get_model(dl_kwargs={"model_dir": ...})`), so torch.hub downloads nothing. `Aligner.align(samples, rate, tokens)` resamples to the pipeline's
   rate and returns one (start, end) in seconds per token. One aligner per model id stays loaded for the life of the
   process.
 

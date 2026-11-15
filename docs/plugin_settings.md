@@ -40,10 +40,10 @@ environment:
 
 | Setting | Read there by |
 |---|---|
-| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | httpx and requests of ai_models and voiceover |
-| `SSL_CERT_FILE` | httpx's default verification (voiceover downloads) |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | httpx and requests of ai_models (model calls and weight downloads) |
+| `SSL_CERT_FILE` | the default TLS verification of libraries outside ai_models, which uses certifi's roots plus `EXTRA_CA_CERT` |
 | `NODE_EXTRA_CA_CERTS` | Node.js child processes (short-video) |
-| `HF_HOME`, `HF_TOKEN` | huggingface_hub, for the weights of the `diffusers` models and the voiceover models |
+| `HF_HOME`, `HF_TOKEN` | huggingface_hub, for the weights of the `diffusers` models |
 
 No other setting is exported. `EXTRA_CA_CERT` is read by `ca` through `get`. A skill calls `Plugin.load()` at the
 start of its CLI, before it imports a library that reads one of these variables at import time (huggingface_hub reads `HF_HOME`).
@@ -58,6 +58,10 @@ file. The plugin name is read from that manifest, not from the directory, becaus
 dir>/plugins/cache/<marketplace>/<plugin>/<version>` sits in a directory named after the version.
 
 ## Data directory
+
+`Plugin.load()` also makes its plugin the process's plugin: `data_dir()` returns that plugin's data directory, else
+`$CLAUDE_PLUGIN_DATA`, else None. A shared package uses it for data of the calling skill (`ai_models.weights`: the
+default weights directory).
 
 Without `CLAUDE_PLUGIN_DATA`, the data directory is the one Claude Code assigns to the plugin, `<config
 dir>/plugins/data/<plugin>-<marketplace>`. The marketplace name has two sources:

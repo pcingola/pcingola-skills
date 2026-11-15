@@ -84,13 +84,14 @@ split further: sentence `n` in `timing.json` is the `n`-th non-blank line.
 Write numbers the way they should be read; `1995` alone is read as a year,
 `42%` as "forty-two percent".
 
-A line may start with its own style in square brackets: `[whisper] Keep it
-quiet.` speaks "Keep it quiet." with the style `whisper` instead of
-`--style`, so one `synth` (one model load) voices several styles. The
-bracket is not part of the sentence in `timing.json`, which records the
-sentence's `style`. `synth` refuses the script before the first request when
-the model takes no style. With a Fish model the style becomes the inline tag
-(`[whisper] Keep it quiet.` is sent as is).
+With a model that takes a style, a line may start with its own style in
+square brackets: `[whisper] Keep it quiet.` speaks "Keep it quiet." with the
+style `whisper` instead of `--style`, so one `synth` (one model load) voices
+several styles. The bracket is not part of the sentence in `timing.json`,
+which records the sentence's `style`. With a Fish model the style becomes
+the inline tag (`[whisper] Keep it quiet.` is sent as is). With a model that
+takes no style (Kokoro, Chatterbox) the line is plain text, brackets
+included.
 
 ## Commands
 
@@ -128,7 +129,8 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh play out/narration.wav
 
 `synth` downloads missing weights itself; `setup` only moves the wait earlier.
 The weights directory of a local model is its provider's `dir` in
-`config.yaml` (default `~/.cache/ai-models`). Play the result to the
+`config.yaml` (default `voiceover/` under the plugin's data directory).
+Play the result to the
 user with `play`. Do not use QuickTime or a bare `open`.
 
 ## Cloned voices

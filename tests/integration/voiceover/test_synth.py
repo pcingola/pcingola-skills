@@ -1,7 +1,8 @@
 """Integration: real `voiceover synth` with the Kokoro model and the MMS_FA aligner of the config template.
 
-Runs the CLI in a child process with a config holding the template's `kokoro` and `torchaudio` providers; the
-first run downloads their weights to the `ai-models` cache (about 1.6 GB).
+Runs the CLI in a child process with a config holding the template's `kokoro` and `torchaudio` providers, whose
+`dir` is the default one of this machine's media plugin (`voiceover/` in its data directory), so the weights earlier
+runs downloaded are reused; the first run downloads them (about 1.6 GB).
 """
 
 import json
@@ -13,6 +14,7 @@ import wave
 from pathlib import Path
 
 import yaml
+from plugin_settings import Plugin
 
 from tests.settings_env import write_config
 from tests.subproc import child_env
@@ -25,9 +27,11 @@ SCRIPT = ("The heart pumps blood through the body.\n\nCount to five.\nIn 1995, a
 
 
 def template_config(path: Path) -> Path:
-    """A config with the template's `kokoro` and `torchaudio` providers and its `speech` and `align` models."""
+    """A config with the template's `kokoro` and `torchaudio` providers, `dir` the media plugin's default weights
+    directory, and its `speech` and `align` models."""
     t = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
-    return write_config(path, providers={k: t["providers"][k] for k in ("kokoro", "torchaudio")},
+    weights = str(Plugin.of(SCRIPTS).data_dir() / "voiceover")
+    return write_config(path, providers={k: {**t["providers"][k], "dir": weights} for k in ("kokoro", "torchaudio")},
                         models={k: t["models"][k] for k in ("speech", "align")})
 
 
@@ -105,15 +109,17 @@ class TestSynth(unittest.TestCase):
         self.assertGreater((five["start"] + five["end"]) / 2, (s["start"] + s["end"]) / 2)
         self.assertGreater(five["start"], s["words"][1]["end"] - 1e-9)
 
-    def test_line_style_refused_by_kokoro_before_synthesis(self) -> None:
-        """A `[style]` line with the Kokoro model fails before any synthesis and writes no output.
-        Guards the per-line style check against the model."""
+    def test_line_style_is_text_for_kokoro(self) -> None:
+        """A `[style]` line with the Kokoro model, which takes no style, is voiced as literal text: the sentence keeps
+        its bracket and has no `style`. Guards line styles only for models that take styles."""
         script = self.script.with_name("styled.txt")
         script.write_text(SCRIPT, encoding="utf-8")
-        r = synth(script, self.out.with_name("styled"), self.config)
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("takes no instructions", r.stderr)
-        self.assertFalse(self.out.with_name("styled").exists())
+        out = self.out.with_name("styled")
+        r = synth(script, out, self.config, "--no-align")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        last = json.loads((out / "timing.json").read_text(encoding="utf-8"))["sentences"][-1]
+        self.assertEqual(last["text"], "[calm] Keep it quiet.")
+        self.assertNotIn("style", last)
 
 
 if __name__ == "__main__":

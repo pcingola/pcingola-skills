@@ -15,18 +15,19 @@ TIERS = {"best": ("image_best", "image_best"), "multi-ref": ("image_multi_ref", 
 TASKS = ("image", "image_edit", "image_best", "image_multi_ref", "speech", "music", "video", "presenter")
 
 
-def speech_models() -> list[dict]:
+def speech_models() -> tuple[list[dict], str | None]:
     """The speech models of media:voiceover's routes (`ai_models.routes`, task `speech`): the default row (the
     `speech` model of config.yaml) first, then the configured escalation rows, each once. Each: `id`, `default`
     (the default row), `when`, `why`, and what the model takes (`ai_models.speech`): `voice` (its default voice),
-    `speed` ([low, high], or null for none), `style` and `clones` (a voice may be a reference recording). Empty
-    when config.yaml is missing or broken; a row whose provider has no speech models is left out."""
+    `speed` ([low, high], or null for none), `style` and `clones` (a voice may be a reference recording); with the
+    error that left the list empty (config.yaml or routes.md missing or malformed), else None. A row whose provider
+    has no speech models is left out."""
     from ai_models import AIModelsError, routes, speech
 
     try:
         rows = routes.table(["speech"])
-    except AIModelsError:
-        return []
+    except AIModelsError as e:
+        return [], str(e)
     out: list[dict] = []
     for r in rows:
         if any(m["id"] == r.model for m in out):
@@ -38,18 +39,19 @@ def speech_models() -> list[dict]:
         rng = m.traits.speed
         out.append({"id": m.id, "default": r.is_default, "when": r.when, "why": r.why, "voice": m.default_voice,
                     "speed": list(rng) if rng else None, "style": m.instructions, "clones": m.traits.clones})
-    return out
+    return out, None
 
 
 def read_models() -> dict:
     """`tasks`: the model id of each task of TASKS (None without one, or when config.yaml is missing or broken);
-    `tiers`: each tier's `id`, `model` (without reference images) and `ref_model` (with them); `speech`: the speech
-    models of `speech_models`."""
+    `tiers`: each tier's `id`, `model` (without reference images) and `ref_model` (with them); `speech` and
+    `speech_error`: the speech models of `speech_models` and its error."""
     try:
         models = read_config().get("models") or {}
     except ConfigFileError:
         models = {}
     tasks = {t: models.get(t) or None for t in TASKS}
+    speech, speech_error = speech_models()
     return {"tasks": tasks,
             "tiers": [{"id": tier, "model": tasks[task], "ref_model": tasks[ref]} for tier, (task, ref) in TIERS.items()],
-            "speech": speech_models()}
+            "speech": speech, "speech_error": speech_error}

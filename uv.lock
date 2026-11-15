@@ -76,19 +76,26 @@ requires-dist = [
     { name = "av", marker = "extra == 'diffusers'" },
     { name = "certifi", specifier = ">=2024.0.0" },
     { name = "diffusers", marker = "extra == 'diffusers'", specifier = ">=0.43" },
+    { name = "kokoro-onnx", marker = "extra == 'kokoro'", specifier = ">=0.6.1,<0.7" },
+    { name = "numpy", marker = "extra == 'align'" },
+    { name = "numpy", marker = "extra == 'kokoro'" },
     { name = "plugin-settings" },
     { name = "protobuf", marker = "extra == 'diffusers'", specifier = ">=7.36" },
     { name = "psutil", marker = "extra == 'diffusers'" },
     { name = "pydantic-ai-slim", extras = ["openai", "google"], specifier = ">=2.66" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "sentencepiece", marker = "extra == 'diffusers'" },
+    { name = "torch", marker = "sys_platform == 'linux' and extra == 'align'", specifier = ">=2.9", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torch", marker = "sys_platform == 'linux' and extra == 'diffusers'", specifier = ">=2.9", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "torch", marker = "sys_platform != 'linux' and extra == 'align'", specifier = ">=2.9" },
     { name = "torch", marker = "sys_platform != 'linux' and extra == 'diffusers'", specifier = ">=2.9" },
+    { name = "torchaudio", marker = "sys_platform == 'linux' and extra == 'align'", specifier = "==2.11.*", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "torchaudio", marker = "sys_platform != 'linux' and extra == 'align'", specifier = "==2.11.*" },
     { name = "torchvision", marker = "sys_platform == 'linux' and extra == 'diffusers'", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchvision", marker = "sys_platform != 'linux' and extra == 'diffusers'" },
     { name = "transformers", marker = "extra == 'diffusers'", specifier = ">=5" },
 ]
-provides-extras = ["diffusers"]
+provides-extras = ["diffusers", "kokoro", "align"]
 
 [[package]]
 name = "annotated-doc"

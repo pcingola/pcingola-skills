@@ -166,6 +166,23 @@ class TestSpeakers(unittest.TestCase):
                 prefix = f"storyboard.md line {line}: "
                 self.assertTrue(any(m.startswith(prefix) and fragment in m for m in msg.splitlines()), msg)
 
+    def test_earlier_backend_column_names_its_replacement(self) -> None:
+        """A speakers table or scene table with the earlier Backend column, and a storyboard.json voice with
+        `backend`, are refused with a message that Backend became Model and how kokoro, chatterbox and speech map.
+        Guards projects made before the voice named a speech model."""
+        old = SPEAKERS_MD.replace("| Speaker | Model |", "| Speaker | Backend |")
+        msg = _error(old)
+        self.assertIn("storyboard.md line 5: speakers table column 'Backend': Backend (`backend`) became Model", msg)
+        self.assertIn("kokoro is kokoro:kokoro-v1.0, chatterbox is chatterbox:chatterbox-turbo", msg)
+        scene = SPEAKERS_MD.replace("| Speaker | Narration | On screen |\n|---|---|---|",
+                                    "| Speaker | Narration | On screen | Backend |\n|---|---|---|---|")
+        self.assertIn("table column 'Backend': Backend (`backend`) became Model", _error(scene))
+        data = storyboard.parse_markdown(SPEAKERS_MD)
+        data["speakers"]["host"] = {"backend": "kokoro", "name": "bm_george"}
+        problems = [m for _, m in storyboard.check(data)]
+        self.assertTrue(any("became Model" in m and "speech is config.yaml's models.speech" in m for m in problems),
+                        problems)
+
     def test_resolve_voice(self) -> None:
         """storyboard.resolve_voice fills a speaker's empty speed with 1.0, keeps an empty voice name null (the
         model's default) and gives the settings voice, whose null model is config.yaml's `speech` model, for no

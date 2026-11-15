@@ -61,8 +61,8 @@ def test_endpoint_reads_config(tmp_path):
 
 def test_speech_models_from_the_routes(tmp_path):
     """`speech` lists the speech routes: the default (models.speech) first, then the configured escalation rows,
-    each with what the model takes; a row of a provider without speech models, or not in config.yaml, is left out.
-    Guards the voice picker's choices."""
+    each with what the model takes; a row of a provider without speech models, or not in config.yaml, is left out;
+    a malformed routes.md gives no models and its error. Guards the voice picker's choices."""
     cfg = write_config(tmp_path / "config.yaml",
                        providers={"k": {"kind": "kokoro"}, "cb": {"kind": "chatterbox"}, "oai": {"kind": "openai"},
                                   "local": {"kind": "diffusers"}},
@@ -73,7 +73,13 @@ def test_speech_models_from_the_routes(tmp_path):
         "| speech | gone:tts | only when never | no |\n| speech | oai:tts | only when styled | styles |\n",
         encoding="utf-8")
     with server(tmp_path, cfg) as url:
-        got = get_models(url)["speech"]
+        models = get_models(url)
+        (tmp_path / "routes.md").write_text("| task | model | when | why |\n|---|---|---|---|\n"
+                                            "| speech | kokoro | default | old |\n", encoding="utf-8")
+        broken = get_models(url)
+    assert broken["speech"] == [] and "write kokoro:kokoro-v1.0" in broken["speech_error"]
+    got = models["speech"]
+    assert models["speech_error"] is None
     assert got == [
         {"id": "k:kokoro-v1.0", "default": True, "when": "default", "why": "calm", "voice": "af_heart",
          "speed": [0.5, 2.0], "style": False, "clones": False},
@@ -91,6 +97,7 @@ def test_endpoint_without_or_broken_config(tmp_path):
         got = get_models(url)
     assert set(got["tasks"].values()) == {None}
     assert not any(t["model"] or t["ref_model"] for t in got["tiers"]) and got["speech"] == []
+    assert "no config" in got["speech_error"]
     cfg = write_config(tmp_path / "config.yaml", models=MODELS)
     with server(tmp_path, cfg) as url:
         cfg.write_text("models: [", encoding="utf-8")

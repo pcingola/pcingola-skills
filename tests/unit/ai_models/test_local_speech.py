@@ -1,6 +1,9 @@
 """`ai_models.speech` for the local speech kinds and what each kind takes (docs/ai_models.md, Local speech and
 alignment): defaults, checks, voice listing and configuration errors, without loading a model."""
 
+import subprocess
+import sys
+
 import pytest
 
 from ai_models import AIModelsError, ConfigError, align, chatterbox, kokoro, speech
@@ -72,10 +75,40 @@ def test_chatterbox_worker_errors(tmp_path):
     assert chatterbox.reference("default") is None
 
 
+def test_chatterbox_load_timeout_and_log_cleanup(tmp_path):
+    """A worker that gives no ready line within `start_timeout` is stopped with an error naming the limit; a worker
+    that exits with code 0 when stopped takes its log directory with it."""
+    spec = {**chatterbox_spec(tmp_path, sys.executable), "start_timeout": 0.01}
+    with pytest.raises(AIModelsError, match="no answer in 0 s"):
+        chatterbox.worker(spec, "cb3", "chatterbox-turbo")
+    log = tmp_path / "logdir" / "worker.log"
+    log.parent.mkdir()
+    log.write_text("")
+    proc = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, text=True)
+    chatterbox.Worker(proc, log).stop()
+    assert proc.returncode == 0 and not log.parent.exists()
+
+
 def test_align_model_of_another_kind_refused(write_config):
-    """The align task takes only a `torchaudio` provider; without `models.align` it is an error naming the task."""
-    write_config({"providers": {"o": {"kind": "openai"}}, "models": {}})
-    with pytest.raises(ConfigError, match="no model for task 'align'"):
+    """The align task takes only a `torchaudio` provider; without `models.align`, or without its provider, the error
+    names the task or provider and the template's `torchaudio` entry; a provider without `url` is refused."""
+    write_config({"providers": {"o": {"kind": "openai"}, "t": {"kind": "torchaudio", "dir": "/nonexistent"}},
+                  "models": {}})
+    with pytest.raises(ConfigError, match="no model for task 'align'.*provider entry `torchaudio`"):
         align.aligner()
+    with pytest.raises(ConfigError, match="no provider 'torchaudio'.*provider entry `torchaudio`"):
+        align.aligner("torchaudio:MMS_FA")
     with pytest.raises(ConfigError, match="has no align models"):
         align.aligner("o:mms")
+    with pytest.raises(ConfigError, match="needs `url`"):
+        align.aligner("t:MMS_FA")
+
+
+def test_missing_local_speech_provider_names_the_template(write_config):
+    """A `kokoro:` or `chatterbox:` model without its provider names the template's entry."""
+    write_config({"providers": {}, "models": {"speech": "kokoro:kokoro-v1.0"}})
+    with pytest.raises(ConfigError, match="no provider 'kokoro'.*provider entry `kokoro` \\(kind kokoro\\)"):
+        speech.model_of()
+    with pytest.raises(ConfigError, match="provider entry `chatterbox`"):
+        speech.model_of("chatterbox:chatterbox-turbo")

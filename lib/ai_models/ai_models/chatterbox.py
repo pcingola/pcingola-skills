@@ -3,8 +3,9 @@
 chatterbox-tts pins torch 2.6, so the model runs in a separate Python environment (`python` of the provider), in
 one worker process per calling process (`chatterbox_worker.py`), started on the first `speak` and stopped at exit
 (`atexit`; the kernel also stops it when the caller dies, `PR_SET_PDEATHSIG`). The worker runs on the CPU, so it
-takes no GPU lock. Requests and answers are JSON lines over the worker's stdin and stdout; its stderr goes to a log
-file whose tail an error quotes.
+takes no GPU lock. Requests and answers are JSON lines over the worker's stdin and stdout, read by a thread so that
+a wait has a limit: `start_timeout` (seconds, default 600) for the load, `timeout` (default 600) per answer. Its
+stderr goes to a log file whose tail an error quotes; the log's directory is removed when the worker ends cleanly.
 
 The model files are `files` under the repository URL `url`, downloaded by this process to `weights.model_dir`.
 A voice is `default` (the model's built-in voice) or the path of a reference recording longer than 5 s; the model
@@ -16,9 +17,12 @@ from __future__ import annotations
 
 import atexit
 import json
+import queue
+import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -30,26 +34,40 @@ KIND = "chatterbox"
 DEFAULT_VOICE = "default"
 WORKER = Path(__file__).with_name("chatterbox_worker.py")
 STOP_SECONDS = 30.0
+TIMEOUT = 600.0  # seconds for the load (provider key start_timeout) and for each answer (timeout)
 
 _workers: dict[str, "Worker"] = {}
 
 
 @dataclass
 class Worker:
-    """A running worker: its process and its stderr log."""
+    """A running worker: its process, its stderr log, and the queue its stdout lines arrive on ("" at the end)."""
 
     proc: subprocess.Popen
     log: Path
+    lines: queue.Queue = field(default_factory=queue.Queue)
 
-    def ask(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Send one request line, return the answer line; `AIModelsError` when the worker has exited."""
+    def __post_init__(self) -> None:
+        threading.Thread(target=self._read, daemon=True).start()
+
+    def _read(self) -> None:
+        for line in self.proc.stdout:
+            self.lines.put(line)
+        self.lines.put("")
+
+    def ask(self, request: dict[str, Any], seconds: float) -> dict[str, Any]:
+        """Send one request line (none for an empty `request`) and return the answer line; `AIModelsError` when the
+        worker has exited or gave no answer in `seconds`, which then stops it."""
         try:
             if request:
                 self.proc.stdin.write(json.dumps(request) + "\n")
                 self.proc.stdin.flush()
-            line = self.proc.stdout.readline()
+            line = self.lines.get(timeout=seconds)
         except (BrokenPipeError, OSError):
             line = ""
+        except queue.Empty:
+            self.stop()
+            raise AIModelsError(f"the Chatterbox worker gave no answer in {seconds:.0f} s:\n{omni.tail(self.log)}")
         if not line:
             self.proc.wait()
             raise AIModelsError(f"the Chatterbox worker exited with code {self.proc.returncode}:\n"
@@ -57,13 +75,16 @@ class Worker:
         return json.loads(line)
 
     def stop(self) -> None:
-        """Close its stdin, which ends it; kill it after `STOP_SECONDS`."""
+        """Close its stdin, which ends it, and remove the log's directory when it exits with code 0; kill it after
+        `STOP_SECONDS`, keeping the log."""
         try:
             self.proc.stdin.close()
             self.proc.wait(STOP_SECONDS)
         except (OSError, subprocess.TimeoutExpired):
             self.proc.kill()
             self.proc.wait()
+        if self.proc.returncode == 0:
+            shutil.rmtree(self.log.parent, ignore_errors=True)
 
 
 def fetch(spec: dict[str, Any], name: str, model: str) -> Path:
@@ -79,7 +100,9 @@ def fetch(spec: dict[str, Any], name: str, model: str) -> Path:
 
 
 def worker(spec: dict[str, Any], name: str, model: str) -> Worker:
-    """The worker of provider `name`, started on the first call of the process."""
+    """The worker of provider `name`, started on the first call of the process. Linux sends `PR_SET_PDEATHSIG`
+    when the thread that started the worker exits, not the process, so a worker started from a short-lived thread
+    (`asyncio.to_thread`) stops with that thread."""
     if name in _workers and _workers[name].proc.poll() is None:
         return _workers[name]
     python = str(Path(str(required(spec, "python", name))).expanduser())
@@ -94,7 +117,7 @@ def worker(spec: dict[str, Any], name: str, model: str) -> Worker:
             raise ConfigError(f"provider {name!r}: cannot run {python}: {e}") from e
     w = Worker(proc, log)
     atexit.register(w.stop)
-    w.ask({})  # the ready line
+    w.ask({}, float(spec.get("start_timeout", TIMEOUT)))  # the ready line
     _workers[name] = w
     return w
 
@@ -114,7 +137,8 @@ def speak(spec: dict[str, Any], name: str, model: str, text: str, voice: str) ->
     ref = reference(voice)
     with tempfile.TemporaryDirectory(prefix="ai-models-chatterbox-") as tmp:
         out = Path(tmp) / "speech.wav"
-        answer = worker(spec, name, model).ask({"text": text, "reference": ref, "out": str(out)})
+        answer = worker(spec, name, model).ask({"text": text, "reference": ref, "out": str(out)},
+                                               float(spec.get("timeout", TIMEOUT)))
         if "error" in answer:
             raise AIModelsError(f"{name}:{model}: {answer['error']}")
         return out.read_bytes()

@@ -219,7 +219,8 @@
     bar.querySelector("#ha-play").addEventListener("click", function () {
       if (playing) HA.pause(); else HA.play();
     });
-    scrub.addEventListener("input", function () { HA.pause(); HA.seek(parseFloat(scrub.value)); });
+    // Read the value before pausing: HA.pause() redraws the bar with the current time.
+    scrub.addEventListener("input", function () { var t = parseFloat(scrub.value); HA.pause(); HA.seek(t); });
     window.addEventListener("keydown", function (e) {
       if (e.code === "Space") { e.preventDefault(); if (playing) HA.pause(); else HA.play(); }
     });

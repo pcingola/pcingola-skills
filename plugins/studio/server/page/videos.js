@@ -757,7 +757,7 @@
       class: "voice" + (key(m) === (v.model ?? null) ? " on" : ""), onclick: () => setFilm({ voice: pickVoice(m) }) },
       h("span", { class: "r" }), h("div", {}, h("b", {}, m.id), h("span", {}, m.default ? m.why : `${m.when}: ${m.why}`)),
       playButton("Play a sample", btn => sample(pickVoice(m), btn)))))
-      : h("div", { class: "hint" }, "config.yaml names no speech model: the setup:settings skill adds one.");
+      : h("div", { class: "hint" }, Studio.models().speech_error || "config.yaml names no speech model: the setup:settings skill adds one.");
     const cur = speechModel(v.model) || {};
     const name = h("input", { type: "text", value: v.name || "", "data-k": "film-voice-name",
       placeholder: `Empty: the model's default voice${cur.voice ? ` (${cur.voice})` : ""}${cur.clones ? "; or a cloned voice" : ""}`,

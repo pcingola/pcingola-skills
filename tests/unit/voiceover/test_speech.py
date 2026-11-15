@@ -7,6 +7,7 @@ import wave
 import numpy as np
 
 from tests.settings_env import write_config
+from tests.subproc import child_env, py_value
 from tests.unit.voiceover.cli_run import voiceover
 from voiceover_tool.speech import decode
 from voiceover_tool.timing import build_timing
@@ -46,7 +47,7 @@ def test_voices_of_the_speech_model_and_of_another(tmp_path):
 
 def test_speed_and_style_refused_before_any_request(tmp_path):
     """A speed outside the kind's range, a speed with a model that has none, and a style with a model that takes
-    none, also as a line's own `[style]`, are refused before any request (the OpenAI provider points at a closed
+    none are refused before any request (the OpenAI provider points at a closed
     port, the Kokoro files at a closed port); a model of a provider kind
     without speech models is refused."""
     config = write_config(tmp_path / "config.yaml",
@@ -64,11 +65,6 @@ def test_speed_and_style_refused_before_any_request(tmp_path):
     assert p.returncode == 1 and "no speed setting" in p.stderr, p.stderr
     p = voiceover(*synth, "--model", "k:kokoro-v1.0", "--style", "calm", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "takes no instructions" in p.stderr, p.stderr
-    styled = tmp_path / "styled.txt"
-    styled.write_text("Hello there.\n[whisper] Keep it quiet.\n")
-    p = voiceover("synth", "--script", str(styled), "--out-dir", str(tmp_path / "o"), "--no-align",
-                  "--model", "k:kokoro-v1.0", SKILLS_CONFIG=str(config))
-    assert p.returncode == 1 and "takes no instructions" in p.stderr, p.stderr
     p = voiceover(*synth, "--model", "local:flux", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "has no speech models" in p.stderr, p.stderr
     assert not (tmp_path / "o").exists()
@@ -79,3 +75,35 @@ def test_timing_records_the_model_and_style_only_when_set():
               sentences=[])
     assert build_timing(**kw)["model"] == "k:kokoro-v1.0" and "style" not in build_timing(**kw)
     assert build_timing(style="calm", **kw)["style"] == "calm"
+
+
+def test_line_styles_only_for_a_model_that_takes_styles(tmp_path):
+    """`Narrator.lines` splits a leading `[style]` off a line for a model that takes styles and keeps the line as
+    literal text for one that does not (Kokoro)."""
+    config = write_config(tmp_path / "config.yaml",
+                          providers={"oai": OAI, "k": {"kind": "kokoro", "langs": {"af_": "en-us"}}},
+                          models={"speech": "oai:tts-1"})
+    imports = "from voiceover_tool.speech import Narrator"
+    lines = ["[whisper] Keep it quiet.", "Hello."]
+    env = child_env(SKILLS_CONFIG=str(config))
+    assert py_value(imports, f"Narrator().lines({lines!r})", env) == [["whisper", "Keep it quiet."], [None, "Hello."]]
+    assert py_value(imports, f"Narrator('k:kokoro-v1.0').lines({lines!r})", env) == [[None, l] for l in lines]
+
+
+def test_earlier_model_settings_refused(tmp_path):
+    """A `VOICEOVER_*` setting other than VOICEOVER_VOICES_DIR stops every command with one message naming the
+    template entries that replace it; with VOICEOVER_MODEL_DIR, the message gives it as the providers' `dir` and its
+    voices/ as VOICEOVER_VOICES_DIR."""
+    config = write_config(tmp_path / "config.yaml", {"VOICEOVER_KOKORO_VOICE": "af_heart",
+                                                     "VOICEOVER_MODEL_DIR": "/old/voiceover",
+                                                     "VOICEOVER_VOICES_DIR": "/old/voiceover/voices"},
+                          providers={"oai": OAI}, models={"speech": "oai:tts-1"})
+    p = voiceover("voices", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "Traceback" not in p.stderr, p.stderr
+    for part in ("VOICEOVER_KOKORO_VOICE, VOICEOVER_MODEL_DIR", "`kokoro` and `torchaudio`", "`chatterbox`",
+                 "`models.speech` and `models.align`", "config.example.yaml", "`dir: /old/voiceover`",
+                 "VOICEOVER_VOICES_DIR: /old/voiceover/voices"):
+        assert part in p.stderr, (part, p.stderr)
+    config = write_config(tmp_path / "ok.yaml", {"VOICEOVER_VOICES_DIR": str(tmp_path)}, providers={"oai": OAI},
+                          models={"speech": "oai:tts-1"})
+    assert voiceover("voices", SKILLS_CONFIG=str(config)).returncode == 0

@@ -21,7 +21,10 @@ the `.claude-plugin/marketplace.json` of the nearest directory above the plugin
 (a plugin loaded in place), else the marketplace directory of a cache copy
 (`<config dir>/plugins/cache/<marketplace>/<plugin>/<version>`).
 
-A skill binds to its plugin with `Plugin.of(__file__)`.
+A skill binds to its plugin with `Plugin.of(__file__)`. `Plugin.load()` also
+makes that plugin the process's plugin: `data_dir()` is its data directory, so
+a shared package (`ai_models`) finds the data directory of the skill that
+called it.
 
 `require(key)` returns a setting or exits when it is missing; `invalid(key,
 value, expected)` exits for a value the caller rejects, naming where the value
@@ -54,6 +57,8 @@ SETUP_LINE = "The setup:settings skill describes every setting and creates the f
 
 # The file set by `use`; it wins over the environment.
 _used: Path | None = None
+# The plugin whose settings `Plugin.load` loaded in this process.
+_loaded: "Plugin | None" = None
 
 
 class ConfigFileError(Exception):
@@ -230,8 +235,11 @@ class Plugin:
         return config_dir() / "plugins" / "data" / data_id
 
     def load(self) -> None:
-        """Read the config file (exit when it is malformed) and export ENV_KEYS."""
+        """Read the config file (exit when it is malformed), export ENV_KEYS and make this plugin the process's
+        plugin (`data_dir`)."""
+        global _loaded
         export()
+        _loaded = self
 
     def get(self, key: str, default: str | None = None) -> str | None:
         return get(key, default)
@@ -243,7 +251,15 @@ class Plugin:
         invalid(key, value, expected)
 
 
+def data_dir() -> Path | None:
+    """The data directory of the process's plugin (the last `Plugin.load`), else `$CLAUDE_PLUGIN_DATA`, else None."""
+    if _loaded is not None:
+        return _loaded.data_dir()
+    v = os.environ.get("CLAUDE_PLUGIN_DATA", "").strip()
+    return Path(v).expanduser() if v else None
+
+
 __all__ = [
-    "CONFIG_ENV", "ENV_KEYS", "MANIFEST", "ConfigFileError", "Plugin", "config_dir", "config_file", "error",
-    "export", "get", "invalid", "read_config", "require", "settings", "use",
+    "CONFIG_ENV", "ENV_KEYS", "MANIFEST", "ConfigFileError", "Plugin", "config_dir", "config_file", "data_dir",
+    "error", "export", "get", "invalid", "read_config", "require", "settings", "use",
 ]

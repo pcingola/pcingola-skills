@@ -92,7 +92,9 @@ def model_of(model: str | None = None) -> SpeechModel:
     """`model` (else `models.speech`) as a `SpeechModel`; `ConfigError` for a kind without speech models."""
     model_id = config.resolve(model, "speech")
     name, bare = config.split_id(model_id)
-    m = SpeechModel(model_id, name, config.provider(name), bare)
+    spec = (config.template_provider(name, name) if name in (kokoro.KIND, chatterbox.KIND)
+            else config.provider(name))
+    m = SpeechModel(model_id, name, spec, bare)
     m.traits  # noqa: B018 - refuses a kind without speech models
     return m
 

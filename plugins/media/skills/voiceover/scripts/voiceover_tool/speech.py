@@ -20,6 +20,7 @@ import wave
 import numpy as np
 
 from . import voices
+from .script import split_style
 
 SAMPLE_RATE = 24_000
 
@@ -69,18 +70,13 @@ class Narrator:
         except AIModelsError as e:
             raise ValueError(str(e)) from None
         self.model, self.kind, self.default_voice = m.id, m.kind, m.default_voice
-        self.clones = m.traits.clones
+        self.clones, self.instructions = m.traits.clones, m.instructions
         self.style, self.speed = style, speed
 
-    def check_style(self, style: str | None) -> None:
-        """`ValueError` when the model does not take `style` (a sentence's own style), before any request."""
-        from ai_models import AIModelsError
-        from ai_models import speech
-
-        try:
-            speech.check(self.model, speed=self.speed, instructions=style)
-        except AIModelsError as e:
-            raise ValueError(str(e)) from None
+    def lines(self, sentences: list[str]) -> list[tuple[str | None, str]]:
+        """(own style, sentence) of each script line. A line starting with `[style]` gives that style only when the
+        model takes styles (`split_style`), which then takes any style; for other models the line is literal text."""
+        return [split_style(s) for s in sentences] if self.instructions else [(None, s) for s in sentences]
 
     def voices(self) -> list[str]:
         """The model's voices, then the reference recordings when the model clones a voice."""

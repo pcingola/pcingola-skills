@@ -24,7 +24,7 @@ from ai_models import AIModelsError, routes
 from . import config, voices
 from .align import AlignFn, clip_aligner, sentence_words
 from .assemble import DEFAULT_GAP, DEFAULT_LEAD, DEFAULT_TAIL, join, trim_silence, write_wav
-from .script import read_script, split_style
+from .script import read_script
 from .speech import Narrator, TTSError
 from .timing import SentenceTiming, build_timing, write_timing
 
@@ -51,14 +51,11 @@ def synthesize_to_dir(
 ) -> tuple[Path, Path]:
     """Synthesize sentence by sentence, join, align, write WAV + timing.json.
 
-    A `[style] sentence` line is spoken with its own style (`split_style`); every style is checked before the
-    first request. With `aligner=None` only sentence times are written (`words` is empty and `aligned` is false).
+    A `[style] sentence` line of a model that takes styles is spoken with its own style (`Narrator.lines`). With `aligner=None` only sentence times are written (`words` is empty and `aligned` is false).
     """
     if not sentences:
         raise ValueError("script has no sentences")
-    styled = [split_style(s) for s in sentences]
-    for style in dict.fromkeys(st for st, _ in styled if st):
-        narrator.check_style(style)
+    styled = narrator.lines(list(sentences))
     sentences = [text for _, text in styled]
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

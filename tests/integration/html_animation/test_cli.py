@@ -152,6 +152,24 @@ class TestCli(unittest.TestCase):
                 browser.close()
                 server.shutdown()
 
+    def test_scrub_bar(self) -> None:
+        """Standalone, moving the scrub bar while playing pauses the player at the chosen time
+        (SKILL.md: opened plain it plays from 0 with a play and scrub bar)."""
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(executable_path=str(Browser().executable()), args=LAUNCH_ARGS)
+            try:
+                for lib, folder in self.folders.items():
+                    with self.subTest(lib=lib):
+                        page = browser.new_page()
+                        page.goto((folder / "index.html").as_uri())
+                        page.wait_for_function("() => window.HA && HA.playing")
+                        page.evaluate("() => { const s = document.getElementById('ha-scrub'); s.value = '1.25';"
+                                      " s.dispatchEvent(new Event('input')); }")
+                        self.assertEqual(page.evaluate("() => [HA.playing, HA.time]"), [False, 1.25])
+                        page.close()
+            finally:
+                browser.close()
+
     def test_snapshot(self) -> None:
         """snapshot through the wrapper prints the version it wrote."""
         folder = self.folders["gsap"]

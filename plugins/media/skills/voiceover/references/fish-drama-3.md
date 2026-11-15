@@ -32,7 +32,8 @@ card: `whisper`, `excited`, `sighs`. The model card reports that a tag at the st
 silence after the first word. A plain-word style ("calm documentary narrator") becomes one bracketed tag; how
 the model reads such a tag is not measured.
 
-A tag at the start of a script line, `[whisper] Keep it quiet.`, is that sentence's style: `synth` sends the
+A tag at the start of a script line, `[whisper] Keep it quiet.`, is that sentence's style (with a model that takes
+styles, as Fish with `style` in its provider does): `synth` sends the
 sentence with that tag instead of `--style` and aligns the sentence without it, so one command (one model load)
 voices several tags. A tag inside a line is spoken as direction too, but the word aligner then looks for the tag
 words in the audio, and the alignment of that sentence fails unless `--no-align` is given.

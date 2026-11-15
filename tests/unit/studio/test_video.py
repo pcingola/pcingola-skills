@@ -390,11 +390,18 @@ def test_film(client, studio):
     assert client.post("/api/film", {"project": str(p), "film": {"brand": None}})[1]["film"]["brand"] is None
 
 
-def test_film_voice_of_the_earlier_form_reads_as_the_default():
-    """A stored film voice without `model` (the earlier `backend` form) reads as the default voice, so the page can
-    save the film again. Guards projects made before the voice named a speech model."""
-    assert film_of({"film": {"voice": {"backend": "kokoro", "name": "af_heart", "speed": 1.0, "style": None},
-                             "length": 30}}) == {**default_film(), "length": 30}
+def test_film_voice_of_the_earlier_form_maps_its_backend():
+    """A stored film voice of the earlier `backend` form gets the model id of its backend (`speech`: null, the
+    config's speech model) and keeps its name, speed and style; a voice without either key is the default voice.
+    Guards projects made before the voice named a speech model."""
+    old = {"backend": "kokoro", "name": "bm_george", "speed": 1.1, "style": None}
+    assert film_of({"film": {"voice": old, "length": 30}}) == {
+        **default_film(), "length": 30, "voice": {"model": "kokoro:kokoro-v1.0", "name": "bm_george", "speed": 1.1,
+                                                  "style": None}}
+    assert film_of({"film": {"voice": {**old, "backend": "speech", "style": "calm"}}})["voice"] == {
+        "model": None, "name": "bm_george", "speed": 1.1, "style": "calm"}
+    assert film_of({"film": {"voice": {"backend": "chatterbox"}}})["voice"]["model"] == "chatterbox:chatterbox-turbo"
+    assert film_of({"film": {"voice": {"name": "x"}}})["voice"] == default_film()["voice"]
 
 
 BAD_FILMS = [

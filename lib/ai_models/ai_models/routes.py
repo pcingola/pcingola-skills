@@ -94,6 +94,10 @@ def parse(path: Path) -> list[Route]:
             defaults.add(route.task)
         elif not route.when.lower().startswith(ESCALATION):
             raise ConfigError(f"{where}: `when` must be {DEFAULT!r} or begin with {ESCALATION!r}")
+        if route.model in config.TEMPLATE_MODELS:
+            raise ConfigError(f"{where}: {route.model!r} is no longer a model name; write "
+                              f"{config.TEMPLATE_MODELS[route.model]} and add the `{route.model}` provider entry of "
+                              f"{config.TEMPLATE} to config.yaml")
         try:
             config.split_id(route.model)
         except ConfigError as e:
