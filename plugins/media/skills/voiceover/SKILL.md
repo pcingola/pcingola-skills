@@ -35,7 +35,11 @@ A `speech` model of provider kind `vllm-omni` (Fish Audio Drama 3) runs on
 the local GPU: the first sentence starts its server, which loads for minutes
 and stops when the command ends, so give it the whole script in one `synth`.
 It has no speed. Its voice is `default` or a voice of `add-voice` stored with
-`--text` (the transcript), which it clones. `--style` becomes inline tags of
+`--text` (the transcript), which it clones. With `default` the model picks a
+new speaker per request, so `synth` uses the first sentence's take as the
+reference for the rest and writes it to the output directory as `voice.wav`
+and `voice.txt`. For several commands in one voice (the scenes of one film),
+voice the first, then pass `--voice <its out dir>/voice.wav` to the others. `--style` becomes inline tags of
 the model: `--style whisper` sends `[whisper] <sentence>` (tags `whisper`,
 `excited`, `sighs`). See `references/fish-drama-3.md`.
 

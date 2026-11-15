@@ -4,7 +4,8 @@ vLLM-Omni pins its own torch and transformers, so it runs in a separate Python e
 provider) and the skill process talks to it over HTTP. The server serves one model (`repo`) for the life of the
 calling process: the first `speak` takes the local-model lock (`local.hold_lock`), reads the free memory
 (`local.free_memory`; after waiting for the lock, once it settles, `local.wait_for_settled_memory`; on an
-integrated GPU at most `torch.cuda.mem_get_info`'s free bytes, `vllm_free_memory`), writes a deploy overlay and
+integrated GPU at most `torch.cuda.mem_get_info`'s free bytes, `vllm_free_memory`, after dropping the page cache of
+the model files, `local.drop_page_cache`, because `mem_get_info` counts that cache as used), writes a deploy overlay and
 starts `vllm serve <repo> --omni` on a free loopback port. `atexit` stops the server's process group, also after a
 SIGTERM (`exit_on_sigterm`), and the kernel stops its main process when the caller dies (`PR_SET_PDEATHSIG`).
 `args` (optional) lists more server arguments, `env` (optional) environment variables of the server. So no memory
@@ -17,7 +18,9 @@ stages share the GPU by time-slicing.
 
 A request is `POST /v1/audio/speech`. The voice is `default` (the model's own voice) or a reference recording
 (`reference`): an audio file with its transcript in a `.txt` file of the same stem, sent as `ref_audio` (a
-`data:` URI) and `ref_text`. `style` (optional) is a format string with `{instructions}` and `{text}` that puts
+`data:` URI) and `ref_text`. Drama 3 picks a new speaker for each request without a reference, and a fixed `seed`
+does not keep it (the speaker still changes with the text), so with `default` the first answer of the process
+(`first_take`) is the reference of every later request: one process, one speaker. `style` (optional) is a format string with `{instructions}` and `{text}` that puts
 the caller's instructions into the text, for a model whose direction is inline tags.
 """
 
@@ -52,6 +55,7 @@ STOP_POLL_SECONDS = 0.2
 LOG_TAIL = 4000  # characters of the server log an error quotes
 
 _servers: dict[str, "Server"] = {}
+_takes: dict[str, tuple[bytes, str]] = {}  # provider -> (WAV, text) of its first `DEFAULT_VOICE` answer
 
 
 @dataclass
@@ -214,6 +218,8 @@ def server(name: str, spec: dict[str, Any], model: str) -> Server:
     waited = local.hold_lock() or name in _servers
     started = time.monotonic()
     dev = local.device()
+    if local.integrated(dev):
+        local.drop_page_cache(local.model_dirs())  # mem_get_info, which vLLM checks, counts the page cache as used
     free = vllm_free_memory(local.wait_for_settled_memory(dev) if waited else local.free_memory(dev), dev)
     share = memory_share(spec, name, free, torch.cuda.mem_get_info()[1] if dev == "cuda" else free)
     work = Path(tempfile.mkdtemp(prefix="ai-models-omni-"))
@@ -273,11 +279,23 @@ def styled(spec: dict[str, Any], name: str, text: str, instructions: str | None)
     return fmt.format(instructions=instructions.strip(), text=text)
 
 
-def request_body(model: str, text: str, voice: str) -> dict[str, Any]:
+def data_uri(wav: bytes) -> str:
+    return f"data:audio/wav;base64,{base64.b64encode(wav).decode()}"
+
+
+def request_body(model: str, text: str, voice: str, take: tuple[bytes, str] | None = None) -> dict[str, Any]:
+    """The speech request; with `DEFAULT_VOICE` and a first take (WAV, text), that take as the reference."""
     body: dict[str, Any] = {"model": model, "input": text, "response_format": "wav"}
     if ref := reference(voice):
         body["ref_audio"], body["ref_text"] = ref
+    elif take:
+        body["ref_audio"], body["ref_text"] = data_uri(take[0]), take[1]
     return body
+
+
+def first_take(name: str) -> tuple[bytes, str] | None:
+    """(WAV, text) of provider `name`'s first answer with `DEFAULT_VOICE` in this process, None before it."""
+    return _takes.get(name)
 
 
 def speak(name: str, spec: dict[str, Any], model: str, text: str, voice: str, instructions: str | None,
@@ -287,10 +305,13 @@ def speak(name: str, spec: dict[str, Any], model: str, text: str, voice: str, in
 
     if speed != 1.0:
         raise AIModelsError(f"{name}:{model} has no speed setting")
-    body = request_body(model, styled(spec, name, text, instructions), voice)
+    said = styled(spec, name, text, instructions)
+    body = request_body(model, said, voice, _takes.get(name) if voice == DEFAULT_VOICE else None)
     srv = server(name, spec, model)
     r = httpx.post(f"{srv.url}/v1/audio/speech", json=body, timeout=float(spec.get("timeout", 600)),
                    trust_env=False)
     if r.status_code != 200:
         raise AIModelsError(f"{name}:{model} answered {r.status_code}: {r.text[:500]}")
+    if voice == DEFAULT_VOICE:
+        _takes.setdefault(name, (r.content, said))
     return r.content

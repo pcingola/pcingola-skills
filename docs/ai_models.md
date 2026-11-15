@@ -167,6 +167,14 @@ model (`repo`). `omni.speak`:
    (`local.wait_for_settled_memory`: a rise under 0.5 GB between readings 0.5 s apart, at most 10 s), while the
    previous holder's memory comes back. On an integrated GPU the free memory is at most
    `torch.cuda.mem_get_info()[0]` (`vllm_free_memory`), because vLLM checks its share against that figure at start.
+   Before it measures, on an integrated GPU, it drops the clean page cache of the model files
+   (`local.drop_page_cache` over `local.model_dirs()`: the Hugging Face hub cache and every config `repo` that is
+   a local directory; files of at least `PAGE_CACHE_MIN_BYTES`, 64 MiB), with `posix_fadvise(POSIX_FADV_DONTNEED)`,
+   which changes no file and needs no privilege. Without it, weights read earlier stay cached and lower
+   `mem_get_info()`: on the GB10, with 74 GB of page cache, it reported 46 GB free, which sized the server at
+   about 26 GB, below Drama 3's 37.5 GB of weights. After the call (about 1 s over a 507 GB cache) it reported
+   114 GB. Diffusers loads (`local.pipeline`) do not call it: they size from `MemAvailable`, which counts the
+   cache as free, and the CUDA allocator reclaims the cache.
 2. Writes a deploy overlay that inherits `deploy` (a file of vLLM-Omni's `deploy/` directory, found with the
    environment's `importlib.util.find_spec`, or a path) through vLLM-Omni's `base_config`. The overlay turns off
    the CUDA MPS daemon (`platforms.cuda.cuda_mps: false`) and scales every stage's `gpu_memory_utilization` so
@@ -192,7 +200,12 @@ The server lives for one command, like a diffusers pipeline. The in-process `Omn
 the model's prompt layout in our code (vLLM-Omni's TTS adapter builds it for the server, per architecture).
 
 Voice: `default` (the model's own voice), or a path to a reference recording with its transcript in a `.txt` file
-of the same stem, sent as `ref_audio` (a `data:` URI) and `ref_text`. Instructions go through the provider's
+of the same stem, sent as `ref_audio` (a `data:` URI) and `ref_text`. Drama 3 picks a new speaker for each
+request without a reference. A fixed `seed` (the request field exists) does not keep it: on the GB10 three
+sentences with seed 7 had median F0 184, 146 and 135 Hz, with seed 11 203, 146 and 208 Hz, without a seed 110,
+184 and 191 Hz. With `default`, `omni.speak` therefore keeps the process's first answer (`first_take`: WAV and
+the text sent) and sends it as `ref_audio`/`ref_text` with every later `default` request; three sentences then
+had 138, 138 and 148 Hz and a mean log-mel profile within cosine 0.975 of the first. Instructions go through the provider's
 `style`, a format string with `{instructions}` and `{text}` (Drama 3: `"[{instructions}] {text}"`, its inline
 tags); a provider without `style` refuses instructions. There is no speed.
 

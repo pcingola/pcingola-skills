@@ -2,6 +2,7 @@
 Local models). Each case that sets a cap or takes the lock runs in a child process, because both last for the
 life of the process."""
 
+import os
 import subprocess
 import sys
 import textwrap
@@ -208,3 +209,37 @@ def test_free_memory_comes_back_after_the_holder_exits(tmp_path):
     finally:
         first.kill()
         first.wait()
+
+
+def _cached_file(tmp_path, size: int):
+    """A file of `size` random bytes under `tmp_path`, read once so its pages are in the page cache."""
+    p = tmp_path / "weights.bin"
+    p.write_bytes(os.urandom(size))
+    assert len(p.read_bytes()) == size
+    return p
+
+
+def test_drop_page_cache_advises_large_files_and_changes_none(tmp_path):
+    """Guards the vLLM-Omni start on an integrated GPU: files of at least the threshold are advised, smaller ones
+    and symlinks are skipped, and no file changes; without `posix_fadvise` (macOS, Windows) it is a no-op."""
+    big = _cached_file(tmp_path, 64 * 2**20)
+    data = big.read_bytes()
+    (tmp_path / "small.json").write_text("{}")
+    (tmp_path / "link.bin").symlink_to(big)
+    advised = local.drop_page_cache([tmp_path], min_bytes=64 * 2**20)
+    assert advised == (64 * 2**20 if hasattr(os, "posix_fadvise") else 0)
+    assert big.read_bytes() == data
+    assert (tmp_path / "small.json").read_text() == "{}"
+
+
+DROP_SLACK = 32 * 2**20  # bytes other processes may allocate between the two readings
+
+
+@requires(torch.cuda.is_available(), "a CUDA GPU")
+def test_drop_page_cache_does_not_lower_cuda_free(tmp_path):
+    """After dropping the cache of a 64 MB file just read, `torch.cuda.mem_get_info`'s free bytes are not lower
+    (on an integrated GPU they rise, because that figure counts the page cache as used)."""
+    _cached_file(tmp_path, 64 * 2**20)
+    before = torch.cuda.mem_get_info()[0]
+    local.drop_page_cache([tmp_path], min_bytes=64 * 2**20)
+    assert torch.cuda.mem_get_info()[0] >= before - DROP_SLACK

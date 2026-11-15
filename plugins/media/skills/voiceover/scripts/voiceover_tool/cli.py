@@ -31,6 +31,7 @@ from .timing import SentenceTiming, build_timing, write_timing
 
 WAV_NAME = "narration.wav"
 TIMING_NAME = "timing.json"
+VOICE_NAME = "voice.wav"  # the first take of a `default` vllm-omni voice, with its transcript `voice.txt`
 
 # (trimmed clip, sample rate) -> AlignFn for that clip
 ClipAligner = Callable[[np.ndarray, int], AlignFn]
@@ -82,6 +83,9 @@ def synthesize_to_dir(
         style=getattr(backend, "style", None),
     )
     timing_path = write_timing(out_dir / TIMING_NAME, timing)
+    if take := getattr(backend, "first_take", lambda: None)():
+        (out_dir / VOICE_NAME).write_bytes(take[0])
+        (out_dir / VOICE_NAME).with_suffix(".txt").write_text(take[1] + "\n")
     return wav_path, timing_path
 
 

@@ -13,8 +13,13 @@ Fish Audio Drama 3 (`fishaudio/drama-3`) is a local speech model served by vLLM-
 
 ## Voices
 
-- `default`: the model's own voice. Each sentence is a separate request without a reference, so nothing ties
-  the speaker of one sentence to the next.
+- `default`: the model's own voice. Without a reference the model picks a new speaker for each request (median
+  F0 110, 184 and 191 Hz for three sentences). A fixed `seed` does not keep the speaker either, because the
+  speaker changes with the text (seed 7: 184, 146 and 135 Hz). So `synth` sends the first sentence without a
+  reference and uses that take as `ref_audio`/`ref_text` for the rest (138, 138 and 148 Hz), and writes it to
+  the output directory as `voice.wav` with its transcript `voice.txt`.
+- One voice across commands (the scenes of one film): voice the first scene with `default`, then give every other
+  scene `--voice <first scene's out dir>/voice.wav`.
 - A reference voice keeps one speaker across sentences: `add-voice NAME recording.wav --text "what the recording
   says"` stores the recording and its transcript; `--voice NAME` (or a path to a recording with a `.txt`
   transcript of the same name beside it) clones it.

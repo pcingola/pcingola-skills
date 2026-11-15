@@ -97,6 +97,22 @@ def test_request_body_with_reference_recording(tmp_path):
         assert w.getnframes() == 1600
 
 
+def test_request_body_default_voice_uses_the_first_take(tmp_path):
+    """Guards one speaker per command: with `default` and a first take, the take goes as `ref_audio` (a WAV data:
+    URI of its bytes) with its text; a reference recording takes precedence over the take."""
+    take_wav = tmp_path / "take.wav"
+    _wav(take_wav)
+    take = (take_wav.read_bytes(), "The harbour wakes.")
+    body = omni.request_body("tts", "Hi.", "default", take)
+    assert body["ref_text"] == "The harbour wakes."
+    assert base64.b64decode(body["ref_audio"].split(",", 1)[1]) == take[0]
+    ref = tmp_path / "alice.wav"
+    _wav(ref)
+    ref.with_suffix(".txt").write_text("This is Alice.\n")
+    assert omni.request_body("tts", "Hi.", str(ref), take)["ref_text"] == "This is Alice."
+    assert omni.first_take("no-such-provider") is None
+
+
 def test_reference_needs_a_file_and_a_transcript(tmp_path):
     """A voice that is not `default` must be an existing file with a .txt transcript."""
     with pytest.raises(AIModelsError, match="neither"):

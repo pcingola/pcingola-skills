@@ -9,7 +9,8 @@ OpenAI-compatible servers) is taken as 24 kHz. The voice is checked by the provi
 VOICEOVER_SPEECH_VOICE; `voices` lists VOICEOVER_SPEECH_VOICES when set.
 
 A model of kind vllm-omni (Fish Audio Drama 3) has no voices and no speed. Its voice is `default` (the model's
-own voice) or a reference voice of `add-voice` (a name in the voices directory, or a path) whose transcript
+own voice; the first sentence's take is the reference of the rest, so one command has one speaker, and
+`synth` writes it as `voice.wav` + `voice.txt`) or a reference voice of `add-voice` (a name in the voices directory, or a path) whose transcript
 `<name>.txt` lies beside it; the model clones it. A style becomes the provider's `style` format, inline tags for
 Drama 3 (`--style whisper` sends `[whisper] <sentence>`).
 """
@@ -82,6 +83,13 @@ class SpeechBackend:
 
     def voices(self) -> list[str]:
         return list(self._voices)
+
+    def first_take(self) -> tuple[bytes, str] | None:
+        """(WAV, text) of the first `default`-voice sentence of a vllm-omni model in this process, else None."""
+        from ai_models import config as ai_config
+        from ai_models import omni
+
+        return omni.first_take(ai_config.split_id(self.model)[0]) if self.kind == omni.KIND else None
 
     def synthesize(self, text: str, voice: str, speed: float) -> np.ndarray:
         from ai_models import omni

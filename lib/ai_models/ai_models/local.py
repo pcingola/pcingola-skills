@@ -29,6 +29,7 @@ import io
 import itertools
 import json
 import os
+import stat
 import sys
 import tempfile
 import threading
@@ -220,6 +221,54 @@ def free_memory(dev: str) -> int:
     if integrated(dev):
         return psutil.virtual_memory().available
     return torch.cuda.mem_get_info()[0]
+
+
+PAGE_CACHE_MIN_BYTES = 64 * 2**20  # `drop_page_cache` skips files smaller than this
+
+
+def model_dirs() -> list[Path]:
+    """The directories that hold model weights: the Hugging Face hub cache (`HF_HUB_CACHE`, under `HF_HOME` of the
+    config) and every `repo` of the config's providers and `diffusers` models that is a local directory."""
+    from huggingface_hub import constants
+
+    try:
+        cfg = config.load()
+    except ConfigError:
+        cfg = {}
+    specs = [*(cfg.get("providers") or {}).values(), *(cfg.get("diffusers") or {}).values()]
+    repos = [Path(str(s["repo"])).expanduser() for s in specs if isinstance(s, dict) and s.get("repo")]
+    dirs = [Path(constants.HF_HUB_CACHE), *(r for r in repos if r.is_dir())]
+    return [d for d in dict.fromkeys(dirs) if d.is_dir()]
+
+
+def drop_page_cache(dirs: Iterable[Path], min_bytes: int = PAGE_CACHE_MIN_BYTES) -> int:
+    """Ask Linux to drop the clean page cache of every regular file of at least `min_bytes` under `dirs`
+    (`posix_fadvise` `POSIX_FADV_DONTNEED`; symlinks are not followed); the bytes of the files advised. It changes
+    no file and needs no privilege; pages a process has mapped or dirty pages stay. A no-op (0) without
+    `posix_fadvise` (macOS, Windows). On an integrated GPU `torch.cuda.mem_get_info` counts the page cache as used,
+    and vLLM checks its share against that figure, so a server start calls this before it measures."""
+    if not hasattr(os, "posix_fadvise"):
+        return 0
+    done = 0
+    for top in dirs:
+        for root, _subdirs, files in os.walk(top):
+            for f in files:
+                p = os.path.join(root, f)
+                try:
+                    st = os.lstat(p)
+                    if not stat.S_ISREG(st.st_mode) or st.st_size < min_bytes:
+                        continue
+                    fd = os.open(p, os.O_RDONLY)
+                except OSError:
+                    continue
+                try:
+                    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                    done += st.st_size
+                except OSError:
+                    pass
+                finally:
+                    os.close(fd)
+    return done
 
 
 def integrated(dev: str) -> bool:
