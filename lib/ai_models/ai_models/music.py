@@ -59,6 +59,21 @@ def check_options(api: str, model_id: str, **options) -> None:
         raise AIModelsError("samples must be at least 1")
 
 
+def model_api(model_id: str) -> str:
+    """The API of the music model `model_id` (`<provider>:<model>`): a key of TAKES. `ConfigError` for a provider
+    kind without music models."""
+    name, bare = config.split_id(model_id)
+    spec = config.provider(name)
+    if spec["kind"] not in ("diffusers", "google"):
+        raise ConfigError(f"provider {name!r} of kind {spec['kind']!r} has no music models")
+    return spec["kind"] if spec["kind"] == "diffusers" else "predict" if bare in (spec.get("predict_models") or ()) else "stream"
+
+
+def takes(model_id: str) -> frozenset[str]:
+    """The options the music model `model_id` takes (`seed`, `seconds`, ...)."""
+    return frozenset(TAKES[model_api(model_id)])
+
+
 def predict_instance(prompt: str, negative: str | None, seed: int | None, samples: int | None) -> dict:
     """The `:predict` instance; `sample_count` goes in it (the endpoint ignores it under `parameters`)."""
     instance: dict = {"prompt": prompt}
@@ -135,9 +150,7 @@ async def acompose(prompt: str, *, seconds: float | None = None, lyrics: str | N
     model_id = config.resolve(model, "music")
     name, bare = config.split_id(model_id)
     spec = config.provider(name)
-    if spec["kind"] not in ("diffusers", "google"):
-        raise ConfigError(f"provider {name!r} of kind {spec['kind']!r} has no music models")
-    api = spec["kind"] if spec["kind"] == "diffusers" else "predict" if bare in (spec.get("predict_models") or ()) else "stream"
+    api = model_api(model_id)
     check_options(api, model_id, seconds=seconds, lyrics=lyrics, seed=seed, negative=negative, images=images,
                   samples=samples)
     if api == "diffusers":

@@ -88,6 +88,25 @@ def db(x: float) -> float:
     return float(20 * np.log10(max(x, 1e-10)))
 
 
+def decode_bytes(data: bytes) -> np.ndarray:
+    """The float32 samples of an encoded file in memory (WAV, MP3, ...), all channels interleaved, at its own rate."""
+    proc = subprocess.run([_ffmpeg(), "-v", "error", "-i", "pipe:0", "-vn", "-f", "f32le", "-"], input=data,
+                          capture_output=True)
+    if proc.returncode != 0:
+        raise MeasureError(f"ffmpeg could not decode the audio: {proc.stderr.decode(errors='replace').strip()[-500:]}")
+    y = np.frombuffer(proc.stdout, dtype=np.float32)
+    if y.size == 0:
+        raise MeasureError("no audio samples")
+    return y.copy()
+
+
+def crest_db(y: np.ndarray) -> float:
+    """Crest factor in dB: sample peak minus RMS, over all samples of all channels. A full-scale sine
+    gives 3.01 dB, silence 0 dB."""
+    x = y.astype(np.float64)
+    return round(db(float(np.max(np.abs(x)))) - db(float(np.sqrt(np.mean(x ** 2)))), 2)
+
+
 def window_rms_db(y: np.ndarray, sr: int, seconds: float = WINDOW_SECONDS) -> list[float]:
     """RMS in dBFS of each full `seconds` window; a last partial window of at
     least half a window is kept, and a clip shorter than that is one window."""

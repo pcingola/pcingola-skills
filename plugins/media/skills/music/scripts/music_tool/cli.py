@@ -4,7 +4,7 @@ Commands:
     generate   Prompt (plus the inputs the model takes) -> audio file(s) of the
                `music` model (or --model) of the `ai_models` config, with
                `<out>.json` (model, exact prompt sent, options, MIME type,
-               finish reason, duration) and `<out>.txt` (the text the model returns, when it returns any).
+               finish reason, duration, the crest factor check of `crest.py`) and `<out>.txt` (the text the model returns, when it returns any).
     fit        Loop or trim a track to an exact length, with fades.
     analyze    Per-clip reports on how clips fit their briefs: a model
                description, signal measurements and images (`analyze.py`).
@@ -15,15 +15,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ai_models import routes
 
-from . import config, fit, prompt
+from . import config, crest, fit, prompt
 
 EXTENSIONS = (".mp3", ".wav")
+# Seeds drawn when --seed is not given are below this (torch.Generator takes 64-bit seeds).
+MAX_SEED = 2**31
 IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
@@ -103,6 +106,8 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     from ai_models.errors import AIModelsError
     from ai_models.models import kind
 
+    from .measure import MeasureError
+
     _check(args)
     text = _read_prompt(args)
     out = Path(args.out).expanduser()
@@ -125,11 +130,27 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     except AIModelsError as e:
         config.error(str(e))
     sent, sent_lyrics = prompt.request(text, lyrics, args.instrumental, args.bpm, local)
+
+    def compose(seed: int | None) -> list:
+        return music.compose(sent, seconds=args.seconds, lyrics=sent_lyrics, seed=seed, negative=args.negative,
+                             images=images, samples=args.samples, model=model_id)
+
     try:
-        tracks = music.compose(sent, seconds=args.seconds, lyrics=sent_lyrics, seed=args.seed,
-                               negative=args.negative, images=images, samples=args.samples, model=model_id)
+        check = crest.CrestCheck.from_settings()
+        seed = args.seed
+        if seed is None and not args.samples and "seed" in music.takes(model_id):
+            seed = random.randrange(MAX_SEED - check.attempts)
+        checked = check.run(compose, lambda t: t.audio, seed)
+        tracks = checked.tracks
+        if checked.below:
+            config.warn(f"all {len(checked.attempts)} requests gave a track with a crest factor below "
+                        f"{checked.min_crest_db:g} dB (loud, compressed); kept "
+                        + (f"seed {checked.kept.seed}" if checked.kept.seed is not None else "the best request")
+                        + f" at {checked.kept.lowest:g} dB")
     except AIModelsError as e:
         config.error(str(e) if model_id in str(e) else f"{model_id}: {e}")
+    except MeasureError as e:
+        config.error(f"crest factor: {e}")
 
     options = {"image": args.image, "lyrics": args.lyrics, "instrumental": args.instrumental, "bpm": args.bpm,
                "seconds": args.seconds, "negative": args.negative, "seed": args.seed, "samples": args.samples}
@@ -161,6 +182,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             "duration": fit.duration(path),
             "created_at": created,
             **({"sample": i} if len(tracks) > 1 else {}),
+            "crest": checked.record(i - 1),
         }
         sidecar(path, ".json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         print(path)
@@ -211,7 +233,8 @@ def _build_parser() -> argparse.ArgumentParser:
     c.add_argument("--bpm", type=int, help="Tempo in beats per minute (written into the prompt)")
     c.add_argument("--seconds", type=int, help="Requested length (models that take a length; exact for local models)")
     c.add_argument("--negative", help="What to leave out (models with a negative prompt)")
-    c.add_argument("--seed", type=int, help="Seed for repeatable output (models that take a seed, local models)")
+    c.add_argument("--seed", type=int, help="Seed for repeatable output (models that take a seed, local models); the "
+                                                       "first seed of the crest factor attempts")
     c.add_argument("--samples", type=int,
                    help="Number of tracks, files <stem>_1 ... <stem>_N (models that return several samples; not with --seed)")
     c.add_argument("--force", action="store_true", help="Overwrite existing output")

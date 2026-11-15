@@ -24,10 +24,27 @@ model refuses what it cannot do.
 
 Lyria has no request fields for tempo or vocals, so `prompt.compose` writes them into the prompt. ACE-Step reads the
 prompt as style tags, so `--bpm` is appended as a tag (`prompt.tags`) and `--instrumental` is the lyrics
-`[instrumental]` (`prompt.local_lyrics`). The local model writes WAV; for an `.mp3` output FFmpeg encodes it
+`[instrumental]` (`prompt.local_lyrics`). Neither prompt gets the tempo when it already names it (`prompt.names_tempo`,
+`110 bpm` in any case). The local model writes WAV; for an `.mp3` output FFmpeg encodes it
 (`fit.encode`). With `--samples N` the files are `<stem>_1` ... `<stem>_N`. `<out>.json` records the model, the
 prompt sent, the options, the MIME type and the finish reason (Lyria 3); `<out>.txt` holds the text Lyria 3 returns
 with the audio (lyrics or song structure).
+
+## Crest factor check
+
+ACE-Step 1.5 XL turbo (`ACE-Step/acestep-v15-xl-turbo-diffusers`, 8 steps) generates loud, compressed audio. Over 15
+seeds of one prompt its crest factor was 9.6 to 15.2 dB; more turbo steps did not change it. The XL SFT model
+(`ACE-Step/acestep-v15-xl-sft-diffusers`, 50 steps, guidance 7) gave a median of 16.1 dB (12.5 to 19.3) at about 12 s
+per 30 s clip, and in a listening test SFT was clearly better. The config template's `models.music` is therefore
+`local:ace-step-sft`; the turbo model `local:ace-step` stays for tests and quick drafts.
+
+Because the crest factor depends on the seed, `generate` measures it on the audio of every model
+(`measure.crest_db` on the returned file, all channels; `crest.CrestCheck`). A request with a track below
+`MUSIC_MIN_CREST_DB` (default 13 dB) is sent again, up to `MUSIC_CREST_ATTEMPTS` requests (default 3). A model whose
+kind takes a seed (`ai_models.music.takes`) gets the next seed; another gets the same request again. The first request
+with every track at or above the threshold is kept, else the one with the highest lowest crest factor. One attempt or
+a threshold of 0 turns regeneration off. The sidecar records every attempt. The code names no model; model choices are
+in `config.example.yaml` and `routes.md`.
 
 ## Model description in analyze
 

@@ -102,7 +102,7 @@ through image-gen, by the tier they ask for.
 
 The template rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
 `config.example.yaml`. Each template default row names the config template's `models.<task>`
-(`local:flux2-klein-4b` for `image`, `local:ltx-2.5` for `video`, `local:ace-step` for `music`,
+(`local:flux2-klein-4b` for `image`, `local:ltx-2.5` for `video`, `local:ace-step-sft` for `music`,
 `kokoro:kokoro-v1.0` for `speech`). A user without one of the escalation models has that row dropped.
 
 ## Provider kinds

@@ -2,7 +2,8 @@
 
 A remote (Google) music model has no request fields for tempo or vocals;
 `compose` writes them into the prompt text in a fixed order: tempo, then
-instrumental. `ai_models.music` adds the length and the lyrics block.
+instrumental. Neither kind gets the tempo added when the prompt already
+names it (`names_tempo`). `ai_models.music` adds the length and the lyrics block.
 
 A local `diffusers` model takes the prompt as style tags; the
 tempo is a tag (`tags`), and no vocals is the lyrics `[instrumental]`
@@ -14,12 +15,19 @@ lyrics reach both kinds.
 
 from __future__ import annotations
 
+import re
+
+
+def names_tempo(prompt: str, bpm: int) -> bool:
+    """Whether `prompt` names the tempo `bpm` (`90 bpm`, `90 BPM`, `90bpm`); the tempo is then not added again."""
+    return re.search(rf"(?<!\d){bpm}\s*bpm\b", prompt, re.IGNORECASE) is not None
+
 
 def compose(prompt: str, instrumental: bool = False, bpm: int | None = None) -> str:
     parts = [prompt.strip()]
     if parts[0] and parts[0][-1] not in ".!?":
         parts[0] += "."
-    if bpm:
+    if bpm and not names_tempo(parts[0], bpm):
         parts.append(f"Tempo: {bpm} BPM.")
     if instrumental:
         parts.append("Instrumental only, no vocals.")
@@ -30,9 +38,10 @@ INSTRUMENTAL = "[instrumental]"
 
 
 def tags(prompt: str, bpm: int | None = None) -> str:
-    """The local model prompt: `prompt` with the tempo appended as a tag (`, 90 bpm`)."""
+    """The local model prompt: `prompt` with the tempo appended as a tag (`, 90 bpm`), unless the prompt already
+    names that tempo (`names_tempo`)."""
     text = prompt.strip()
-    if bpm:
+    if bpm and not names_tempo(text, bpm):
         text = f"{text.rstrip('.,')}, {bpm} bpm" if text else f"{bpm} bpm"
     return text
 

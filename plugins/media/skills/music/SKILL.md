@@ -72,20 +72,35 @@ The task of the call is `music` for `generate` and `audio` for `analyze`.
   length loosely; use `fit` for an exact length.
 - `--negative TEXT`: what to leave out (lyria-002).
 - `--seed N` (lyria-002, ACE-Step) or `--samples N` (lyria-002), not both.
+  `--seed` is the first seed of the crest factor check.
 
 Lyria has no request fields for tempo, length, vocals or lyrics. The CLI
 writes the tempo and "instrumental" into the prompt; the model layer adds the
 length and the lyrics block for Lyria 3. `<out>.json` records the prompt the
 CLI sent. ACE-Step takes lyrics, length and seed as arguments; the tempo is
-appended to the prompt as a tag (`, 110 bpm`).
+appended to the prompt as a tag (`, 110 bpm`) unless the prompt already
+names that tempo.
 
 ## Output
 
 - the audio file(s), paths printed on stdout;
 - `<out>.json`: model, prompt sent, options, MIME type, finish reason,
-  duration, and the lyrics when given;
+  duration, the lyrics when given, and `crest` (below);
 - `<out>.txt` (Lyria 3): the text the model returned, i.e. the generated
   lyrics or song structure.
+
+`generate` measures the crest factor (sample peak minus RMS over all
+channels, dB) of every track, for every model. A request with a track below
+`MUSIC_MIN_CREST_DB` (default 13; loud, compressed sound) is sent again, up
+to `MUSIC_CREST_ATTEMPTS` requests (default 3): with the next seed for a
+model that takes a seed (the first seed is `--seed`, else random), else as
+the same request. The first request whose tracks are all at or above the
+threshold is kept. When all are below, the request with the highest lowest
+crest factor is kept and a warning says so. `MUSIC_CREST_ATTEMPTS: 1` or
+`MUSIC_MIN_CREST_DB: 0` turns regeneration off. `crest` in `<out>.json`
+holds the track's `crest_db`, `min_crest_db`, `below_threshold`, the kept
+`seed` (models with a seed) and every request's `seed` and per-track
+`crest_db`. Each request of a remote model is a billed call.
 
 Play results with `open -a VLC <file>` on macOS and `xdg-open <file>` on Linux.
 

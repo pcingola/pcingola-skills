@@ -106,7 +106,7 @@ models:
   speech: kokoro:kokoro-v1.0
   #speech: azure:gpt-4o-mini-tts
   align: torchaudio:MMS_FA
-  music: local:ace-step
+  music: local:ace-step-sft
   #music: vertex:lyria-002
   audio: vertex:gemini-3.1-pro-preview
   video: local:ltx-2.5
@@ -157,6 +157,12 @@ diffusers:
   # Z-Image-Turbo, optional: about 40 s per image, no better than FLUX.2 klein
   # in the photoreal, illustration and text tests.
   #z-image-turbo:  {repo: Tongyi-MAI/Z-Image-Turbo, steps: 9, guidance: 0.0, inpaint: ZImageInpaintPipeline}
+  # ACE-Step 1.5 XL SFT, the default music model: about 12 s per 30 s clip; crest
+  # factor (peak minus RMS) 12.5 to 19.3 dB, median 16.1 dB.
+  ace-step-sft:   {repo: ACE-Step/acestep-v15-xl-sft-diffusers, steps: 50, guidance: 7.0, duration_arg: audio_duration, lyrics_arg: lyrics}
+  # ACE-Step 1.5 XL turbo, for tests and quick drafts: about 2 s per 30 s clip;
+  # saturates: loud, compressed sound, crest factor 9.6 to 15.2 dB over 15
+  # seeds (more steps do not change it).
   ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0, duration_arg: audio_duration, lyrics_arg: lyrics}
   # LTX-Video 0.9.5 (2B), image to video; about 26 GB of weights. About 1 min per 5 s clip;
   # usable only for slow, near-static motion (fast motion pixelates and deforms). LTX-2.5 is the default.
@@ -225,6 +231,15 @@ settings:
   # written by `add-voice` (voices of the models that clone one: chatterbox,
   # vllm-omni). Default <media data dir>/voiceover/voices.
   #VOICEOVER_VOICES_DIR: /path/to/voices
+
+  # --- media:music -----------------------------------------------------------
+  # A request whose track has a crest factor (sample peak minus RMS, dB)
+  # below MUSIC_MIN_CREST_DB (loud, compressed sound) is sent again, with the
+  # next seed for a model that takes one, up to MUSIC_CREST_ATTEMPTS requests
+  # in all; when all are below, the best is kept. Any music model. Defaults 13
+  # and 3; 1 attempt or a threshold of 0 turns regeneration off.
+  #MUSIC_MIN_CREST_DB: 13
+  #MUSIC_CREST_ATTEMPTS: 3
 
   # --- media:image-gen -------------------------------------------------------
   # Size limits. Required for OpenAI-kind models (openai, azure, openrouter,

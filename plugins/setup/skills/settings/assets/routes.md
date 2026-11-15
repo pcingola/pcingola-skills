@@ -18,4 +18,5 @@ in `config.yaml` is left out. Times are wall time per output on an NVIDIA GB10 (
 | speech | fish:drama-3 | only when the narration is in a language other than English, or needs a tone or emotion (whisper, excited, sighs, a described delivery) | multilingual; inline direction tags change the delivery; clones a reference voice; about 5 min server start per command, then about 15 s per sentence; the server start fails when other models hold GPU memory |
 | speech | chatterbox:chatterbox-turbo | only when the narration must sound like a specific person who has a reference recording ("in my voice") | clones the voice from one recording longer than 5 s, with its delivery, microphone and room; about 3 s per second of audio on the CPU; no speed or style |
 | presenter | local:kandinsky-s2v | only when the user asks for a talking presenter | lip sync has gaps and the mouth over-articulates; about 23 min per 4 s |
-| music | local:ace-step | default | ACE-Step 1.5; 12 s for 32 s of instrumental music |
+| music | local:ace-step-sft | default | ACE-Step 1.5 XL SFT, 50 steps; about 12 s per 30 s clip; clean dynamics |
+| music | local:ace-step | only when a quick draft is enough and saturated, compressed sound is acceptable | ACE-Step 1.5 XL turbo, 8 steps; about 2 s per 30 s clip; loud and compressed, audibly distorted on calm music |

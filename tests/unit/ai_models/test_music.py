@@ -29,3 +29,22 @@ def test_predict_instance():
     assert music.predict_instance("piano", "drums", 0, None) == {"prompt": "piano", "negative_prompt": "drums",
                                                                  "seed": 0}
     assert music.predict_instance("piano", None, None, 3) == {"prompt": "piano", "sample_count": 3}
+
+
+def test_model_api_and_takes(tmp_path):
+    """`music.model_api` names the API of a model by its provider (diffusers, predict for `predict_models`, else
+    stream) and `music.takes` its options; a provider kind without music models is a ConfigError. Run in a child
+    process with its own config file."""
+    from tests.settings_env import write_config
+    from tests.subproc import child_env, py_value, run_python
+
+    cfg = write_config(tmp_path / "config.yaml", providers={"g": {"kind": "google", "predict_models": ["lyria-002"]},
+                                                            "local": {"kind": "diffusers"},
+                                                            "o": {"kind": "ollama"}})
+    env = child_env(SKILLS_CONFIG=str(cfg))
+    got = py_value("from ai_models import music",
+                   "[[music.model_api(m), sorted(music.takes(m))] for m in ('local:x', 'g:lyria-002', 'g:lyria-3')]", env)
+    assert got == [["diffusers", ["lyrics", "seconds", "seed"]], ["predict", ["negative", "samples", "seed"]],
+                   ["stream", ["images", "lyrics", "seconds"]]]
+    done = run_python("from ai_models import music\nmusic.model_api('o:m')", env)
+    assert done.returncode != 0 and "has no music models" in done.stderr, done.stderr

@@ -13,6 +13,18 @@ def test_compose():
 def test_local_prompt_and_lyrics():
     """ACE-Step gets the tempo as a tag and `[instrumental]` for no vocals."""
     assert tags("synthwave, dreamy.", 110) == "synthwave, dreamy, 110 bpm"
+    assert tags("", 90) == "90 bpm"
+
+
+def test_tempo_the_prompt_names_is_not_added():
+    """prompt.compose and prompt.tags add the tempo only when the prompt does not already name it (music SKILL.md,
+    Options)."""
+    assert compose("corporate piano at 110 BPM", bpm=110) == "corporate piano at 110 BPM."
+    assert compose("corporate piano at 1110 BPM", bpm=110) == "corporate piano at 1110 BPM. Tempo: 110 BPM."
+    assert tags("corporate, piano, 110 bpm", 110) == "corporate, piano, 110 bpm"
+    assert tags("corporate, 110 BPM, piano", 110) == "corporate, 110 BPM, piano"
+    assert tags("corporate, 110bpm", 110) == "corporate, 110bpm"
+    assert tags("corporate, 1110 bpm", 110) == "corporate, 1110 bpm, 110 bpm"
     assert local_lyrics(None, True) == INSTRUMENTAL
     assert local_lyrics("  [Verse]\nla\n") == "[Verse]\nla"
     assert local_lyrics("  ") is None
