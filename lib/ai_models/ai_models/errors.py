@@ -14,11 +14,17 @@ class ConfigError(AIModelsError):
     """`config.yaml` is missing, malformed, or lacks a task, provider or key."""
 
 
+# HTTP statuses of a request the server refuses for its credentials.
+REFUSED = (401, 403)
+
+
 @contextmanager
 def explained(model_id: str) -> Iterator[None]:
-    """Run a model call for `model_id` and replace a missing Ollama model or an
-    unreachable server by an `AIModelsError` that says what to do."""
+    """Run a model call for `model_id` and replace a missing Ollama model, an
+    unreachable server, or a refusal (401, 403) by a provider without `api_key`
+    by an `AIModelsError` that says what to do."""
     from . import config
+    from .models import uses_cloud_credentials
 
     try:
         yield
@@ -26,9 +32,14 @@ def explained(model_id: str) -> Iterator[None]:
         raise
     except Exception as e:
         name, model = config.split_id(model_id)
-        kind = config.provider(name).get("kind")
-        status = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
+        spec = config.provider(name)
+        kind = spec.get("kind")
+        status = (getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
+                  or getattr(e, "code", None))
         text = str(e).lower()
+        if status in REFUSED and "api_key" not in spec and not uses_cloud_credentials(spec):
+            raise AIModelsError(f"{model_id}: provider {name!r} refused the request ({status}) and has no key; "
+                                f"set providers.{name}.api_key in {config.path()}") from e
         if kind == "ollama" and status == 404 and "not found" in text:
             raise AIModelsError(f"{model_id}: the model is not pulled; run `ollama pull {model}`") from e
         if "connect" in type(e).__name__.lower() or "connection" in text:

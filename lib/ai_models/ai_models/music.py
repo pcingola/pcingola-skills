@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from . import config
 from .errors import AIModelsError, ConfigError, explained
-from .models import http_client, provider, provider_key
+from .models import http_client, provider, provider_key, uses_cloud_credentials
 
 VERTEX_URL = "https://aiplatform.googleapis.com"
 STREAM_ATTEMPTS = 3
@@ -104,6 +104,9 @@ def predict_instance(prompt: str, negative: str | None, seed: int | None, sample
 
 async def _predict(spec: dict, name: str, model: str, prompt: str, negative: str | None, seed: int | None,
                    samples: int | None) -> list[Track]:
+    if uses_cloud_credentials(spec):
+        raise ConfigError(f"provider {name!r}: predict models ({model}) need `api_key` in {config.path()}; "
+                          "Google Cloud credentials serve its stream models only")
     key = provider_key(spec, name)
     instance = predict_instance(prompt, negative, seed, samples)
     url = f"{(spec.get('base_url') or VERTEX_URL).rstrip('/')}/v1/publishers/google/models/{model}:predict"

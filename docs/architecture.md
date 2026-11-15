@@ -105,8 +105,9 @@ skills' code never reads a setting from the process environment, so a setting ha
 behaves the same whatever shell started Claude Code. The variables that locate files are not settings and are read
 from the environment: `CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` (Claude Code), `SKILLS_CONFIG` (the settings
 file) and `PLUGIN_ENV_DIR` (set by the wrappers). The settings that libraries and child processes read from the
-environment (proxies, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME`, `HF_TOKEN`) are exported there by
-`Plugin.load`.
+environment (proxies, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME`, `HF_TOKEN`) are set there by
+`Plugin.load` from the file, and removed when the file does not set them; it also removes the variables the model
+client libraries read for keys, endpoints and headers (`OPENAI_*`, `GOOGLE_API_KEY`, ...).
 
 ## Data outside the plugin
 

@@ -7,20 +7,22 @@ Provider kinds and the Pydantic-AI provider each builds:
     openai      OpenAIProvider (`base_url` for any OpenAI-compatible server; `api_key`
                 required without `base_url`, the OpenAI API)
     azure       AzureProvider (`base_url` is the Azure endpoint, `api_version`, `api_key`)
-    google      GoogleProvider, or GoogleCloudProvider (Vertex) with `vertex: true` (`api_key`)
+    google      GoogleProvider (`api_key`), or GoogleCloudProvider (Vertex) with `vertex: true`:
+                `api_key`, else Google Cloud credentials (`project`, `location`,
+                `credentials`: a service-account JSON file, else Application Default Credentials)
     diffusers   local images and music in process (`local`), no provider
     vllm-omni, kokoro, chatterbox   local speech (`speech`), no provider
     torchaudio  forced alignment (`align`), no provider
 
-Remote clients trust certifi's roots plus EXTRA_CA_CERT (`tls`). Every value a client
-library would otherwise take from its own environment variables (`OPENAI_API_KEY`,
-`OPENAI_BASE_URL`, `AZURE_OPENAI_*`, `OPENAI_API_VERSION`, `GOOGLE_API_KEY`,
-`OLLAMA_API_KEY`, `SYSTEM_ONE_API_KEY`, ...) is passed from config.yaml: a missing
-required one is a `ConfigError`, and a provider that needs no key gets `NO_KEY`.
+Remote clients trust certifi's roots plus EXTRA_CA_CERT (`tls`). Every key, endpoint and
+API version a client gets comes from config.yaml: a missing required one is a
+`ConfigError`, and a provider that needs no key gets `NO_KEY`, so the client never
+falls back to its environment variables (`plugin_settings.Plugin.load` also removes them).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from . import config
@@ -33,6 +35,9 @@ OPENAI_URL = "https://api.openai.com/v1"
 NO_KEY = "api-key-not-set"
 # Kinds whose service always needs a key; `openai` needs one without `base_url` (the OpenAI API).
 KEY_KINDS = ("openrouter", "azure", "google")
+# The settings of a Vertex provider that select Google Cloud credentials in place of `api_key`.
+VERTEX_CREDENTIALS = ("project", "location", "credentials")
+CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 DEFAULT_TIMEOUT_SECONDS = 600.0
 CONNECT_TIMEOUT_SECONDS = 10.0
 # The Pydantic-AI model prefix of a kind, where it differs; `openai` uses Chat Completions,
@@ -55,6 +60,12 @@ def base_url(spec: dict[str, Any]) -> str | None:
     return spec.get("base_url") or (OLLAMA_URL if spec["kind"] == "ollama" else None)
 
 
+def uses_cloud_credentials(spec: dict[str, Any]) -> bool:
+    """A Vertex provider without `api_key` that names `project`, `location` or `credentials`."""
+    return (spec["kind"] == "google" and bool(spec.get("vertex")) and config.api_key(spec) is None
+            and any(spec.get(k) for k in VERTEX_CREDENTIALS))
+
+
 def provider_key(spec: dict[str, Any], name: str) -> str:
     """The `api_key` of provider `name`; `NO_KEY` for a provider that needs none, `ConfigError` when one that
     needs a key has none."""
@@ -62,8 +73,25 @@ def provider_key(spec: dict[str, Any], name: str) -> str:
     if k is not None:
         return k
     if spec["kind"] in KEY_KINDS or (spec["kind"] == "openai" and not spec.get("base_url")):
-        raise ConfigError(f"provider {name!r} of kind {spec['kind']} needs `api_key` in {config.path()}")
+        alt = " (or `project`, `location`, `credentials` for Google Cloud credentials)" if spec.get("vertex") else ""
+        raise ConfigError(f"provider {name!r} of kind {spec['kind']} needs `api_key`{alt} in {config.path()}")
     return NO_KEY
+
+
+def vertex_provider(spec: dict[str, Any], url: str | None, http):
+    """The GoogleCloudProvider of a Vertex provider with Google Cloud credentials: the service account of
+    `credentials` (its project unless `project` is set), else Application Default Credentials."""
+    from pydantic_ai.providers.google_cloud import GoogleCloudProvider
+
+    creds, project = None, spec.get("project")
+    if path := spec.get("credentials"):
+        from google.oauth2 import service_account
+
+        creds = service_account.Credentials.from_service_account_file(str(Path(path).expanduser()),
+                                                                      scopes=[CLOUD_SCOPE])
+        project = project or creds.project_id
+    return GoogleCloudProvider(credentials=creds, project=project, location=spec.get("location"), base_url=url,
+                               http_client=http)
 
 
 def provider(name: str):
@@ -73,6 +101,8 @@ def provider(name: str):
     if kind == "azure":
         url = config.required(spec, "base_url", name)
         config.required(spec, "api_version", name)
+    if uses_cloud_credentials(spec):
+        return vertex_provider(spec, url, http_client(spec))
     key, http = provider_key(spec, name), http_client(spec)
     if kind == "ollama":
         from pydantic_ai.providers.ollama import OllamaProvider

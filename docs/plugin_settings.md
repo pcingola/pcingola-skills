@@ -31,10 +31,21 @@ lines to add. `invalid(key, value, expected)` exits naming `settings.<key>` of t
 
 ## Export to the environment
 
-`Plugin.load()` reads the file, exits on a malformed one, and copies the settings of `ENV_KEYS` that the file sets
-into `os.environ`, over a process value. These are the settings that code outside the skills reads from the
-environment. A variable of `ENV_KEYS` that the file does not set keeps its process value for those libraries; the
-skills' own code does not read it.
+`Plugin.load()` reads the file, exits on a malformed one, and makes `os.environ` agree with it (`export()`), so a
+shell variable is never a setting, for the skills' code, the libraries it calls or its child processes:
+
+- Each variable of `ENV_KEYS` is set to the file's value, over a process value, or removed when the file does not
+  set it. The proxy variables (`PROXY_KEYS`) are set or removed in upper and lower case together, since httpx
+  prefers `https_proxy` over `HTTPS_PROXY`.
+- Every variable whose name starts with one of `CLEARED_PREFIXES` (`OPENAI_`, `AZURE_OPENAI_`, `AZURE_VOICELIVE_`,
+  `OPENROUTER_`, `OLLAMA_`, `GOOGLE_GENAI_`, `GOOGLE_CLOUD_`, `SYSTEM_ONE_`) or is one of `CLEARED_KEYS`
+  (`GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GEMINI_BASE_URL`,
+  `GOOGLE_VERTEX_BASE_URL`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`) is removed. The model clients of
+  ai_models (OpenAI, Azure OpenAI, google-genai, google-auth, Pydantic-AI's providers) read keys, endpoints, API
+  versions, projects, credentials, extra headers and CA bundles from them; ai_models passes each of those from
+  `config.yaml` instead.
+
+The settings of `ENV_KEYS` are the ones code outside the skills reads from the environment:
 
 | Setting | Read there by |
 |---|---|

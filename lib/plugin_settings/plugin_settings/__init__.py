@@ -8,9 +8,12 @@ The file is `$SKILLS_CONFIG` when set, else `<config dir>/plugins/data/config.ya
 
 `get(key)` returns `settings.<key>` of the file, else the default; a setting is
 never read from the process environment. A missing file has no settings.
-`Plugin.load()` exports the settings of ENV_KEYS to the process environment,
-because libraries and child processes read them there (proxies, TLS, Hugging
-Face). The file never sets CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA or
+`Plugin.load()` makes the process environment agree with the file: it sets each
+variable of ENV_KEYS that the file sets and removes the others (libraries and
+child processes read them there: proxies, TLS, Hugging Face), and removes the
+variables the model client libraries read for keys, endpoints and headers
+(CLEARED_PREFIXES, CLEARED_KEYS). A shell variable is never a setting. The file
+never sets CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA or
 SKILLS_CONFIG: they decide where the file and the data directory are.
 
 <plugin data dir> is `$CLAUDE_PLUGIN_DATA` when set, else the directory Claude
@@ -50,6 +53,16 @@ CONFIG_ENV = "SKILLS_CONFIG"
 # processes (NODE_EXTRA_CA_CERTS) and huggingface_hub (HF_HOME, HF_TOKEN).
 ENV_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS",
             "HF_HOME", "HF_TOKEN")
+# ENV_KEYS that HTTP clients also read in lower case (httpx prefers the lower-case name); both
+# spellings are set or removed together.
+PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
+# Variables that Plugin.load removes: the OpenAI, Azure OpenAI, google-genai, google-auth and
+# Pydantic-AI clients of ai_models read keys, endpoints, API versions, projects, credentials and
+# extra headers from them, and every one of those comes from config.yaml instead.
+CLEARED_PREFIXES = ("OPENAI_", "AZURE_OPENAI_", "AZURE_VOICELIVE_", "OPENROUTER_", "OLLAMA_", "GOOGLE_GENAI_",
+                    "GOOGLE_CLOUD_", "SYSTEM_ONE_")
+CLEARED_KEYS = ("GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GEMINI_BASE_URL",
+                "GOOGLE_VERTEX_BASE_URL", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
 SETUP_LINE = "The setup:settings skill describes every setting and creates the file."
 
 # The file set by `use`; it wins over SKILLS_CONFIG.
@@ -129,11 +142,17 @@ def get(key: str, default: str | None = None) -> str | None:
 
 
 def export() -> None:
-    """Copy the settings of ENV_KEYS that the file sets to the process environment."""
+    """Set each variable of ENV_KEYS (proxies in both cases) to the file's setting, or remove it when the file
+    does not set it; remove every variable of CLEARED_PREFIXES and CLEARED_KEYS."""
     s = settings()
     for k in ENV_KEYS:
-        if k in s:
-            os.environ[k] = s[k]
+        for name in (k, k.lower()) if k in PROXY_KEYS else (k,):
+            if k in s:
+                os.environ[name] = s[k]
+            else:
+                os.environ.pop(name, None)
+    for name in [n for n in os.environ if n.startswith(CLEARED_PREFIXES) or n in CLEARED_KEYS]:
+        del os.environ[name]
 
 
 def _find_up(path: Path, rel: Path) -> Path | None:
@@ -225,7 +244,8 @@ class Plugin:
         return config_dir() / "plugins" / "data" / data_id
 
     def load(self) -> None:
-        """Read the config file (exit when it is malformed) and export ENV_KEYS."""
+        """Read the config file (exit when it is malformed) and make the process environment agree with it
+        (`export`)."""
         export()
 
     def get(self, key: str, default: str | None = None) -> str | None:
@@ -239,6 +259,6 @@ class Plugin:
 
 
 __all__ = [
-    "CONFIG_ENV", "ENV_KEYS", "MANIFEST", "ConfigFileError", "Plugin", "config_dir", "config_file", "error",
-    "export", "get", "invalid", "read_config", "require", "settings", "use",
+    "CLEARED_KEYS", "CLEARED_PREFIXES", "CONFIG_ENV", "ENV_KEYS", "MANIFEST", "PROXY_KEYS", "ConfigFileError",
+    "Plugin", "config_dir", "config_file", "error", "export", "get", "invalid", "read_config", "require", "settings", "use",
 ]

@@ -79,7 +79,8 @@ Rules:
 - `true` and `false` are read as the strings `true` and `false`.
 - A value with `: ` or ` #` in it needs quotes, for example `NO_PROXY: "localhost # local only"`.
 - `CLAUDE_CONFIG_DIR`, `CLAUDE_PLUGIN_DATA` and `SKILLS_CONFIG` come from the process environment only.
-- A skill exports `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME` and `HF_TOKEN` from `settings` to its process environment, where libraries and child processes read them.
+- A skill sets `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` (also in lower case), `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME` and `HF_TOKEN` in its process environment from `settings`, where libraries and child processes read them, and removes each one `settings` does not set.
+- A skill removes the variables the model client libraries read for keys, endpoints and headers: every `OPENAI_*`, `AZURE_OPENAI_*`, `OPENROUTER_*`, `OLLAMA_*`, `GOOGLE_GENAI_*`, `GOOGLE_CLOUD_*` and `SYSTEM_ONE_*` variable, and `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`. A key or proxy exported in the shell (for example `OPENAI_API_KEY`, `https_proxy`) has no effect: a user who relied on one moves it into the file (keys as `api_key` of the provider).
 - The file holds API keys; tell the user to run `chmod 600` on it.
 
 ## Create or change config.yaml
@@ -122,7 +123,7 @@ The setup:settings skill describes every setting and creates the file.
 
 A value a skill rejects exits with `KEY='value' (settings.KEY in <file>) is not valid: <what is accepted>` and the line naming `setup:settings`.
 
-A model call without the file exits with `no config at <file>; the setup:settings skill creates it`. A task without a model names the missing `models.<task>`. A provider with an empty `api_key` names the provider kind and the file. A provider that needs a key (`openrouter`, `azure`, `google`, `openai` without `base_url`) and has no `api_key` exits naming the provider and `api_key`; `azure` also needs `base_url` and `api_version`. A client library's own variables (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_ENDPOINT`, ...) are ignored.
+A model call without the file exits with `no config at <file>; the setup:settings skill creates it`. A task without a model names the missing `models.<task>`. A provider with an empty `api_key` names the provider kind and the file. A provider that needs a key (`openrouter`, `azure`, `google`, `openai` without `base_url`) and has no `api_key` exits naming the provider and `api_key`; `azure` also needs `base_url` and `api_version`. A provider without `api_key` whose server refuses the request (401 or 403) exits naming `providers.<name>.api_key` and the file. A client library's own variables (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_ENDPOINT`, ...) are ignored.
 
 Required settings, per skill:
 
@@ -145,7 +146,7 @@ Provider kinds (`providers.<name>.kind`):
 | `openrouter` | chat, vision, audio input, embeddings, images, image edits, speech | `api_key` |
 | `openai` | any OpenAI-compatible server: chat, embeddings, images, speech | `base_url` (default the OpenAI API), `api_key` (required without `base_url`) |
 | `azure` | Azure OpenAI: chat, images with masks, speech | `base_url` (the Azure endpoint), `api_version`, `api_key` |
-| `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint; `predict_models`, the music models served by the Vertex `:predict` endpoint (the others stream) |
+| `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint, which takes Google Cloud credentials in place of `api_key`: `credentials` (path to a service-account JSON file; its project unless `project` is set), else Application Default Credentials (`gcloud auth application-default login`), with `project` and `location` (default `us-central1`); the `:predict` models need `api_key`; `predict_models`, the music models served by the Vertex `:predict` endpoint (the others stream) |
 | `diffusers` | local images, image edits with masks, music, image to video, portrait and speech to video, in the skill's process on a CUDA or Apple MPS GPU | none; the models are in `diffusers` |
 | `kokoro` | local speech (Kokoro 82M) on the CPU, in the skill's process | `model_url`, `voices_url` (the model files), `langs` (voice-name prefix to espeak language), `dir` (optional: weights directory; without it the voiceover skill keeps the weights in `voiceover/` of the media data directory) |
 | `chatterbox` | local speech with voice cloning (Chatterbox Turbo) on the CPU, in a worker process of its own Python environment | `python` (the environment's interpreter, which the voiceover skill's `setup --chatterbox` builds and prints), `url` and `files` (the model files under that URL), `dir`, `start_timeout` and `timeout` (optional, seconds for the load and for each sentence, default 600) (optional, as for `kokoro`) |

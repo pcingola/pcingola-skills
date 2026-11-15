@@ -174,16 +174,16 @@ def test_get_file_then_default(home, plugin):
 
 def test_environment_variable_of_a_setting_is_ignored(home, plugin):
     """get, require and ca_cert ignore a process environment variable named like a setting, with and without
-    a config file; Plugin.load leaves an exported ENV_KEYS variable the file does not set as it is. Guards
+    a config file; Plugin.load removes an exported ENV_KEYS variable the file does not set. Guards
     config.yaml as the only source of a setting."""
     ca = home / "ca.pem"
     write(ca, "pem")
     env = {KEY: "env", "NULL_KEY": "env", "EXTRA_CA_CERT": str(ca), "HF_TOKEN": "env-tok"}
     body = (f"P.load(); from plugin_settings.ca import ca_cert\n"
             f"out([P.get({KEY!r}), P.get('NULL_KEY', 'dflt'), ca_cert(), os.environ.get('HF_TOKEN')])")
-    assert value(run(home, plugin, body, **env)) == [None, "dflt", None, "env-tok"]
+    assert value(run(home, plugin, body, **env)) == [None, "dflt", None, None]
     write(config_path(home), "settings:\n  NULL_KEY:\n")
-    assert value(run(home, plugin, body, **env)) == [None, "dflt", None, "env-tok"]
+    assert value(run(home, plugin, body, **env)) == [None, "dflt", None, None]
     done = run(home, plugin, f"P.require({KEY!r})", **env)
     assert done.returncode == 1
     assert f"{KEY} is not set" in done.stderr
@@ -197,21 +197,29 @@ def test_values_are_strings(home, plugin):
 
 
 def test_no_file_no_settings(home, plugin):
-    """Without a config file, get returns the default and Plugin.load changes nothing and creates no file.
-    Guards a first run before setup:settings."""
+    """Without a config file, get returns the default and Plugin.load changes nothing in an environment without
+    ENV_KEYS or client-library variables, and creates no file. Guards a first run before setup:settings."""
     before = value(run(home, plugin, "out(dict(os.environ))"))
     assert value(run(home, plugin, "P.load(); out(dict(os.environ))")) == before
     assert value(run(home, plugin, f"out(P.get({KEY!r}, 'dflt'))")) == "dflt"
     assert not config_path(home).exists()
 
 
-def test_load_exports_env_keys_only(home, plugin):
-    """Plugin.load exports the settings of ENV_KEYS (here HF_TOKEN and SSL_CERT_FILE, over the process value)
-    and no other setting. Guards libraries that read their variables from the process environment."""
-    write(config_path(home), f"settings: {{HF_TOKEN: tok, SSL_CERT_FILE: /ca.pem, {KEY}: v}}\n")
-    got = value(run(home, plugin, f"P.load(); out([os.environ.get(k) for k in ('HF_TOKEN', 'SSL_CERT_FILE', {KEY!r})])",
-                    SSL_CERT_FILE="/process.pem"))
-    assert got == ["tok", "/ca.pem", None]
+def test_load_sets_env_keys_from_the_file_only(home, plugin):
+    """Plugin.load sets each variable of ENV_KEYS from the file (over the process value; proxies also in lower
+    case), removes those the file does not set in both cases, removes the client-library variables of
+    CLEARED_PREFIXES and CLEARED_KEYS, exports no other setting and keeps unrelated variables. Guards that a shell
+    variable is never a setting (docs/plugin_settings.md, "Export to the environment")."""
+    write(config_path(home), f"settings: {{HF_TOKEN: tok, SSL_CERT_FILE: /ca.pem, HTTPS_PROXY: http://p:1, {KEY}: v}}\n")
+    names = ["HF_TOKEN", "SSL_CERT_FILE", "HTTPS_PROXY", "https_proxy", "HF_HOME", "HTTP_PROXY", "http_proxy",
+             "no_proxy", "OPENAI_API_KEY", "GOOGLE_API_KEY", KEY, "UNRELATED"]
+    shell = {"SSL_CERT_FILE": "/process.pem", "https_proxy": "http://shell:1", "HF_HOME": "/shell/hf",
+             "HTTP_PROXY": "http://shell:2", "http_proxy": "http://shell:2", "no_proxy": "shell",
+             "OPENAI_API_KEY": "shell", "GOOGLE_API_KEY": "shell", "UNRELATED": "kept"}
+    got = value(run(home, plugin, f"P.load(); out({{k: os.environ.get(k) for k in {names!r}}})", **shell))
+    assert got == {"HF_TOKEN": "tok", "SSL_CERT_FILE": "/ca.pem", "HTTPS_PROXY": "http://p:1",
+                   "https_proxy": "http://p:1", "HF_HOME": None, "HTTP_PROXY": None, "http_proxy": None,
+                   "no_proxy": None, "OPENAI_API_KEY": None, "GOOGLE_API_KEY": None, KEY: None, "UNRELATED": "kept"}
 
 
 def test_path_keys_in_settings_have_no_effect(home, plugin, tmp_path):
