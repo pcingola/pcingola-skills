@@ -70,34 +70,26 @@ def _ffmpeg() -> str:
     return path
 
 
-def decode(path: Path, sr: int = SR) -> np.ndarray:
-    """Mono float32 samples at `sr` Hz."""
+def decode(source: Path | bytes, sr: int | None = SR) -> np.ndarray:
+    """Float32 samples of a file (a path, or its bytes): mono at `sr` Hz, or with `sr=None` every channel
+    interleaved at the file's own rate."""
+    name = "the audio" if isinstance(source, bytes) else source.name
+    resample = [] if sr is None else ["-ac", "1", "-ar", str(sr)]
     proc = subprocess.run(
-        [_ffmpeg(), "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"],
-        capture_output=True,
+        [_ffmpeg(), "-v", "error", "-i", "pipe:0" if isinstance(source, bytes) else str(source), "-vn", *resample,
+         "-f", "f32le", "-"],
+        input=source if isinstance(source, bytes) else None, capture_output=True,
     )
     if proc.returncode != 0:
-        raise MeasureError(f"ffmpeg could not decode {path.name}: {proc.stderr.decode(errors='replace').strip()[-500:]}")
+        raise MeasureError(f"ffmpeg could not decode {name}: {proc.stderr.decode(errors='replace').strip()[-500:]}")
     y = np.frombuffer(proc.stdout, dtype=np.float32)
     if y.size == 0:
-        raise MeasureError(f"{path.name}: no audio samples")
+        raise MeasureError(f"{name}: no audio samples")
     return y.copy()
 
 
 def db(x: float) -> float:
     return float(20 * np.log10(max(x, 1e-10)))
-
-
-def decode_bytes(data: bytes) -> np.ndarray:
-    """The float32 samples of an encoded file in memory (WAV, MP3, ...), all channels interleaved, at its own rate."""
-    proc = subprocess.run([_ffmpeg(), "-v", "error", "-i", "pipe:0", "-vn", "-f", "f32le", "-"], input=data,
-                          capture_output=True)
-    if proc.returncode != 0:
-        raise MeasureError(f"ffmpeg could not decode the audio: {proc.stderr.decode(errors='replace').strip()[-500:]}")
-    y = np.frombuffer(proc.stdout, dtype=np.float32)
-    if y.size == 0:
-        raise MeasureError("no audio samples")
-    return y.copy()
 
 
 def crest_db(y: np.ndarray) -> float:

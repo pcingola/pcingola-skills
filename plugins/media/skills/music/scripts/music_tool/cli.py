@@ -4,7 +4,8 @@ Commands:
     generate   Prompt (plus the inputs the model takes) -> audio file(s) of the
                `music` model (or --model) of the `ai_models` config, with
                `<out>.json` (model, exact prompt sent, options, MIME type,
-               finish reason, duration, the crest factor check of `crest.py`) and `<out>.txt` (the text the model returns, when it returns any).
+               finish reason, duration, the crest factor check of `crest.py` for a model with
+               `min_crest_db`) and `<out>.txt` (the text the model returns, when it returns any).
     fit        Loop or trim a track to an exact length, with fades.
     analyze    Per-clip reports on how clips fit their briefs: a model
                description, signal measurements and images (`analyze.py`).
@@ -135,18 +136,20 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         return music.compose(sent, seconds=args.seconds, lyrics=sent_lyrics, seed=seed, negative=args.negative,
                              images=images, samples=args.samples, model=model_id)
 
+    threshold, records, kept = None, [], {}
     try:
-        check = crest.CrestCheck.from_settings()
-        seed = args.seed
-        if seed is None and not args.samples and "seed" in music.takes(model_id):
-            seed = random.randrange(MAX_SEED - check.attempts)
-        checked = check.run(compose, lambda t: t.audio, seed)
-        tracks = checked.tracks
-        if checked.below:
-            config.warn(f"all {len(checked.attempts)} requests gave a track with a crest factor below "
-                        f"{checked.min_crest_db:g} dB (loud, compressed); kept "
-                        + (f"seed {checked.kept.seed}" if checked.kept.seed is not None else "the best request")
-                        + f" at {checked.kept.lowest:g} dB")
+        threshold = music.min_crest_db(model_id)
+        if threshold is None:
+            tracks = compose(args.seed)
+        else:
+            attempts, seed = crest.attempts_setting(), args.seed
+            if seed is None and not args.samples and "seed" in music.takes(model_id):
+                seed = random.randrange(MAX_SEED - attempts)
+            tracks, records = crest.regenerate(compose, threshold, attempts, seed)
+            kept = next(r for r in records if r["kept"])
+            if min(kept["crest_db"]) < threshold:
+                config.warn(f"all {len(records)} requests gave a track with a crest factor below {threshold:g} dB "
+                            f"(loud, compressed); kept the request at {min(kept['crest_db']):g} dB")
     except AIModelsError as e:
         config.error(str(e) if model_id in str(e) else f"{model_id}: {e}")
     except MeasureError as e:
@@ -182,7 +185,9 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             "duration": fit.duration(path),
             "created_at": created,
             **({"sample": i} if len(tracks) > 1 else {}),
-            "crest": checked.record(i - 1),
+            **({"crest": {"crest_db": kept["crest_db"][i - 1], "min_crest_db": threshold,
+                          "below_threshold": kept["crest_db"][i - 1] < threshold, "attempts": records}}
+               if records else {}),
         }
         sidecar(path, ".json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         print(path)

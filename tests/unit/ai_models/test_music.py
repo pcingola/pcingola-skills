@@ -48,3 +48,19 @@ def test_model_api_and_takes(tmp_path):
                    ["stream", ["images", "lyrics", "seconds"]]]
     done = run_python("from ai_models import music\nmusic.model_api('o:m')", env)
     assert done.returncode != 0 and "has no music models" in done.stderr, done.stderr
+
+
+def test_min_crest_db(tmp_path):
+    """`music.min_crest_db` is the `min_crest_db` of a diffusers model entry, None for an entry without it and for a
+    remote model; a value that is not a number is a ConfigError."""
+    from tests.settings_env import write_config
+    from tests.subproc import child_env, py_value, run_python
+
+    cfg = write_config(tmp_path / "config.yaml", providers={"g": {"kind": "google"}, "local": {"kind": "diffusers"}},
+                       diffusers={"a": {"repo": "x/a", "min_crest_db": 13}, "b": {"repo": "x/b"},
+                                  "c": {"repo": "x/c", "min_crest_db": "loud"}})
+    env = child_env(SKILLS_CONFIG=str(cfg))
+    assert py_value("from ai_models import music",
+                    "[music.min_crest_db(m) for m in ('local:a', 'local:b', 'g:lyria-3')]", env) == [13.0, None, None]
+    done = run_python("from ai_models import music\nmusic.min_crest_db('local:c')", env)
+    assert done.returncode != 0 and "min_crest_db 'loud' is not a number" in done.stderr, done.stderr

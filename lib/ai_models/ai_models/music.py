@@ -69,6 +69,22 @@ def model_api(model_id: str) -> str:
     return spec["kind"] if spec["kind"] == "diffusers" else "predict" if bare in (spec.get("predict_models") or ()) else "stream"
 
 
+def min_crest_db(model_id: str) -> float | None:
+    """The `min_crest_db` of the music model `model_id`'s config entry (`diffusers.<name>`): the crest factor (dB)
+    below which its tracks are loud and compressed. None when the entry has no such key, or the model has no entry
+    (remote kinds)."""
+    _, bare = config.split_id(model_id)
+    if model_api(model_id) != "diffusers":
+        return None
+    value = ((config.load().get("diffusers") or {}).get(bare) or {}).get("min_crest_db")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ConfigError(f"diffusers model {bare!r}: min_crest_db {value!r} is not a number") from None
+
+
 def takes(model_id: str) -> frozenset[str]:
     """The options the music model `model_id` takes (`seed`, `seconds`, ...)."""
     return frozenset(TAKES[model_api(model_id)])

@@ -89,18 +89,19 @@ names that tempo.
 - `<out>.txt` (Lyria 3): the text the model returned, i.e. the generated
   lyrics or song structure.
 
-`generate` measures the crest factor (sample peak minus RMS over all
-channels, dB) of every track, for every model. A request with a track below
-`MUSIC_MIN_CREST_DB` (default 13; loud, compressed sound) is sent again, up
-to `MUSIC_CREST_ATTEMPTS` requests (default 3): with the next seed for a
-model that takes a seed (the first seed is `--seed`, else random), else as
-the same request. The first request whose tracks are all at or above the
-threshold is kept. When all are below, the request with the highest lowest
-crest factor is kept and a warning says so. `MUSIC_CREST_ATTEMPTS: 1` or
-`MUSIC_MIN_CREST_DB: 0` turns regeneration off. `crest` in `<out>.json`
-holds the track's `crest_db`, `min_crest_db`, `below_threshold`, the kept
-`seed` (models with a seed) and every request's `seed` and per-track
-`crest_db`. Each request of a remote model is a billed call.
+For a model whose config entry has `min_crest_db`, `generate` measures the
+crest factor (sample peak minus RMS over all channels, dB) of every track.
+A request with a track below it (loud, compressed sound) is sent again, up
+to `MUSIC_CREST_ATTEMPTS` requests (default 3; 1 turns this off): with the
+next seed for a model that takes a seed (the first seed is `--seed`, else
+random; none with `--samples`), else as the same request. The first request
+whose tracks are all at or above the threshold is kept. When all are below,
+the request with the highest lowest crest factor is kept and a warning says
+so. Mastered loud genres (rock, techno, EDM) can sit below a model's
+threshold and then cost every attempt. `crest` in `<out>.json` holds the
+track's `crest_db`, `min_crest_db`, `below_threshold` and every request's
+`seed`, per-track `crest_db` and `kept`. A model without `min_crest_db`
+gets no check and no `crest` entry.
 
 Play results with `open -a VLC <file>` on macOS and `xdg-open <file>` on Linux.
 

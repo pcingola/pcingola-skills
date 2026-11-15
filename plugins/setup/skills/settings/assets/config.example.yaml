@@ -139,7 +139,12 @@ models:
 # (optional: a list of pipeline components loaded as None, such as a text
 # encoder the model does not use). A music model also has duration_arg and
 # lyrics_arg: the names of the pipeline call arguments for the length in
-# seconds and the lyrics (a model without one does not take that option). A
+# seconds and the lyrics (a model without one does not take that option), and
+# optionally min_crest_db: a track whose crest factor (sample peak minus RMS,
+# dB) is below it is loud and compressed, and music generate sends the request
+# again with the next seed (settings: MUSIC_CREST_ATTEMPTS); without it no
+# check. Mastered rock, techno and EDM can sit at 8 to 12 dB, so set it only
+# on a model that compresses calm music too. A
 # video model also has, all required: pipeline (the diffusers class to load),
 # fps, size_multiple (width and height are rounded to it), frame_step (frame
 # counts are frame_step * k + 1), width, height (the default size) and
@@ -158,12 +163,12 @@ diffusers:
   # in the photoreal, illustration and text tests.
   #z-image-turbo:  {repo: Tongyi-MAI/Z-Image-Turbo, steps: 9, guidance: 0.0, inpaint: ZImageInpaintPipeline}
   # ACE-Step 1.5 XL SFT, the default music model: about 12 s per 30 s clip; crest
-  # factor (peak minus RMS) 12.5 to 19.3 dB, median 16.1 dB.
-  ace-step-sft:   {repo: ACE-Step/acestep-v15-xl-sft-diffusers, steps: 50, guidance: 7.0, duration_arg: audio_duration, lyrics_arg: lyrics}
+  # factor median 16.1 dB (12.5 to 19.3 dB).
+  ace-step-sft:   {repo: ACE-Step/acestep-v15-xl-sft-diffusers, steps: 50, guidance: 7.0, duration_arg: audio_duration, lyrics_arg: lyrics, min_crest_db: 13}
   # ACE-Step 1.5 XL turbo, for tests and quick drafts: about 2 s per 30 s clip;
   # saturates: loud, compressed sound, crest factor 9.6 to 15.2 dB over 15
   # seeds (more steps do not change it).
-  ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0, duration_arg: audio_duration, lyrics_arg: lyrics}
+  ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0, duration_arg: audio_duration, lyrics_arg: lyrics, min_crest_db: 13}
   # LTX-Video 0.9.5 (2B), image to video; about 26 GB of weights. About 1 min per 5 s clip;
   # usable only for slow, near-static motion (fast motion pixelates and deforms). LTX-2.5 is the default.
   ltx-video:      {repo: Lightricks/LTX-Video-0.9.5, pipeline: LTXImageToVideoPipeline, steps: 30, guidance: 3.0, fps: 24, size_multiple: 32, frame_step: 8, width: 768, height: 512, max_frames: 121}
@@ -233,12 +238,9 @@ settings:
   #VOICEOVER_VOICES_DIR: /path/to/voices
 
   # --- media:music -----------------------------------------------------------
-  # A request whose track has a crest factor (sample peak minus RMS, dB)
-  # below MUSIC_MIN_CREST_DB (loud, compressed sound) is sent again, with the
-  # next seed for a model that takes one, up to MUSIC_CREST_ATTEMPTS requests
-  # in all; when all are below, the best is kept. Any music model. Defaults 13
-  # and 3; 1 attempt or a threshold of 0 turns regeneration off.
-  #MUSIC_MIN_CREST_DB: 13
+  # For a music model with min_crest_db (see diffusers above): the most
+  # requests `generate` sends when a track's crest factor is below it.
+  # Default 3; 1 turns regeneration off.
   #MUSIC_CREST_ATTEMPTS: 3
 
   # --- media:image-gen -------------------------------------------------------

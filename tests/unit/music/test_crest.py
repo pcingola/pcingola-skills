@@ -1,12 +1,14 @@
-"""The crest factor (`measure.crest_db`) and the regeneration check of `generate` (`crest.CrestCheck`)."""
+"""The crest factor (`measure.crest_db`) and the regeneration of `generate` (`crest.regenerate`)."""
 
 import io
 import wave
 
 import numpy as np
 
+from ai_models.music import Track
+
 from music_tool import measure
-from music_tool.crest import DEFAULT_ATTEMPTS, DEFAULT_MIN_CREST_DB, CrestCheck
+from music_tool.crest import DEFAULT_ATTEMPTS, regenerate
 from tests.settings_env import write_config
 from tests.subproc import child_env, py_value, run_python
 
@@ -37,6 +39,7 @@ def spiky() -> np.ndarray:
 
 
 def test_crest_db():
+    """crest_db is sample peak minus RMS in dB: 3.01 for a sine, 0 for a square wave and silence."""
     assert measure.crest_db(sine()) == 3.01
     assert measure.crest_db(np.sign(sine()) * 0.5) == 0.0
     assert measure.crest_db(np.zeros(100)) == 0.0
@@ -44,74 +47,68 @@ def test_crest_db():
 
 
 def test_decode_bytes_keeps_every_channel():
-    """A stereo WAV with a sine in one channel and silence in the other: all samples count, so the RMS halves
-    and the crest factor rises by 3 dB."""
+    """measure.decode of bytes with sr=None keeps every channel: a stereo WAV with a sine in one channel and silence
+    in the other has half the RMS, so the crest factor rises by 3 dB."""
     y = sine(amp=0.5)
     stereo = np.stack([y, np.zeros_like(y)], axis=1).ravel()
-    assert abs(measure.crest_db(measure.decode_bytes(wav(y))) - 3.01) < 0.05
-    assert abs(measure.crest_db(measure.decode_bytes(wav(stereo, channels=2))) - 6.02) < 0.05
+    assert abs(measure.crest_db(measure.decode(wav(y), sr=None)) - 3.01) < 0.05
+    assert abs(measure.crest_db(measure.decode(wav(stereo, channels=2), sr=None)) - 6.02) < 0.05
 
 
-def test_run_stops_at_first_request_above_threshold():
-    """Seeds 5, 6, 7 give a sine (3 dB), a spiky track, a sine; the check stops at seed 6 and keeps it
+def test_regenerate_stops_at_first_request_above_threshold():
+    """Seeds 5, 6, 7 give a sine (3 dB), a spiky track, a sine; regenerate stops at seed 6 and keeps it
     (music SKILL.md, Output)."""
-    tracks = {5: wav(sine()), 6: wav(spiky()), 7: wav(sine())}
+    tracks = {5: Track(wav(sine())), 6: Track(wav(spiky())), 7: Track(wav(sine()))}
     calls = []
 
-    def generate(seed: int | None) -> list[bytes]:
+    def compose(seed: int | None) -> list[Track]:
         calls.append(seed)
         return [tracks[seed]]
 
-    checked = CrestCheck(13.0, 3).run(generate, lambda t: t, 5)
-    assert calls == [5, 6]
-    assert checked.kept.seed == 6 and checked.tracks == [tracks[6]] and not checked.below
-    record = checked.record(0)
-    assert [a["seed"] for a in record["attempts"]] == [5, 6]
-    assert record["attempts"][0]["crest_db"][0] < 13 < record["crest_db"] == record["attempts"][1]["crest_db"][0]
-    assert record["below_threshold"] is False and record["min_crest_db"] == 13.0 and record["seed"] == 6
+    kept, records = regenerate(compose, 13.0, 3, 5)
+    assert calls == [5, 6] and kept == [tracks[6]]
+    assert [(r["seed"], r["kept"]) for r in records] == [(5, False), (6, True)]
+    assert records[0]["crest_db"][0] == 3.01 and records[1]["crest_db"][0] > 13
 
 
-def test_run_keeps_best_when_all_below():
-    """Every request below the threshold: all requests run and the highest crest factor is kept."""
-    tracks = {1: wav(np.sign(sine()) * 0.5), 2: wav(sine()), 3: wav(np.sign(sine()) * 0.9)}
-    checked = CrestCheck(13.0, 3).run(lambda s: [tracks[s]], lambda t: t, 1)
-    assert [a.seed for a in checked.attempts] == [1, 2, 3]
-    assert checked.kept.seed == 2 and checked.below and checked.record(0)["below_threshold"] is True
+def test_regenerate_keeps_best_when_all_below():
+    """Every request below the threshold: all requests run and the one with the highest crest factor is kept."""
+    tracks = {1: Track(wav(np.sign(sine()) * 0.5)), 2: Track(wav(sine())), 3: Track(wav(np.sign(sine()) * 0.9))}
+    kept, records = regenerate(lambda s: [tracks[s]], 13.0, 3, 1)
+    assert kept == [tracks[2]] and [r["kept"] for r in records] == [False, True, False]
 
 
-def test_run_without_seed_and_with_several_tracks():
-    """A model without a seed gets the same request again (seed None); a request with several tracks counts its
-    lowest crest factor, and each track's sidecar entry has its own."""
-    replies = [[wav(spiky()), wav(sine())], [wav(spiky()), wav(spiky())]]
+def test_regenerate_without_seed_and_with_several_tracks():
+    """Without a seed the same request is sent again (compose(None)) and records have no seed; a request with several
+    tracks counts its lowest crest factor."""
+    replies = [[Track(wav(spiky())), Track(wav(sine()))], [Track(wav(spiky())), Track(wav(spiky()))]]
     calls = []
 
-    def generate(seed: int | None) -> list[bytes]:
+    def compose(seed: int | None) -> list[Track]:
         calls.append(seed)
         return replies[len(calls) - 1]
 
-    checked = CrestCheck(13.0, 3).run(generate, lambda t: t, None)
-    assert calls == [None, None] and checked.tracks == replies[1] and not checked.below
-    assert "seed" not in checked.record(0) and checked.record(1)["crest_db"] > 13
-    assert checked.attempts[0].lowest == 3.01
+    kept, records = regenerate(compose, 13.0, 3, None)
+    assert calls == [None, None] and kept == replies[1]
+    assert all("seed" not in r for r in records) and records[0]["crest_db"][1] == 3.01
 
 
-def test_one_attempt_or_zero_threshold_turns_regeneration_off():
-    """`MUSIC_CREST_ATTEMPTS: 1` or `MUSIC_MIN_CREST_DB: 0` sends one request; the crest factor is still recorded."""
-    for check in (CrestCheck(13.0, 1), CrestCheck(0.0, 3)):
-        calls = []
-        checked = check.run(lambda s: calls.append(s) or [wav(sine())], lambda t: t, 1)
-        assert calls == [1] and checked.record(0)["crest_db"] == 3.01
+def test_one_attempt_sends_one_request():
+    """MUSIC_CREST_ATTEMPTS 1 sends one request even below the threshold; its crest factor is recorded."""
+    calls = []
+    kept, records = regenerate(lambda s: calls.append(s) or [Track(wav(sine()))], 13.0, 1, 1)
+    assert calls == [1] and records == [{"seed": 1, "crest_db": [3.01], "kept": True}]
 
 
-def test_from_settings(tmp_path):
-    """Defaults without the settings; the settings file's values; an invalid value exits naming the key."""
+def test_attempts_setting(tmp_path):
+    """MUSIC_CREST_ATTEMPTS: the default without the setting, the settings file's value, and an exit naming the key
+    for a value below 1 or not an integer."""
     code = "from music_tool import config, crest\nconfig.load_settings()"
-    expr = "[crest.CrestCheck.from_settings().min_crest_db, crest.CrestCheck.from_settings().attempts]"
     plain = write_config(tmp_path / "a.yaml", providers={})
-    assert py_value(code, expr, child_env(SKILLS_CONFIG=str(plain))) == [DEFAULT_MIN_CREST_DB, DEFAULT_ATTEMPTS]
-    set_ = write_config(tmp_path / "b.yaml", {"MUSIC_MIN_CREST_DB": "14.5", "MUSIC_CREST_ATTEMPTS": "5"}, providers={})
-    assert py_value(code, expr, child_env(SKILLS_CONFIG=str(set_))) == [14.5, 5]
-    for key, value in (("MUSIC_MIN_CREST_DB", "loud"), ("MUSIC_CREST_ATTEMPTS", "0")):
-        bad = write_config(tmp_path / f"{key}.yaml", {key: value}, providers={})
-        done = run_python(f"{code}\ncrest.CrestCheck.from_settings()", child_env(SKILLS_CONFIG=str(bad)))
-        assert done.returncode != 0 and key in done.stderr, done.stderr
+    assert py_value(code, "crest.attempts_setting()", child_env(SKILLS_CONFIG=str(plain))) == DEFAULT_ATTEMPTS
+    five = write_config(tmp_path / "b.yaml", {"MUSIC_CREST_ATTEMPTS": "5"}, providers={})
+    assert py_value(code, "crest.attempts_setting()", child_env(SKILLS_CONFIG=str(five))) == 5
+    for i, value in enumerate(("0", "many")):
+        bad = write_config(tmp_path / f"c{i}.yaml", {"MUSIC_CREST_ATTEMPTS": value}, providers={})
+        done = run_python(f"{code}\ncrest.attempts_setting()", child_env(SKILLS_CONFIG=str(bad)))
+        assert done.returncode != 0 and "MUSIC_CREST_ATTEMPTS" in done.stderr, done.stderr

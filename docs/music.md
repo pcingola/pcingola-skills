@@ -38,13 +38,16 @@ seeds of one prompt its crest factor was 9.6 to 15.2 dB; more turbo steps did no
 per 30 s clip, and in a listening test SFT was clearly better. The config template's `models.music` is therefore
 `local:ace-step-sft`; the turbo model `local:ace-step` stays for tests and quick drafts.
 
-Because the crest factor depends on the seed, `generate` measures it on the audio of every model
-(`measure.crest_db` on the returned file, all channels; `crest.CrestCheck`). A request with a track below
-`MUSIC_MIN_CREST_DB` (default 13 dB) is sent again, up to `MUSIC_CREST_ATTEMPTS` requests (default 3). A model whose
-kind takes a seed (`ai_models.music.takes`) gets the next seed; another gets the same request again. The first request
-with every track at or above the threshold is kept, else the one with the highest lowest crest factor. One attempt or
-a threshold of 0 turns regeneration off. The sidecar records every attempt. The code names no model; model choices are
-in `config.example.yaml` and `routes.md`.
+Because the crest factor depends on the seed, `generate` checks it for a model whose config entry has `min_crest_db`
+(`ai_models.music.min_crest_db`; only diffusers entries exist, so remote models get no check). Low crest is a failure
+mode of one model, and mastered rock, techno and EDM sit around 8 to 12 dB, so the threshold is per model and not a
+global setting; a loud genre on a model with a threshold can still fall below it and use every attempt.
+`crest.regenerate` measures every track (`measure.crest_db` on the returned file decoded with all channels) and sends a
+request with a track below the threshold again, up to `MUSIC_CREST_ATTEMPTS` requests (default 3; 1 turns it off). A
+model whose kind takes a seed (`ai_models.music.takes`) gets the next seed; another, or a call with `--samples`, gets
+the same request again. The first request with every track at or above the threshold is kept, else the one with the
+highest lowest crest factor. The sidecar records every attempt. The code names no model; model choices are in
+`config.example.yaml` and `routes.md`.
 
 ## Model description in analyze
 
