@@ -3,8 +3,11 @@
 A scene with `Engine: video` is the scene's image animated by a video model
 from a motion prompt, timed to the narration. `render` writes `silent.mp4`,
 `scene.mp4`, `contact.png` and `meta.json` as for an HTML scene. The model
-is the one of task `video` in the settings file `config.yaml`
-(`setup:settings`).
+is the `--model ID` the main agent gave for the scene, passed as
+`render --scene ID --model ID`; without one, it is the model of task `video`
+in the settings file `config.yaml` (`setup:settings`). A clip that lacks the
+motion the Brief asks for is reported to the main agent, which may give
+another model.
 
 ## The storyboard
 
@@ -128,7 +131,8 @@ picture.
 
 A scene with `Engine: presenter` is the person in the scene's image speaking
 the scene's narration recording: lips, head, shoulders and hands move with
-the speech. The model is the one of task `presenter` in `config.yaml`.
+the speech. The model is the `--model ID` the main agent gave for the scene
+(`render --scene ID --model ID`), else the one of task `presenter` in `config.yaml`.
 
 - `Image:` is a portrait: one person, face and hands visible, facing the
   camera, plain or soft background, at any aspect ratio. The model renders

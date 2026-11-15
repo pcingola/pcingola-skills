@@ -84,7 +84,7 @@ models:
   speech: azure:gpt-4o-mini-tts
   music: vertex:lyria-002
   audio: vertex:gemini-3.1-pro-preview
-  video: local:ltx-video
+  video: local:ltx-2.5
   film_critic: vertex:gemini-3.1-pro-preview
   # Local models on a GPU (Ollama and the diffusers section below), in place of
   # the cloud lines above:
@@ -94,7 +94,7 @@ models:
   #image_edit: local:qwen-image
   #image_multi_ref: local:qwen-image
   #music: local:ace-step
-  #video: local:ltx-2.5
+  #video: local:ltx-video
   #video: local:kandinsky-6
   #presenter: local:kandinsky-s2v
   # Small local models for the integration tests and a quick test film: real

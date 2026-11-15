@@ -116,6 +116,10 @@ def _cmd_synth(args: argparse.Namespace) -> int:
         backend = get_backend(args.backend, style=args.style, model=args.model)
     except ValueError as e:
         config.error(str(e))
+    if args.voice is None and not getattr(backend, "own_voices", True):
+        config.error(f"{args.model} is of provider kind {backend.kind}, not that of models.speech, whose voice "
+                     f"VOICEOVER_SPEECH_VOICE names; run `voices --backend speech --model {args.model}` and pass "
+                     "--voice")
 
     try:
         setup(
@@ -149,7 +153,7 @@ def _cmd_synth(args: argparse.Namespace) -> int:
 
 def _cmd_voices(args: argparse.Namespace) -> int:
     try:
-        backend = get_backend(args.backend)
+        backend = get_backend(args.backend, model=args.model)
     except ValueError as e:
         config.error(str(e))
     try:
@@ -258,6 +262,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("voices", help="List voices")
     p.add_argument("--backend", default=DEFAULT_BACKEND, choices=sorted(BACKENDS))
+    p.add_argument("--model", default=None, help="speech only: model id <provider>:<model> (default: the speech "
+                   "model); a model of another provider kind than the speech model lists that kind's default voice")
     p.set_defaults(func=_cmd_voices)
 
     p = sub.add_parser("setup", help="Download all model weights")

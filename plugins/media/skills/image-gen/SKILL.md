@@ -42,18 +42,21 @@ What each provider kind takes:
 ## Model routes
 
 Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/image-gen.sh routes`.
-It prints the routing table of this skill's tasks, `| task | when | model | why |`:
-the user's rows, then the default rows, without the rows whose model
-`config.yaml` lacks. Take the first row whose task is the call's task and
-whose `when` describes the request, and pass its `model` with `--model`.
-With no matching row, pass no `--model`: the task's model of `config.yaml`
-serves the call. A model that the user or a calling skill names is passed
-as given, without the table.
+It prints, per task of this skill, `| task | when | model | why |` rows:
+first the task's default row (its model in `config.yaml`), then the user's
+escalation rows, then the shipped ones, without the rows whose model
+`config.yaml` lacks. Use the default row and pass no `--model`. Take a
+later row, and pass its `model` with `--model`, only when its `when`
+condition holds for the request; the first such row wins. A model that
+the user or a calling skill names is passed as given, without the table.
 
-A call without `--ref` in tier `fast` or `best` matches rows of task `image`
-and of its tier's task; any other call matches rows of its tier's task
-(the table above). When the user asks for options (one image per tier),
-pass no `--model`.
+The task of a call is its tier's task (the table above): tier `fast` takes
+`image` without `--ref` and `image_edit` with it, tier `best` takes
+`image_best`, tier `multi-ref` takes `image_multi_ref`. A request that needs a
+transparent background, `--quality` or a `.jpg` or `.webp` output passes no
+`--model` unless the row's model takes it (What each provider kind takes,
+above). When the user asks for options (one image per tier), pass no
+`--model`.
 
 ## When the user asks for options
 

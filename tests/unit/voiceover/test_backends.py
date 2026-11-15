@@ -91,6 +91,25 @@ def test_model_replaces_the_speech_model_only_for_the_speech_backend(tmp_path):
                     env) == ["oai:tts-1", "oai:tts-2"]
 
 
+def test_model_of_another_kind_needs_a_voice(tmp_path):
+    """A `--model` whose provider kind differs from that of `models.speech` keeps no voice setting: `synth`
+    without `--voice` is refused with the `voices` command to run, and that command lists the kind's default
+    voice; a model of the same kind keeps VOICEOVER_SPEECH_VOICE (SKILL.md "Model routes")."""
+    config = write_config(tmp_path / "config.yaml", {"VOICEOVER_SPEECH_VOICE": "marin"},
+                          providers={"oai": {"kind": "openai", "base_url": "http://127.0.0.1:1/v1"},
+                                     "g": {"kind": "google"}},
+                          models={"speech": "oai:tts-1"})
+    script = tmp_path / "s.txt"
+    script.write_text("Hello there.\n")
+    p = voiceover("synth", "--backend", "speech", "--model", "g:gemini-tts", "--script", str(script),
+                  "--out-dir", str(tmp_path / "o"), "--no-align", SKILLS_CONFIG=str(config))
+    assert p.returncode == 1 and "run `voices --backend speech --model g:gemini-tts` and pass --voice" in p.stderr
+    p = voiceover("voices", "--backend", "speech", "--model", "g:gemini-tts", SKILLS_CONFIG=str(config))
+    assert p.returncode == 0 and p.stdout.splitlines() == ["Kore  (default)"], p.stderr
+    p = voiceover("voices", "--backend", "speech", "--model", "oai:tts-2", SKILLS_CONFIG=str(config))
+    assert p.returncode == 0 and p.stdout.splitlines() == ["marin  (default)"], p.stderr
+
+
 def test_timing_model_and_style_only_when_set():
     kw = dict(audio="a.wav", sample_rate=24000, duration=1.0, backend="b", voice="v", speed=1.0, sentences=[])
     assert "model" not in build_timing(**kw) and "style" not in build_timing(**kw)

@@ -55,16 +55,20 @@ name prefix the setting `VOICEOVER_KOKORO_LANGS` maps to an espeak language
 ## Model routes
 
 Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/voiceover.sh routes`.
-It prints the routing table of this skill's tasks, `| task | when | model | why |`:
-the user's rows, then the default rows, without the rows whose model
-`config.yaml` lacks. Take the first row whose task is the call's task and
-whose `when` describes the request, and pass its `model` with `--model`.
-With no matching row, pass no `--model`: the task's model of `config.yaml`
-serves the call. A model that the user or a calling skill names is passed
-as given, without the table.
+It prints, per task of this skill, `| task | when | model | why |` rows:
+first the task's default row (its model in `config.yaml`), then the user's
+escalation rows, then the shipped ones, without the rows whose model
+`config.yaml` lacks. Use the default row and pass no `--model`. Take a
+later row, and pass its `model` with `--model`, only when its `when`
+condition holds for the request; the first such row wins. A model that
+the user or a calling skill names is passed as given, without the table.
 
-The routes cover the `speech` task. A matching row selects `--backend
-speech --model <model>`; with no matching row the backend choice above holds.
+The routes cover the `speech` task. A matching escalation row selects
+`--backend speech --model <model>`; otherwise the backend choice above holds.
+`synth` refuses a `--model` whose provider kind differs from that of
+`models.speech` without `--voice`, because the voice settings name voices of
+the configured model. Then run `voices --backend speech --model <model>` and
+pass one of its voices with `--voice`.
 
 ## Script format
 
@@ -96,7 +100,7 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out
 # List the voices of a backend (default kokoro), the backend's default voice
 # marked `(default)`; with chatterbox: `default` plus every recording
 # (.wav/.flac/.mp3/.m4a) in the voices directory
-${CLAUDE_SKILL_DIR}/scripts/voiceover.sh voices [--backend kokoro|chatterbox|speech]
+${CLAUDE_SKILL_DIR}/scripts/voiceover.sh voices [--backend kokoro|chatterbox|speech] [--model ID]
 
 # Store a recording (.wav/.flac/.mp3/.m4a, longer than 5 s) as a chatterbox voice:
 # copied to <voices dir>/NAME.<suffix of the recording>; prints the path

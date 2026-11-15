@@ -125,7 +125,8 @@ scene.
    another. `scaffold --scene ID`, write `scenes/ID/v<N>/index.html` from
    `brief.md` and `references/scenes.md` (a manim scene: `scene.py` and
    `references/manim.md`; a video scene: `prompt.txt` and
-   `references/video-model.md`), `render --scene ID`, and do the motion check.
+   `references/video-model.md`), `render --scene ID` (a video or presenter
+   scene: with the `--model` of its row, Model routes), and do the motion check.
    Make it again until it passes, then play `scene.mp4` and revise with the
    user. The remaining scenes are made from it only after it passes.
 5. Remaining scenes, including the template scenes: one subagent per
@@ -138,7 +139,11 @@ scene.
    the scene, and every two frames 2 s apart differ visibly, by a new
    framing (the view moved by about 10% of the frame or more) or a new
    drawn, flowing or counting element (the last 0.5 s excepted); the scene
-   is done only when it passes. With `brand:` set, also
+   is done only when it passes. For each video or presenter scene, pick its
+   row as "Model routes" says and give its subagent the `--model ID` to pass
+   to `render`, or none for the default row. A subagent whose clip lacks the
+   motion its Brief asks for reports it; then pick again (an escalation row
+   may now hold) and give it the new `--model`. With `brand:` set, also
    give the title and end subagents the brand folder. Each scaffolds, writes
    and renders its scene. Clip scenes are made as "Clip scenes" describes,
    not by a scene subagent.
@@ -227,17 +232,18 @@ recording changes. Its subagent gets `references/video-model.md`.
 ## Model routes
 
 Before each model call, run `${CLAUDE_SKILL_DIR}/scripts/short-video.sh routes`.
-It prints the routing table of this skill's tasks, `| task | when | model | why |`:
-the user's rows, then the default rows, without the rows whose model
-`config.yaml` lacks. Take the first row whose task is the call's task and
-whose `when` describes the request, and pass its `model` with `--model`.
-With no matching row, pass no `--model`: the task's model of `config.yaml`
-serves the call. A model that the user or a calling skill names is passed
-as given, without the table.
+It prints, per task of this skill, `| task | when | model | why |` rows:
+first the task's default row (its model in `config.yaml`), then the user's
+escalation rows, then the shipped ones, without the rows whose model
+`config.yaml` lacks. Use the default row and pass no `--model`. Take a
+later row, and pass its `model` with `--model`, only when its `when`
+condition holds for the request; the first such row wins. A model that
+the user or a calling skill names is passed as given, without the table.
 
 The task of `render` is `video` for a scene with `Engine: video` and
 `presenter` for a scene with `Engine: presenter`; `render --model ID` passes
-the row's model.
+the row's model. The main agent picks the row of each such scene (Workflow,
+steps 4 and 5).
 
 ## Clip scenes
 

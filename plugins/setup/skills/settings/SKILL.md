@@ -176,19 +176,18 @@ The `audio` task is optional; without it `music analyze` skips the model section
 
 ## Model routes: routes.md
 
-A skill that calls a model picks the model of each request from a routing table: the user's rows, then default rows shipped with the skills. The user's file is `routes.md` in the directory of `config.yaml` (beside `$SKILLS_CONFIG` when that is set). It is optional, holds only the user's own rows, and no plugin update changes it. Each model-calling skill's `routes` command prints the merged table of its tasks.
+The default model of a task is `models.<task>`. A route row is an escalation from it: another model for the requests of that task that its condition names. Rows come from the user's file, then from the rows shipped with the skills. The user's file is `routes.md` in the directory of `config.yaml` (beside `$SKILLS_CONFIG` when that is set). It is optional, holds only the user's own rows, and no plugin update changes it. Each model-calling skill's `routes` command prints, per task, the default row, then the user's rows, then the shipped ones.
 
 The file holds one Markdown table; text outside the table is ignored:
 
 ```markdown
 | task | when | model | why |
 |---|---|---|---|
-| image | architecture diagrams | local:qwen-image | labels spelled right |
-| video | any clip | local:ltx-2.5 | fast, ambient sound |
+| image | only when the image is an architecture diagram | local:qwen-image | labels spelled right |
 ```
 
 - `task`: a task of the `models` section (`image`, `video`, `speech`, ...).
-- `when`: the requests the row serves, in words. The agent compares it with the request; the first row that fits wins, so a user row wins over a default row for the same request.
+- `when`: the condition, beginning with `only when`. The agent uses the task's default and takes a row only when its condition holds for the request; the first such row wins, so a user row comes before a shipped one. A row for every request of a task is refused: change `models.<task>` instead.
 - `model`: `<provider name>:<model>` of `config.yaml`. A row whose provider is not in `providers`, or whose `diffusers` model is not in `diffusers`, is left out.
 - `why`: the reason (quality, wall time).
 

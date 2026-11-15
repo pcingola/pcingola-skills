@@ -1,10 +1,12 @@
-"""Model routes: which model serves a request of a task, as Markdown tables `| task | when | model | why |`.
+"""Model routes: the default model of a task and the escalations from it, as Markdown tables
+`| task | when | model | why |`.
 
-Two tables: the user's `routes.md` in the directory of the config file (`config.path().parent`), then the
-defaults shipped with this package (`routes.md` beside this module). `table` returns the user's rows first,
-then the defaults, without the rows whose model is not configured: a provider missing from `providers`, or a
-`diffusers` provider's model missing from `diffusers`. No code matches `when`; the agent reads it and picks
-the first row that fits the request. `command` adds the `routes` command to a skill's CLI.
+The default of a task is `models.<task>` of the config file, its one home. The escalation rows come from two
+files: the user's `routes.md` in the directory of the config file (`config.path().parent`), then the rows
+shipped with this package (`routes.md` beside this module). An escalation's `when` begins with `only when`.
+`table` returns, per task, a generated default row, the user's rows, then the shipped rows, without the rows
+whose model is not configured: a provider missing from `providers`, or a `diffusers` provider's model missing
+from `diffusers`. No code matches `when`; the agent reads it. `command` adds the `routes` command to a skill's CLI.
 """
 
 from __future__ import annotations
@@ -20,8 +22,12 @@ from . import config
 from .errors import AIModelsError, ConfigError
 
 FILE_NAME = "routes.md"
-DEFAULTS = Path(__file__).with_name(FILE_NAME)
+SHIPPED = Path(__file__).with_name(FILE_NAME)
 COLUMNS = ("task", "when", "model", "why")
+# Every escalation row's `when` starts with this; the generated default row's `when` is DEFAULT.
+ESCALATION = "only when"
+DEFAULT = "default"
+DEFAULT_WHY = "the task's model in config.yaml"
 
 
 @dataclass(frozen=True)
@@ -44,9 +50,10 @@ def _cells(line: str) -> list[str]:
 
 
 def parse(path: Path) -> list[Route]:
-    """The rows of the table in `path` (empty when the file is missing); `ConfigError` naming the file and
-    line for a header other than `| task | when | model | why |`, a row of another width, an empty cell
-    among task, when and model, or a model that is not `<provider>:<model>`."""
+    """The escalation rows of the table in `path` (empty when the file is missing); `ConfigError` naming the
+    file and line for a header other than `| task | when | model | why |`, a row of another width, an empty
+    cell among task, when and model, a `when` that does not begin with `only when`, or a model that is not
+    `<provider>:<model>`."""
     if not path.is_file():
         return []
     rows: list[Route] = []
@@ -68,6 +75,9 @@ def parse(path: Path) -> list[Route]:
         route = Route(*cells)
         if not (route.task and route.when and route.model):
             raise ConfigError(f"{where}: task, when and model must not be empty")
+        if not route.when.lower().startswith(ESCALATION):
+            raise ConfigError(f"{where}: `when` must begin with {ESCALATION!r}; the default of a task is "
+                              f"`models.{route.task}` of {config.path()}")
         try:
             config.split_id(route.model)
         except ConfigError as e:
@@ -85,12 +95,18 @@ def configured(model_id: str, cfg: dict[str, Any]) -> bool:
     return spec["kind"] != "diffusers" or model in (cfg.get("diffusers") or {})
 
 
-def table(tasks: Iterable[str] | None = None) -> list[Route]:
-    """The user's rows, then the default rows, of `tasks` (None: every task), configured models only."""
+def table(tasks: Iterable[str]) -> list[Route]:
+    """Per task of `tasks`, in order: the default row (`models.<task>`, left out when unset), then the user's
+    escalation rows, then the shipped ones, configured models only."""
     cfg = config.load()
-    wanted = None if tasks is None else set(tasks)
-    return [r for r in parse(user_path()) + parse(DEFAULTS)
-            if (wanted is None or r.task in wanted) and configured(r.model, cfg)]
+    rows = parse(user_path()) + parse(SHIPPED)
+    out: list[Route] = []
+    for task in tasks:
+        default = (cfg.get("models") or {}).get(task)
+        if default:
+            out.append(Route(task, DEFAULT, str(default), DEFAULT_WHY))
+        out += [r for r in rows if r.task == task and configured(r.model, cfg)]
+    return out
 
 
 def markdown(routes: Sequence[Route]) -> str:
@@ -103,8 +119,8 @@ def markdown(routes: Sequence[Route]) -> str:
 def command(sub: argparse._SubParsersAction, tasks: Sequence[str]) -> argparse.ArgumentParser:
     """Add `routes [--task T]` to a CLI's subcommands: it prints the table of `tasks` (or of T) and returns
     0, or prints the error and returns 1. The handler is `func` of the parsed arguments."""
-    p = sub.add_parser("routes", help="Print the model routes of this skill's tasks (user rows first, then "
-                                      "the defaults; unconfigured models left out)")
+    p = sub.add_parser("routes", help="Print the model routes of this skill's tasks: per task the default "
+                                      "(models.<task>), then the user's and the shipped escalations")
     p.add_argument("--task", choices=list(tasks), help="only the rows of this task")
 
     def run(args: argparse.Namespace) -> int:

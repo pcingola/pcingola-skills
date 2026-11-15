@@ -14,7 +14,7 @@ TASKS = ("chat", "vision", "system1", "image", "image_edit", "image_best", "imag
 def routed_tasks(module: str, tmp_path: Path, *argv: str) -> list[str]:
     """The tasks of the rows that `<module>.main` prints for `routes *argv`, in order."""
     cfg = write_config(tmp_path / "config.yaml", providers={"o": {"kind": "ollama"}})
-    rows = "".join(f"| {t} | any request | o:{t}-model | test |\n" for t in TASKS)
+    rows = "".join(f"| {t} | only when tested | o:{t}-model | test |\n" for t in TASKS)
     (tmp_path / "routes.md").write_text("| task | when | model | why |\n|---|---|---|---|\n" + rows, encoding="utf-8")
     code = f"import sys\nsys.argv = ['cli', 'routes', *{list(argv)!r}]\nfrom {module} import main\nmain()"
     done = run_python(code, child_env(SKILLS_CONFIG=str(cfg)))

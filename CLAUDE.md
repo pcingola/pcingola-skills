@@ -16,7 +16,7 @@ This repository is a Claude Code marketplace, `pcingola-skills` (`.claude-plugin
 
 Each rule and its reason are in `docs/architecture.md`, with the test that enforces it where one exists.
 
-- A skill reads nothing outside its own plugin directory except its plugin data directory, the settings file, a brand folder from `brand:brand`, the user's input and output files and files another skill wrote as output ([Plugin isolation](docs/architecture.md#plugin-isolation)).
+- A skill reads nothing outside its own plugin directory except its plugin data directory, the settings file, the user's model routes file `routes.md` beside the settings file, a brand folder from `brand:brand`, the user's input and output files and files another skill wrote as output ([Plugin isolation](docs/architecture.md#plugin-isolation)).
 - A skill needing another skill loads it with the Skill tool by `<plugin>:<skill>` and states the task in prose; no file names another skill's wrapper, script, `references/` file or a path into it, and no skill's Python imports another skill ([Loading another skill](docs/architecture.md#loading-another-skill)).
 - A skill loads only skills of its own plugin or of a plugin in its `dependencies` ([Loading another skill](docs/architecture.md#loading-another-skill)).
 - `allowed-tools` lists `Skill` when the skill loads another, and no `Bash` entry, bare `Bash` included, other than its own wrapper rules `Bash(${CLAUDE_SKILL_DIR}/scripts/<skill>.sh:*)` and `Bash(scripts/<skill>.sh:*)`; an exception needs an entry with a reason in `BASH_RULE_ALLOWLIST` of `tests/unit/plugin/test_manifest.py` ([Loading another skill](docs/architecture.md#loading-another-skill)).

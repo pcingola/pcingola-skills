@@ -26,6 +26,10 @@ SAMPLE_RATE = 24_000
 TASK = "speech"
 
 SPEED_RANGE = (0.25, 4.0)
+# The default voice of a model whose provider kind differs from that of the config's `speech` model, whose
+# voices VOICEOVER_SPEECH_VOICE and VOICEOVER_SPEECH_VOICES name; other kinds (OpenAI-style): `marin`.
+KIND_VOICES = {"google": "Kore", "ollama": "default", "vllm-omni": "default"}
+KIND_VOICE = "marin"
 
 
 class TTSError(Exception):
@@ -58,8 +62,22 @@ def resample(samples: np.ndarray, rate: int, target: int) -> np.ndarray:
     return F.resample(torch.from_numpy(np.ascontiguousarray(samples)), rate, target).numpy()
 
 
+def _configured_kind() -> str | None:
+    """The provider kind of the config's `speech` model; None when the config names none."""
+    from ai_models import AIModelsError
+    from ai_models import config as ai_config
+    from ai_models.models import kind
+
+    try:
+        return kind(ai_config.model_for(TASK))
+    except AIModelsError:
+        return None
+
+
 class SpeechBackend:
-    """`model`, else the config's `speech` model. `ValueError` when the config names none."""
+    """`model`, else the config's `speech` model. `ValueError` when the config names none. `own_voices`: the
+    model's provider kind is that of the config's `speech` model, so the voice settings apply to it; else the
+    default voice is the kind's (KIND_VOICES)."""
 
     name = "speech"
     sample_rate = SAMPLE_RATE
@@ -75,6 +93,11 @@ class SpeechBackend:
         except AIModelsError as e:
             raise ValueError(str(e)) from None
         self.style = style
+        self.own_voices = model is None or self.kind == _configured_kind()
+        if not self.own_voices:
+            self.default_voice = KIND_VOICES.get(self.kind, KIND_VOICE)
+            self._voices = [self.default_voice]
+            return
         from . import config
 
         self.default_voice = config.require("VOICEOVER_SPEECH_VOICE")

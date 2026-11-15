@@ -57,24 +57,27 @@ The image-gen, music and short-video wrappers install the extra when the config 
 
 ## Model routes
 
-A model route says which model serves a kind of request of a task. `routes` reads two Markdown tables with the
-columns `| task | when | model | why |`:
+A model route says which model serves a request of a task. The default of a task is `models.<task>` of the config;
+a route row is an escalation from it, for the requests its condition names. `routes` reads the escalation rows from
+two Markdown tables with the columns `| task | when | model | why |`:
 
 - The user's `routes.md`, in the directory of the config file (`routes.user_path()`: `config.path().parent`, so it
   follows `SKILLS_CONFIG`). It is optional and holds only that user's rows. No plugin update writes it.
-- The defaults, `ai_models/routes.md`, package data of this package, so they reach every skill environment with the
-  relock that brings a new `ai-models`.
+- The shipped rows, `ai_models/routes.md`, package data of this package, so they reach every skill environment with
+  the relock that brings a new `ai-models`.
 
-`task` is a task of the `models` section, `when` a description of the requests the row serves, `model` a
+`task` is a task of the `models` section, `when` the condition, beginning with `only when`, `model` a
 `<provider>:<model>` id and `why` the reason (quality, wall time). Lines outside the table are ignored. The first
-table line is the header; a wrong header, a row of another width, an empty `task`, `when` or `model`, and a model
-that is not `<provider>:<model>` are each a `ConfigError` naming the file and line.
+table line is the header; a wrong header, a row of another width, an empty `task`, `when` or `model`, a `when`
+without `only when` (a catch-all row would replace `models.<task>`) and a model that is not `<provider>:<model>` are
+each a `ConfigError` naming the file and line.
 
-`table(tasks)` returns the user's rows, then the default rows, of `tasks` (None: all), without the rows whose model
-is not configured: the provider is missing from `providers`, or, for a provider of kind `diffusers`, the model is
-missing from `diffusers`. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud
-provider serves a model shows only at the call. No code reads `when`: the agent reads the table and takes the first
-row whose task and `when` fit the request, so a user row wins over a default row for the same request.
+`table(tasks)` returns, per task in order: a generated default row (`when` `default`, the model of `models.<task>`;
+left out when the task has none), the user's rows, then the shipped rows, without the rows whose model is not
+configured: the provider is missing from `providers`, or, for a provider of kind `diffusers`, the model is missing
+from `diffusers`. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud provider
+serves a model shows only at the call. No code reads `when`: the agent uses the default row, and takes a later row
+only when its condition holds for the request, the first such row, so a user row comes before a shipped one.
 `markdown` prints the rows as a table. `command(subparsers, tasks)` adds `routes [--task T]` to a skill's CLI; it
 prints the table of the skill's tasks and returns 0, or prints the error and returns 1.
 
@@ -82,10 +85,11 @@ The skills with the command and their tasks: image-gen (`image`, `image_edit`, `
 music (`music`, `audio`), short-video (`video`, `presenter`), voiceover (`speech`), classify (`system1`, `chat`),
 second-opinion (`chat`, `vision`). Each `SKILL.md` has a "Model routes" section with the same rule; the chosen model
 goes to the call as `--model`. Skills that load image-gen (infographic, pptx-author, studio, video-effects) route
-through image-gen.
+through image-gen, by the tier they ask for.
 
-The default rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
-`config.example.yaml`; a user without one of those models has its row dropped.
+The shipped rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
+`config.example.yaml`, whose defaults are `local:flux2-klein-4b` for `image` and `local:ltx-2.5` for `video`; a user
+without one of the row models has that row dropped.
 
 ## Provider kinds
 
