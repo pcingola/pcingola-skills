@@ -32,22 +32,37 @@ with the audio (lyrics or song structure).
 
 ## Crest factor check
 
-ACE-Step 1.5 XL turbo (`ACE-Step/acestep-v15-xl-turbo-diffusers`, 8 steps) generates loud, compressed audio. Over 15
-seeds of one prompt its crest factor was 9.6 to 15.2 dB; more turbo steps did not change it. The XL SFT model
-(`ACE-Step/acestep-v15-xl-sft-diffusers`, 50 steps, guidance 7) gave a median of 16.1 dB (12.5 to 19.3) at about 12 s
-per 30 s clip, and in a listening test SFT was clearly better. The config template's `models.music` is therefore
-`local:ace-step-sft`; the turbo model `local:ace-step` stays for tests and quick drafts.
+ACE-Step 1.5 XL turbo (`ACE-Step/acestep-v15-xl-turbo-diffusers`, 8 steps) generates loud, compressed audio; more
+turbo steps did not change it. The XL SFT model (`ACE-Step/acestep-v15-xl-sft-diffusers`, 50 steps, guidance 7) takes
+about 12 s per 30 s clip, and in a listening test SFT was clearly better. The config template's `models.music` is
+therefore `local:ace-step-sft`; the turbo model `local:ace-step` stays for tests and quick drafts.
 
-Because the crest factor depends on the seed, `generate` checks it for a model whose config entry has `min_crest_db`
-(`ai_models.music.min_crest_db`; only diffusers entries exist, so remote models get no check). Low crest is a failure
-mode of one model, and mastered rock, techno and EDM sit around 8 to 12 dB, so the threshold is per model and not a
-global setting; a loud genre on a model with a threshold can still fall below it and use every attempt.
-`crest.regenerate` measures every track (`measure.crest_db` on the returned file decoded with all channels) and sends a
-request with a track below the threshold again, up to `MUSIC_CREST_ATTEMPTS` requests (default 3; 1 turns it off). A
-model whose kind takes a seed (`ai_models.music.takes`) gets the next seed; another, or a call with `--samples`, gets
-the same request again. The first request with every track at or above the threshold is kept, else the one with the
-highest lowest crest factor. The sidecar records every attempt. The code names no model; model choices are in
-`config.example.yaml` and `routes.md`.
+The crest factor (`measure.crest_db`) is sample peak minus RMS over the 2 s windows whose RMS is within 6 dB of the
+loudest, on the track decoded in stereo at 48 kHz (`measure.track_crest_db`). The whole-file value counts quiet intros,
+fades and silence. The pipeline peak-normalizes to -1 dBFS, so counting full-scale samples finds no clipping.
+Measured on the review clips:
+
+| clips | crest factor where loud (dB) |
+|---|---|
+| user-approved SFT corporate clip (30 s, 50 steps, guidance 7) | 14.7 |
+| SFT A/B: corporate seeds 6 and 9 (guidance 7), seed 9 (guidance 4), rock seed 42 | 16.2, 10.9, 11.0, 15.8 |
+| turbo, six genres (classical, corporate, jazz, rock, song, techno) | 9.2, 9.4, 13.7, 11.9, 12.6, 12.7 |
+| turbo A/B, corporate seed 42 (8, 16, 32 steps, variants), seed 6, rock seed 42 | 12.6 to 13.5, 11.1 |
+| turbo A/B, corporate seed 9 ("hot") | 9.1 |
+
+The template sets `min_crest_db: 10` on the SFT entry: it passes every SFT clip and catches the hot seed 9 and the two
+quietest turbo clips. The turbo entry has none, since it is chosen knowing its sound is compressed.
+
+Because the crest factor depends on the seed, `generate` runs the check when `--min-crest-db` is above 0, or without
+it when the model entry has `min_crest_db` (`ai_models.music.min_crest_db`; only diffusers entries exist, so remote
+models get a check only from the option). Mastered rock, techno and EDM sit around 8 to 12 dB, so the threshold is per
+model and per call, and the music skill tells the agent to pass 0 for those genres. `crest.regenerate` sends a request
+with a track below the threshold again, up to `--crest-attempts` requests (default 3). A model whose kind takes a seed
+(`ai_models.music.takes`) gets the next seed, the first being `--seed` or a random one; another, or a call with
+`--samples`, gets the same request again. The first request with every track at or above the threshold is kept, else
+the one with the highest lowest crest factor. The sidecar records every attempt and the kept `seed`. A failed
+measurement keeps the tracks of that request, prints a warning and writes no `crest` entry. The code names no model;
+model choices are in `config.example.yaml` and `routes.md`.
 
 ## Model description in analyze
 

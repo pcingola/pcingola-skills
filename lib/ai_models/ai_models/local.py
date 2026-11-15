@@ -8,7 +8,9 @@ diffusers pipeline class for mask edits, built over the loaded modules with `fro
 `args` (optional: more pipeline call arguments, after steps and guidance and before the
 caller's) and `skip` (optional: pipeline components loaded as None). A music model also has
 `duration_arg` and `lyrics_arg`: the names of the pipeline call arguments that take the
-length in seconds and the lyrics; without one, the model does not take that option. A video model also has
+length in seconds and the lyrics; without one, the model does not take that option. It may also have
+`min_crest_db` (`music.min_crest_db`; not read here), the crest factor below which the music skill sends the request
+again. A video model also has
 `pipeline` (the class to load), `fps`, `size_multiple`, `frame_step`, `width`, `height` and
 `max_frames` (see `video`); a presenter model `pipeline`, `fps`, `buckets`, `audio_rate` and `output` (see
 `video`, `present`). `pipeline` may name a `ModularPipeline` class. The device is CUDA, else MPS; `to_device` moves the weights there.

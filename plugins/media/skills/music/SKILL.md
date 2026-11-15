@@ -72,7 +72,13 @@ The task of the call is `music` for `generate` and `audio` for `analyze`.
   length loosely; use `fit` for an exact length.
 - `--negative TEXT`: what to leave out (lyria-002).
 - `--seed N` (lyria-002, ACE-Step) or `--samples N` (lyria-002), not both.
-  `--seed` is the first seed of the crest factor check.
+  `--seed` is the first seed of the crest factor check; without it a model
+  that takes a seed gets a random one.
+- `--min-crest-db DB`: the crest factor threshold (below).
+  Pass `--min-crest-db 0` when the brief asks for a loud, mastered genre
+  (rock, metal, techno, EDM, trap). Otherwise leave it out.
+- `--crest-attempts N`: the most requests of the crest factor check
+  (default 3).
 
 Lyria has no request fields for tempo, length, vocals or lyrics. The CLI
 writes the tempo and "instrumental" into the prompt; the model layer adds the
@@ -85,23 +91,25 @@ names that tempo.
 
 - the audio file(s), paths printed on stdout;
 - `<out>.json`: model, prompt sent, options, MIME type, finish reason,
-  duration, the lyrics when given, and `crest` (below);
+  duration, the lyrics when given, `seed` (the seed of the kept track, for
+  a model that takes one) and `crest` (below);
 - `<out>.txt` (Lyria 3): the text the model returned, i.e. the generated
   lyrics or song structure.
 
-For a model whose config entry has `min_crest_db`, `generate` measures the
-crest factor (sample peak minus RMS over all channels, dB) of every track.
-A request with a track below it (loud, compressed sound) is sent again, up
-to `MUSIC_CREST_ATTEMPTS` requests (default 3; 1 turns this off): with the
-next seed for a model that takes a seed (the first seed is `--seed`, else
-random; none with `--samples`), else as the same request. The first request
-whose tracks are all at or above the threshold is kept. When all are below,
-the request with the highest lowest crest factor is kept and a warning says
-so. Mastered loud genres (rock, techno, EDM) can sit below a model's
-threshold and then cost every attempt. `crest` in `<out>.json` holds the
-track's `crest_db`, `min_crest_db`, `below_threshold` and every request's
-`seed`, per-track `crest_db` and `kept`. A model without `min_crest_db`
-gets no check and no `crest` entry.
+The crest factor check runs when `--min-crest-db` is above 0, or without
+the option when the model's config entry has `min_crest_db`. `generate`
+measures each track's crest factor: sample peak minus RMS, in dB, over the
+2 s windows within 6 dB of the loudest, so intros, fades and silence do
+not count. A request with a track below the threshold (loud, compressed
+sound) is sent again, up to `--crest-attempts` requests: with the next seed
+for a model that takes a seed, else as the same request. The first request
+whose tracks all reach the threshold is kept. When all are below, the
+request with the highest lowest crest factor is kept and a warning says so.
+Mastered loud genres (rock, techno, EDM) sit at about 8 to 12 dB, below a
+model's threshold, and then cost every attempt. `crest` in `<out>.json`
+holds the track's `crest_db`, `min_crest_db`, `below_threshold` and every
+request's `seed`, per-track `crest_db` and `kept`. Without a check, or when
+the measurement fails (a warning says so), there is no `crest` entry.
 
 Play results with `open -a VLC <file>` on macOS and `xdg-open <file>` on Linux.
 

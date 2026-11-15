@@ -58,7 +58,8 @@ The package reads three sections; the fourth, `settings`, belongs to `plugin_set
   loaded modules with `from_pipe`), `args` (optional: more pipeline call arguments, after steps and guidance and
   before the caller's) and `skip` (optional: pipeline components loaded as None). A music model adds `duration_arg`
   and `lyrics_arg`, the pipeline call argument names for the length in seconds and the lyrics; a model without one
-  does not take that option. A model id
+  does not take that option. It may add `min_crest_db` (`music.min_crest_db`), the crest factor in dB below which
+  music `generate` sends the request again (docs/music.md). A model id
   `<diffusers provider>:<name>` names it. A video model adds the keys of the Video section.
 
 The image-gen, music and short-video wrappers install the extra when the config has a provider of kind `diffusers`

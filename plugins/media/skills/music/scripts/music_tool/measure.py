@@ -12,6 +12,7 @@ The clip is decoded by FFmpeg to mono float32 at `SR` Hz. Measurements:
   spectral centroid;
 - RMS in non-overlapping `WINDOW_SECONDS` windows (dBFS) with a label from
   `level_label`;
+- the crest factor where the music is loud (`crest_db`, used by `generate`);
 - key and mode (none for silence): the time-averaged CQT chroma of the harmonic part correlated
   with the 24 rotations of the Krumhansl-Kessler profiles;
 - integrated loudness (LUFS), loudness range (LU) and true peak (dBTP) from
@@ -52,6 +53,9 @@ PULSE_WEAK = 0.15
 # tempo_relation: relative tolerance around 1, 1/2 and 2 times the request
 TEMPO_TOLERANCE = 0.04
 TRUE_PEAK_LIMIT_DBTP = -1.0
+# crest_db: windows this close (dB) to the loudest one count; the rate track_crest_db decodes at
+LOUD_WINDOW_DB = 6.0
+CREST_SR = 48000
 
 NOTES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 # Krumhansl-Kessler key profiles, tonic first
@@ -70,14 +74,12 @@ def _ffmpeg() -> str:
     return path
 
 
-def decode(source: Path | bytes, sr: int | None = SR) -> np.ndarray:
-    """Float32 samples of a file (a path, or its bytes): mono at `sr` Hz, or with `sr=None` every channel
-    interleaved at the file's own rate."""
+def decode(source: Path | bytes, sr: int = SR, channels: int = 1) -> np.ndarray:
+    """Float32 samples of a file (a path, or its bytes) at `sr` Hz with `channels` channels, interleaved."""
     name = "the audio" if isinstance(source, bytes) else source.name
-    resample = [] if sr is None else ["-ac", "1", "-ar", str(sr)]
     proc = subprocess.run(
-        [_ffmpeg(), "-v", "error", "-i", "pipe:0" if isinstance(source, bytes) else str(source), "-vn", *resample,
-         "-f", "f32le", "-"],
+        [_ffmpeg(), "-v", "error", "-i", "pipe:0" if isinstance(source, bytes) else str(source), "-vn",
+         "-ac", str(channels), "-ar", str(sr), "-f", "f32le", "-"],
         input=source if isinstance(source, bytes) else None, capture_output=True,
     )
     if proc.returncode != 0:
@@ -92,26 +94,37 @@ def db(x: float) -> float:
     return float(20 * np.log10(max(x, 1e-10)))
 
 
-def crest_db(y: np.ndarray) -> float:
-    """Crest factor in dB: sample peak minus RMS, over all samples of all channels. A full-scale sine
-    gives 3.01 dB, silence 0 dB."""
-    x = y.astype(np.float64)
-    return round(db(float(np.max(np.abs(x)))) - db(float(np.sqrt(np.mean(x ** 2)))), 2)
+def rms(x: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(x.astype(np.float64) ** 2)))
+
+
+def windows(y: np.ndarray, n: int) -> list[np.ndarray]:
+    """`y` cut into windows of `n` samples; a last partial window of at least half a window is kept, and a clip
+    shorter than that is one window."""
+    out = [y[start:start + n] for start in range(0, y.size, n)]
+    out = [w for w in out if w.size >= n / 2]
+    return out or ([y] if y.size else [])
+
+
+def crest_db(y: np.ndarray, sr: int, channels: int = 1) -> float:
+    """Crest factor in dB where the music is loud: sample peak minus RMS over the `WINDOW_SECONDS` windows
+    (`windows`) whose RMS is within LOUD_WINDOW_DB of the loudest one, so quiet intros, fades and silence do not
+    count. `y` is interleaved with `channels` channels. A full-scale sine gives 3.01 dB, silence 0 dB."""
+    ws = windows(y, int(sr * WINDOW_SECONDS) * channels)
+    levels = [db(rms(w)) for w in ws]
+    loud = np.concatenate([w for w, level in zip(ws, levels) if level >= max(levels) - LOUD_WINDOW_DB])
+    return round(db(float(np.max(np.abs(loud)))) - db(rms(loud)), 2)
+
+
+def track_crest_db(audio: bytes) -> float:
+    """`crest_db` of an encoded file (WAV, MP3, ...), decoded in stereo at CREST_SR Hz (a mono file has the same
+    crest factor in both channels)."""
+    return crest_db(decode(audio, CREST_SR, 2), CREST_SR, 2)
 
 
 def window_rms_db(y: np.ndarray, sr: int, seconds: float = WINDOW_SECONDS) -> list[float]:
-    """RMS in dBFS of each full `seconds` window; a last partial window of at
-    least half a window is kept, and a clip shorter than that is one window."""
-    n = int(sr * seconds)
-    out = []
-    for start in range(0, y.size, n):
-        w = y[start:start + n]
-        if w.size < n / 2:
-            break
-        out.append(round(db(float(np.sqrt(np.mean(w.astype(np.float64) ** 2)))), 1))
-    if not out and y.size:
-        out.append(round(db(float(np.sqrt(np.mean(y.astype(np.float64) ** 2)))), 1))
-    return out
+    """RMS in dBFS of each `seconds` window (`windows`)."""
+    return [round(db(rms(w)), 1) for w in windows(y, int(sr * seconds))]
 
 
 def level_label(windows: list[float]) -> tuple[str, float]:
