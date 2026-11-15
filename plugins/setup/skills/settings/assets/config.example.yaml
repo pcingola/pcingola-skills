@@ -135,7 +135,8 @@ diffusers:
   # in the photoreal, illustration and text tests.
   #z-image-turbo:  {repo: Tongyi-MAI/Z-Image-Turbo, steps: 9, guidance: 0.0, inpaint: ZImageInpaintPipeline}
   ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0, duration_arg: audio_duration, lyrics_arg: lyrics}
-  # LTX-Video 0.9.5 (2B), image to video; about 26 GB of weights.
+  # LTX-Video 0.9.5 (2B), image to video; about 26 GB of weights. About 1 min per 5 s clip;
+  # usable only for slow, near-static motion (fast motion pixelates and deforms). LTX-2.5 is the default.
   ltx-video:      {repo: Lightricks/LTX-Video-0.9.5, pipeline: LTXImageToVideoPipeline, steps: 30, guidance: 3.0, fps: 24, size_multiple: 32, frame_step: 8, width: 768, height: 512, max_frames: 121}
   # Qwen-Image 2.1, generation and edit (one pipeline, no guidance_scale); about 33 GB.
   qwen-image:     {repo: Qwen/Qwen-Image-2.1, steps: 40, args: {output_resolution: 2048}}
