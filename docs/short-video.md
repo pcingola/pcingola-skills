@@ -263,8 +263,8 @@ author's name, such as the first and last slide of a deck, where the caption wou
 it from what it sees in the picture, and the critic reports a scene that shows the name and is still captioned. With
 `credit.text: null` (logo only) every scene gets the logo whatever its `show_author`. Each scene entry of
 `film/v<N>/manifest.json` records the `show_author` the MP4 was assembled with, so a later change is detectable. The
-caption is drawn on the MP4 only; the HTML film has none. `validate` refuses a project settings file that still holds
-the earlier template rule `shows_author` (the inverse of `show_author`), since it is no longer read.
+caption is drawn on the MP4 only; the HTML film has none. `validate` refuses a template rule with the key `shows_author`
+and names `show_author`, its inverse.
 
 ## Review
 
