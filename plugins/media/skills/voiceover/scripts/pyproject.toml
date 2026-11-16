@@ -3,12 +3,8 @@ name = "voiceover-cli"
 version = "0.1.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    # the speech and align models of the ai_models config (lib/ai_models, git source): Kokoro and the torchaudio
-    # aligner run in this process
-    "ai-models[kokoro,align]",
-    # resampling a speech model's answer to 24 kHz; torchaudio 2.11 is the release the align extra pins
-    "torch==2.11.*",
-    "torchaudio==2.11.*",
+    # the speech models of the ai_models config (lib/ai_models, git source): Kokoro runs in this process
+    "ai-models[kokoro]",
     "numpy",
     "num2words",
     # the local-model lock and free memory of ai_models.local (speech models of kind vllm-omni)
@@ -19,13 +15,35 @@ dependencies = [
     "soundfile",
 ]
 
+[project.optional-dependencies]
+# torch and torchaudio (what ai-models[align] needs) for the torchaudio aligner and the resampling of a speech
+# model's answer to 24 kHz, both on the CPU; torchaudio 2.11 is the release the align extra pins. The extras list them
+# directly, not ai-models[align], because uv selects an extra's index only for a direct requirement. The wrapper voiceover.sh takes exactly one of the two
+# extras: `cuda` when config.yaml has a provider of kind vllm-omni (ai_models.omni reads the GPU's memory with this
+# torch), else `cpu`. On macOS both are PyPI's build.
+cpu = ["torch==2.11.*", "torchaudio==2.11.*"]
+cuda = ["torch==2.11.*", "torchaudio==2.11.*"]
+
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
+
 [tool.uv.sources]
-# CUDA 13.0 builds on Linux (aarch64 and x86_64); PyPI's default build on macOS (MPS)
-torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
-torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
-torchaudio = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
+# Linux (aarch64 and x86_64): the CPU build (extra cpu) or the CUDA 13.0 build (extra cuda); PyPI's build on macOS
+torch = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cu130", extra = "cuda", marker = "sys_platform == 'linux'" },
+]
+torchaudio = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cu130", extra = "cuda", marker = "sys_platform == 'linux'" },
+]
 ai-models = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/ai_models", branch = "main" }
 plugin-settings = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/plugin_settings", branch = "main" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [[tool.uv.index]]
 name = "pytorch-cu130"

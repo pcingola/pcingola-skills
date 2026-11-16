@@ -19,17 +19,15 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Inches
 
-from .measure import measure_text_lines
+from .text_metrics import frame_overflow, get_placeholder_type
 
 # Type alias for extracted shapes data structure
 ExtractedShapesData = dict[str, dict[str, "ShapeData"]]
 
 # Constants
 EMU_PER_INCH = 914400
-POINTS_PER_INCH = 72
 ROW_TOLERANCE_INCHES = 0.5
 OVERLAP_TOLERANCE_INCHES = 0.05
-OVERFLOW_TOLERANCE_INCHES = 0.05
 SLIDE_OVERFLOW_TOLERANCE_INCHES = 0.01
 
 
@@ -296,7 +294,7 @@ class ShapeData:
         # Frame overflow (text shapes only)
         if not is_valid_table_shape(self.shape):
             overflow = calculate_frame_overflow(self.shape)
-            if overflow and overflow > OVERFLOW_TOLERANCE_INCHES:
+            if overflow is not None:
                 self.frame_overflow_bottom = round(overflow, 2)
 
         # Slide overflow
@@ -398,18 +396,6 @@ class ShapeData:
             result["warnings"] = self.warnings
 
         return result
-
-
-def get_placeholder_type(shape) -> str | None:
-    """Extract placeholder type from a shape."""
-    try:
-        if hasattr(shape, "is_placeholder") and shape.is_placeholder:
-            if hasattr(shape, "placeholder_format") and shape.placeholder_format:
-                placeholder_type = str(shape.placeholder_format.type)
-                return placeholder_type.split(".")[-1].split(" ")[0]
-    except Exception:
-        pass
-    return None
 
 
 # Placeholder types listed even when empty: a slide added from a layout has
@@ -799,75 +785,9 @@ def has_bullet(paragraph) -> bool:
 
 
 def calculate_frame_overflow(shape) -> float | None:
-    """Calculate text overflow within shape boundaries."""
+    """Text overflow within shape boundaries, in inches, or None; see `text_metrics.frame_overflow`."""
     try:
-        if not hasattr(shape, "text_frame") or not shape.text_frame:
-            return None
-
-        text_frame = shape.text_frame
-
-        # Get margins (default: top/bottom 0.05", left/right 0.1")
-        margin_top = getattr(text_frame, "margin_top", Inches(0.05)) / EMU_PER_INCH
-        margin_bottom = getattr(text_frame, "margin_bottom", Inches(0.05)) / EMU_PER_INCH
-        margin_left = getattr(text_frame, "margin_left", Inches(0.1)) / EMU_PER_INCH
-        margin_right = getattr(text_frame, "margin_right", Inches(0.1)) / EMU_PER_INCH
-
-        # Calculate usable area
-        shape_width_inches = shape.width / EMU_PER_INCH
-        shape_height_inches = shape.height / EMU_PER_INCH
-
-        usable_width = shape_width_inches - margin_left - margin_right
-        usable_height = shape_height_inches - margin_top - margin_bottom
-
-        if usable_width <= 0 or usable_height <= 0:
-            return None
-
-        # Calculate total text height
-        total_height = 0.0
-
-        for para in text_frame.paragraphs:
-            text = para.text.strip()
-            if not text:
-                continue
-
-            # Get font size (default 18pt if not specified)
-            font_size = 18.0
-            if para.runs:
-                run = para.runs[0]
-                if hasattr(run, "font") and run.font.size:
-                    font_size = run.font.size.pt
-
-            # Get line spacing (default 1.0x font size)
-            line_spacing = font_size
-            if hasattr(para, "line_spacing") and para.line_spacing is not None:
-                ls = para.line_spacing
-                line_spacing = ls.pt if hasattr(ls, "pt") else ls * font_size
-
-            # Get font name for measurement
-            font_name = "Arial"
-            if para.runs:
-                run = para.runs[0]
-                if hasattr(run, "font") and run.font.name:
-                    font_name = run.font.name
-
-            # Measure text and calculate wrapped lines
-            num_lines = measure_text_lines(text, font_name, font_size, usable_width)
-
-            # Calculate paragraph height
-            para_height = num_lines * (line_spacing / POINTS_PER_INCH)
-
-            # Add spacing
-            if hasattr(para, "space_before") and para.space_before is not None:
-                para_height += para.space_before.pt / POINTS_PER_INCH
-            if hasattr(para, "space_after") and para.space_after is not None:
-                para_height += para.space_after.pt / POINTS_PER_INCH
-
-            total_height += para_height
-
-        # Calculate overflow
-        overflow = total_height - usable_height
-        return overflow if overflow > 0 else None
-
+        return frame_overflow(shape)
     except Exception:
         return None
 

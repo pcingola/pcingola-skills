@@ -283,15 +283,10 @@ def test_generate_new_project(client, studio, emitted):
     meta = json.loads((p / "project.json").read_text())
     assert meta == {"name": "A ginger cat on a windowsill", "brief": brief, "kind": "image",
                     "created": emitted[-1]["request"]["time"], "autonomy": "step", "settings": {}}
-    (p.parent / "20000101-000000").mkdir()
-    import studio_server.projects as projects
-    folder = projects.folder_name
-    projects.folder_name = lambda created: "20000101-000000"
-    try:
-        _, body = client.post("/api/request", gen(None, project=None, brief=brief))
-    finally:
-        projects.folder_name = folder
-    assert body["project"] == str(p.parent / "20000101-000000-2")
+    from studio_server.projects import KIND_BY_ID, create_project
+    created = "2000-01-01T00:00:00"
+    first = create_project(studio.root, KIND_BY_ID["image"], brief, created)
+    assert create_project(studio.root, KIND_BY_ID["image"], brief, created) == first.parent / f"{first.name}-2"
     _, body = client.post("/api/request", gen(None, project=None, brief="?!"))
     assert json.loads((Path(body["project"]) / "project.json").read_text())["name"] == "Untitled"
 

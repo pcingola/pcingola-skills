@@ -98,4 +98,11 @@ The reasons not given in the comments of `scripts/pyproject.toml`:
 
 - torch and torchaudio are pinned to 2.11, torchaudio's last release. It keeps `forced_align`, which the MMS_FA
   aligner uses, and flags it deprecated. torch follows torchaudio, which needs the matching torch version.
+- torch and torchaudio are in two conflicting extras, `cpu` and `cuda`, which select the Linux build: the PyTorch CPU
+  index or the CUDA 13.0 index. The aligner and the resampling run on the CPU, so `cpu` serves Kokoro, Chatterbox and
+  the API speech models. The Chatterbox worker runs in its own environment with its own torch. The vLLM-Omni client
+  (`ai_models.omni`) reads the GPU's free and total memory with this process's torch, so `voiceover.sh` takes `cuda`
+  when `config.yaml` has a provider of kind `vllm-omni`, else `cpu`. On Linux the `cpu` build downloads about 150 MB
+  (aarch64) to 190 MB (x86_64), the `cuda` build about 2.7 GB with its NVIDIA libraries. Switching extras re-syncs
+  the environment.
 - `requires-python` is below 3.14; the skill is not tested on Python 3.14.

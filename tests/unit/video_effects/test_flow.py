@@ -119,13 +119,13 @@ class TestConfidence(unittest.TestCase):
         self.assertTrue(np.allclose(conf, 1 - 2 / flow.FB_TOL))
 
     def test_inconsistent_flow_gives_plain_blend(self) -> None:
-        """FlowChain.blend with zero flows is the linear blend of the keys. Guards the fallback where confidence
-        has removed the flow."""
-        a, b = texture(seed=1), texture(seed=2)
+        """FlowChain.blend of a texture and its negative, whose flows fail the forward-backward check, is the
+        linear blend of the keys (within 1 grey level of 255). Guards the fallback where confidence has removed
+        the flow."""
+        a = texture(seed=1)
+        b = a.max() - a
         chain = FlowChain([a, b])
-        zero = np.zeros(a.shape[:2] + (2,), np.float32)
-        chain.flows = lambda i: (zero, zero)
-        np.testing.assert_allclose(chain.blend(0, 0.3), 0.7 * a + 0.3 * b, atol=1e-3)
+        np.testing.assert_allclose(chain.blend(0, 0.3), 0.7 * a + 0.3 * b, atol=1)
 
 
 class TestMemory(unittest.TestCase):

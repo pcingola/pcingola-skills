@@ -20,7 +20,7 @@ from pptx.util import Inches
 from PIL import Image as PILImage
 
 from .exceptions import ValidationError
-from .text_fitting import text_width
+from .measure import text_width
 from .text_formatters import ParagraphProcessor, ShapeFormatter
 
 
@@ -254,7 +254,7 @@ class PresentationShapesAdder:
         """Expand a chip_row into a packed row of rounded_rect pill shapes.
 
         Each chip's width is the rendered width of its own text (shared measurer
-        in text_fitting) plus equal horizontal padding, so every chip fits its
+        in measure) plus equal horizontal padding, so every chip fits its
         text with the same padding. Chips pack left-to-right by the configured
         gap; with `max_width` set, a chip that would overflow the row starts a
         new row `row_gap` below. This is sugar over hand-placing N rounded_rects

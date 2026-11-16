@@ -260,7 +260,7 @@ class TestTranslation(unittest.TestCase):
         # Chips of very different text lengths each fit their own text with the
         # same horizontal padding (2 x padding beyond the rendered text width).
         from pptx.util import Emu
-        from pptx_tool.text_fitting import text_width
+        from pptx_tool.measure import text_width
 
         pad = 0.15
         prs = self._build([{
@@ -292,7 +292,7 @@ class TestTranslation(unittest.TestCase):
         """PresentationShapesAdder.add_shapes moves a chip that would exceed max_width to a new row
         at the row's left. Guards the wrap of chip_row."""
         from pptx.util import Emu
-        from pptx_tool.text_fitting import text_width
+        from pptx_tool.measure import text_width
         first_w = text_width("AAA", "Calibri", 12) + 0.3
         prs = self._build([{
             "type": "chip_row", "left": 0.5, "top": 0.5, "font_size": 12, "padding": 0.15,

@@ -9,15 +9,15 @@ at a wrapper of this skill's own — there isn't one.
 The suite runs in the `pptx` skill's project (`uv run --project plugins/docs/skills/pptx/scripts`).
 """
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
+from tests.options import keep_tmp
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = PROJECT_DIR / "tests" / "data"
 TMP_DIR = DATA_DIR / "tmp_pptx_author"
-KEEP_TMP = os.environ.get("KEEP_TMP", "") != ""
 
 # pptx-author has no scripts/ of its own; its templates are read through pptx.
 PPTX_TOOL = str(
@@ -43,12 +43,12 @@ def fresh_dir(name: str) -> Path:
 
 
 def cleanup_dir(d: Path) -> None:
-    if not KEEP_TMP:
+    if not keep_tmp():
         shutil.rmtree(d, ignore_errors=True)
 
 
 def write_readme(d: Path, description: str) -> None:
-    """Write a README.txt describing the test outputs. Only when KEEP_TMP=1."""
-    if not KEEP_TMP:
+    """Write a README.txt describing the test outputs. Only with `pytest --keep-tmp`."""
+    if not keep_tmp():
         return
     (d / "README.txt").write_text(description.strip() + "\n")

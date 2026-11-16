@@ -76,7 +76,7 @@ Three levels of setup, each adding to the one before:
 - Node.js 22 or later with `npm` for short-video HTML scenes. Its first render runs `npm ci` and downloads a headless Chrome through HyperFrames.
 - For short-video Manim scenes, Manim's system libraries (on Linux the Cairo and Pango development packages, `pkg-config` and a C compiler), and LaTeX with `dvisvgm` for formulas.
 - Ollama for local chat, vision and System-1 models.
-- On Linux, voiceover installs the CUDA 13.0 build of PyTorch (a few GB) even without a GPU; it runs on the CPU there.
+- On Linux, voiceover installs the CPU build of PyTorch (about 200 MB), or the CUDA 13.0 build (about 2.7 GB) when `config.yaml` has a `vllm-omni` provider.
 - An NVIDIA GPU or Apple Silicon only for the local `diffusers` models (level 3 above).
 
 ## First use

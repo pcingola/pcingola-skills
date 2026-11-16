@@ -1,8 +1,9 @@
 """The one font-loading and text-measurement path in the package.
 
-Overflow detection (`cmd_extract_shapes`) and the font-size fitter
-(`text_fitting`) both measure through here, so a shape cannot be reported as
-overflowing by one and fitting by the other. What it does:
+Every width and line count is measured here, with font sizes given in points and
+converted once to PIL pixels (size * 96/72, `load_font_at_points`). The text-height
+model built on it, shared by overflow detection and the add-text fitter, is in
+`text_metrics`. What this module does:
 
 - it searches LibreOffice's bundled fonts and maps MS names to the
   metric-compatible clones LibreOffice actually substitutes (Calibri ->
@@ -112,13 +113,14 @@ def load_bundled_font(font_size: float) -> "ImageFont.ImageFont | None":
         return None
 
 
-def load_font(font_name: str, font_size: float):
-    """Load a TrueType font (fuzzy-matched by name), cached package-wide.
+def load_font(font_name: str, font_size: float, font_dirs: list[Path] | None = None):
+    """Load a TrueType font (fuzzy-matched by name) from `font_dirs`, by default the system and LibreOffice font
+    directories (`_system_font_dirs`). Fonts found in the default directories are cached package-wide.
 
     Falls back to the bundled Inter face, then to PIL's default.
     """
     cache_key = (font_name, int(font_size))
-    if cache_key in _FONT_CACHE:
+    if font_dirs is None and cache_key in _FONT_CACHE:
         return _FONT_CACHE[cache_key]
 
     names_to_try = [font_name]
@@ -128,7 +130,7 @@ def load_font(font_name: str, font_size: float):
 
     font = None
     try:
-        dirs = _system_font_dirs()
+        dirs = _system_font_dirs() if font_dirs is None else font_dirs
         for name in names_to_try:
             for font_dir in dirs:
                 font_path = _find_font_file(font_dir, name)
@@ -153,7 +155,8 @@ def load_font(font_name: str, font_size: float):
         except TypeError:
             font = ImageFont.load_default()
 
-    _FONT_CACHE[cache_key] = font
+    if font_dirs is None:
+        _FONT_CACHE[cache_key] = font
     return font
 
 
@@ -166,16 +169,23 @@ def text_width(text: str, font_name: str, font_size: float) -> float:
     """
     if not text:
         return 0.0
-    # PIL's truetype size is in pixels; a point size renders at font_size*DPI/72 px
-    # at 96 DPI. Loading at the raw point value would under-measure by 72/96.
-    font = load_font(font_name, font_size * DPI / POINTS_PER_INCH)
+    font = load_font_at_points(font_name, font_size)
     return _MEASURE_DRAW.textlength(text, font=font) / DPI
 
 
+def load_font_at_points(font_name: str, font_size: float):
+    """`load_font` for a size in points: the one points-to-pixels conversion of the package.
+
+    PIL's truetype size is in pixels, and a point size renders at font_size * 96/72 px at 96 DPI;
+    loading at the raw point value under-measures by 72/96."""
+    return load_font(font_name, round(font_size * DPI / POINTS_PER_INCH))
+
+
 def measure_text_lines(text: str, font_name: str, font_size: float, width_inches: float) -> int:
-    """Estimate how many wrapped lines `text` occupies in a column `width_inches` wide."""
+    """Estimate how many wrapped lines `text` at `font_size` points occupies in a column
+    `width_inches` wide."""
     try:
-        font = load_font(font_name, font_size)
+        font = load_font_at_points(font_name, font_size)
         draw = _MEASURE_DRAW
 
         words = text.split()
@@ -207,7 +217,12 @@ def measure_text_lines(text: str, font_name: str, font_size: float, width_inches
         return lines
 
     except Exception:
-        # Fallback estimate — scales with font size, unlike a fixed chars-per-inch.
-        chars_per_inch = POINTS_PER_INCH / font_size * 2.5
-        chars_per_line = max(1, int(width_inches * chars_per_inch))
-        return max(1, (len(text) + chars_per_line - 1) // chars_per_line)
+        return estimate_text_lines(text, font_size, width_inches)
+
+
+def estimate_text_lines(text: str, font_size: float, width_inches: float) -> int:
+    """`measure_text_lines` without a font: a character-count estimate that scales with the font size, unlike a
+    fixed chars-per-inch."""
+    chars_per_inch = POINTS_PER_INCH / font_size * 2.5
+    chars_per_line = max(1, int(width_inches * chars_per_inch))
+    return max(1, (len(text) + chars_per_line - 1) // chars_per_line)

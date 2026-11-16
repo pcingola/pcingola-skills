@@ -24,14 +24,7 @@ class TestBundledFont(unittest.TestCase):
         """measure.load_font returns the bundled Inter face (DEFAULT_FONT_PATH) when no system font
         matches. Guards the fallback that keeps measurement meaningful on machines without the
         deck's fonts; PIL's default font measured silently wrong before."""
-        measure._FONT_CACHE.clear()
-        try:
-            original = measure._system_font_dirs
-            measure._system_font_dirs = lambda: []
-            font = measure.load_font("NoSuchFontExistsAnywhere", 18)
-        finally:
-            measure._system_font_dirs = original
-            measure._FONT_CACHE.clear()
+        font = measure.load_font("NoSuchFontExistsAnywhere", 18, font_dirs=[])
         self.assertIsInstance(font, ImageFont.FreeTypeFont)
         self.assertEqual(font.path, str(DEFAULT_FONT_PATH))
 
@@ -58,16 +51,11 @@ class TestMeasureTextLines(unittest.TestCase):
         self.assertEqual(measure.measure_text_lines("", "Arial", 18, 4.0), 1)
 
     def test_fallback_estimate_scales_with_font_size(self) -> None:
-        """measure.measure_text_lines' fallback estimate, taken when load_font raises, gives more
+        """measure.estimate_text_lines, measure_text_lines' fallback when measuring fails, gives more
         lines at 32 pt than at 10 pt. Guards the replacement of a fixed chars-per-inch estimate
         that ignored the font size."""
-        original = measure.load_font
-        measure.load_font = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no font"))
-        try:
-            small = measure.measure_text_lines("x" * 200, "Arial", 10, 2.0)
-            large = measure.measure_text_lines("x" * 200, "Arial", 32, 2.0)
-        finally:
-            measure.load_font = original
+        small = measure.estimate_text_lines("x" * 200, 10, 2.0)
+        large = measure.estimate_text_lines("x" * 200, 32, 2.0)
         self.assertGreater(large, small, "fallback ignored font size")
 
 

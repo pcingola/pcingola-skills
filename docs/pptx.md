@@ -10,7 +10,8 @@ module; `extract-text` lives in `cmd_check_text.py`, and `list-images` and `extr
 | --- | --- |
 | `cmd_extract_shapes.py` | The shape inventory every other command keys on: `ShapeData`, `extract_text`, overflow and overlap detection |
 | `measure.py` | Font lookup and text measurement: wrapped line count and single-line width |
-| `text_fitting.py` | `TextFitter` (font-size reduction for `add-text`) and the inherited font size of a shape |
+| `text_metrics.py` | The text-height model shared by overflow detection and fitting: effective font size, line pitch, usable box, overflow rule |
+| `text_fitting.py` | `TextFitter`: font-size reduction for `add-text` |
 | `text_formatters.py` | `ParagraphProcessor` and `ShapeFormatter`: run, paragraph, fill, border and text-frame properties |
 | `text_validators.py` | Checks `add-text` data against the inventory; collects formatting warnings after a write |
 | `placeholders.py` | Finds OBJECT placeholders (type 7) and removes a shape from the shape tree |
@@ -40,16 +41,39 @@ penalises style tokens not asked for, so "Calibri" does not measure Carlito-Bold
 `assets/fonts/Inter_24pt-Light.ttf`, and only then PIL's default font; PIL's bitmap default has metrics unrelated to the
 deck. The line count wraps at 90% of the column width and adds the lines forced by a word wider than the column.
 
-`add-text` computes every shape's fit before writing anything. A paragraph's base size is its `font_size`, else the
-size the shape inherits: the shape's `lstStyle`, then the layout and master placeholders, then the master `titleStyle`,
-`bodyStyle` or `otherStyle`, or `defaultTextStyle` for a non-placeholder. All paragraphs of a shape drop by the same
-amount in 2 pt steps down to 12 pt, against 95% of the height inside fixed margins (0.1 in sides, 0.05 in top and
-bottom) at 1.4 times the font size per line. A shape that still overflows at 12 pt fails the whole command and nothing
-is saved. A paragraph without `font_size` gets an explicit size only when its shape was reduced, so it otherwise keeps
-inheriting from the template.
+Sizes are given in points everywhere and converted once to PIL pixels at 96/72 (`load_font_at_points`), for the line
+count and for `text_width` alike.
 
-The frame-overflow check of the inventory measures the written deck differently: the first run's explicit size or 18
-pt, and the paragraph's line spacing or 1.0 times the font size. Both paths share `measure_text_lines`.
+`text_metrics.py` holds the one text-height model. The inventory's frame-overflow check reads it from the written
+deck, and `add-text`'s fitter applies it to the text data before writing, so a size the fitter accepts is never flagged
+and a size it rejects is flagged by the same amount:
+
+- Style chain: a paragraph property comes from the nearest element that sets it, at the paragraph's level: the
+  paragraph's own `pPr`, the shape's `lstStyle`, the layout and master placeholder `lstStyle`s, then the master
+  `titleStyle`, `bodyStyle` or `otherStyle` for a placeholder, or `defaultTextStyle` for any other shape.
+- Font size: the first run's explicit size, else the chain's `defRPr` size, else 32 pt for TITLE and CENTER_TITLE
+  and 18 pt for any other shape.
+- Font name: the first run's explicit name, else Arial. Theme fonts are not resolved.
+- Line pitch: the chain's `lnSpc` in points, else its `lnSpc` percentage times 1.2 times the font size, else 1.2
+  times the font size (single spacing). An empty paragraph takes one line; a frame with no text takes no height.
+- Spacing: the chain's `spcBef` and `spcAft`, in points or as a percentage of the font size, counted only between
+  paragraphs. LibreOffice draws the first paragraph at the top inset whatever its `spcBef`.
+- Width: frame width minus the left and right insets, minus the chain's `marL`. Bullets written by `add-text` get
+  `marL` 1.6 times the run size per level (18 pt when the run has no explicit size).
+- Usable height: frame height minus the top and bottom insets. The insets are the text frame's (0.1 in sides and
+  0.05 in top and bottom when unset), or the `text_margin_*` values the `add-text` data writes.
+- Overflow: text height minus usable height. Above 0.05 in, the inventory flags it and the fitter rejects the size.
+
+On the neutral template's Title and Content body (32 pt, `spcBef` 20%), the rule accepts 8 one-line bullets, and a
+LibreOffice render (with `noAutofit`) shows 8 inside the frame and a ninth below it
+(`tests/integration/pptx/test_fit_render.py`).
+
+The fitter applies the rule to what `add-text` writes: each paragraph's chain at the level it writes (`level` for a
+bullet), with `line_spacing`, `space_before` and `space_after` from the data replacing the chain's, and for the first
+paragraph the `pPr` that `TextFrame.clear` keeps. A paragraph's base size is its `font_size`, else the chain's size.
+All paragraphs of a shape drop by the same amount in 2 pt steps down to 12 pt. A shape that still overflows at 12 pt
+fails the whole command and nothing is saved. A paragraph without `font_size` gets an explicit size only when its
+shape was reduced, so it otherwise keeps inheriting from the template.
 
 `add-text` clears every inventoried text shape on every slide, including shapes the data does not name; a shape keeps
 text only if the data gives it `paragraphs`. Tables in the inventory are skipped.
@@ -98,5 +122,5 @@ issue.
 Unit tests are in `tests/unit/pptx/`; `test_libreoffice_gate.py` runs the rendering commands with an empty `PATH` and
 checks the install hint. Integration tests in `tests/integration/pptx/` run `pptx.sh` on decks built by the helpers in
 its `__init__.py`; the rendering tests need LibreOffice. Their files go to `tests/data/tmp_pptx/` and are deleted unless
-`KEEP_TMP` is set, in which case a summary slide describing the expected result is inserted first in each kept deck.
+pytest runs with `--keep-tmp`, in which case a summary slide describing the expected result is inserted first in each kept deck.
 `tests/unit/pptx/test_add_text_sizes.py` reads the neutral brand's template from `brand:brand`.

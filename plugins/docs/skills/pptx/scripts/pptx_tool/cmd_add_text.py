@@ -10,9 +10,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .cmd_extract_shapes import ExtractedShapesData, extract_text, get_placeholder_type
+from .cmd_extract_shapes import ExtractedShapesData, extract_text
 from .exceptions import OverflowError, TextAdditionError, ValidationError
-from .text_fitting import FittingResult, TextFitter, get_default_font_size_for_placeholder, inherited_font_size, DEFAULT_FONT_SIZE, MIN_FONT_SIZE
+from .text_fitting import FittingResult, TextFitter, MIN_FONT_SIZE, paragraph_base_sizes
 from .text_formatters import ParagraphProcessor
 from .text_validators import TextAdditionValidator, WarningCollector
 from pptx import Presentation
@@ -101,16 +101,11 @@ class PresentationTextAdder:
                     continue
 
                 shape_data = extracted_shapes_data[slide_key][shape_key]
-                paragraphs = shape_text_data["paragraphs"]
+                if not getattr(shape_data.shape, "has_text_frame", False):
+                    continue
 
-                # Get shape dimensions and placeholder type as dict
-                shape_dict = shape_data.to_dict()
-                shape_dict["inherited_font_size"] = inherited_font_size(
-                    shape_data.shape, shape_dict.get("placeholder_type"))
-
-                # Calculate fitting with reduction approach
                 result = self.text_fitter.find_fitting_reduction(
-                    shape_dict, paragraphs, slide_key, shape_key
+                    shape_data.shape, shape_text_data, slide_key, shape_key
                 )
 
                 fitting_results[f"{slide_key}/{shape_key}"] = result
@@ -177,12 +172,10 @@ class PresentationTextAdder:
                 fitting_result = fitting_results.get(fitting_key)
                 reduction = fitting_result.reduction if fitting_result else 0
 
-                # The size a paragraph without font_size inherits from layout and master
-                placeholder_type = get_placeholder_type(shape)
-                default_size = (inherited_font_size(shape, placeholder_type)
-                                or get_default_font_size_for_placeholder(placeholder_type))
+                # The size each paragraph starts from: font_size, else what it inherits from layout and master
+                base_sizes = paragraph_base_sizes(shape, shape_text_data["paragraphs"])
 
-                self._add_paragraphs(text_frame, shape_text_data["paragraphs"], reduction, default_size)
+                self._add_paragraphs(text_frame, shape_text_data["paragraphs"], reduction, base_sizes)
 
                 # Apply shape-level formatting properties if present
                 shape_level_keys = {
@@ -202,21 +195,19 @@ class PresentationTextAdder:
 
         return stats
 
-    def _add_paragraphs(self, text_frame, paragraphs_data: list, reduction: float = 0, default_size: float = DEFAULT_FONT_SIZE) -> None:
+    def _add_paragraphs(self, text_frame, paragraphs_data: list, reduction: float, base_sizes: list[float]) -> None:
         """Add paragraphs to a text frame with font size reduction.
 
         A paragraph without font_size gets no explicit size unless the shape needs a reduction: its
-        text inherits the size from layout and master. `default_size` is that inherited size, the
-        base of a reduction."""
+        text inherits the size from layout and master. `base_sizes` (`paragraph_base_sizes`) are the
+        sizes a reduction starts from."""
 
-        for i, para_data in enumerate(paragraphs_data):
+        for i, (para_data, base_size) in enumerate(zip(paragraphs_data, base_sizes)):
             if i == 0:
                 paragraph = text_frame.paragraphs[0]
             else:
                 paragraph = text_frame.add_paragraph()
 
-            # Calculate the font size for this paragraph
-            base_size = para_data.get("font_size", default_size)
             final_size = max(MIN_FONT_SIZE, base_size - reduction)
 
             # Only pass an override when the shape needs a reduction

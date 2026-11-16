@@ -7,6 +7,8 @@ from pptx.oxml.ns import qn
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.util import Inches, Pt
 
+from .text_metrics import DEFAULT_FONT_SIZE, bullet_margin_emu
+
 
 class ParagraphFormatter:
     """Handles paragraph-level formatting operations."""
@@ -47,9 +49,8 @@ class ParagraphFormatter:
         level = properties.get("level", 0)
         paragraph.level = level
 
-        font_size = properties.get("font_size", 18.0)
-        level_indent_emu = int((font_size * (1.6 + level * 1.6)) * 12700)
-        hanging_indent_emu = int(-font_size * 0.8 * 12700)
+        font_size = properties.get("font_size", DEFAULT_FONT_SIZE)
+        level_indent_emu, hanging_indent_emu = bullet_margin_emu(font_size, level)
 
         pPr.attrib["marL"] = str(level_indent_emu)
         pPr.attrib["indent"] = str(hanging_indent_emu)

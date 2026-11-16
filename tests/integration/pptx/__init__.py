@@ -1,7 +1,6 @@
 """Helpers for pptx integration tests."""
 
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,10 +11,11 @@ from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
+from tests.options import keep_tmp
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = PROJECT_DIR / "tests" / "data"
 TMP_DIR = DATA_DIR / "tmp_pptx"
-KEEP_TMP = os.environ.get("KEEP_TMP", "") != ""
 PPTX_TOOL = str(PROJECT_DIR / "plugins" / "docs" / "skills" / "pptx" / "scripts" / "pptx.sh")
 
 
@@ -42,7 +42,7 @@ def fresh_dir(name: str) -> Path:
 
 
 def cleanup_dir(d: Path) -> None:
-    if not KEEP_TMP:
+    if not keep_tmp():
         shutil.rmtree(d, ignore_errors=True)
 
 
@@ -210,11 +210,11 @@ def create_pptx_with_table_and_image(d: Path, name: str = "with_media.pptx") -> 
 def stamp_description(pptx_path: Path, description: str) -> None:
     """Insert a summary slide at position 0 describing what to expect.
 
-    Only applies when KEEP_TMP=1. The summary slide has a light grey background
+    Only applies with `pytest --keep-tmp`. The summary slide has a light grey background
     with the test name, file name, and a checklist of expected outcomes so the
     reviewer can verify the presentation without reading the test code.
     """
-    if not KEEP_TMP or not pptx_path.exists():
+    if not keep_tmp() or not pptx_path.exists():
         return
 
     from pptx.oxml.ns import qn
@@ -296,11 +296,11 @@ def stamp_description(pptx_path: Path, description: str) -> None:
 def write_readme(d: Path, description: str) -> None:
     """Write a README.txt in directory *d* describing the test outputs.
 
-    Only applies when KEEP_TMP=1.  Use this for tests whose outputs are not
+    Only applies with `pytest --keep-tmp`. Use this for tests whose outputs are not
     PPTX files (JSON, PDF, JPEG, stdout-only) and therefore cannot carry a
     stamp_description slide.
     """
-    if not KEEP_TMP:
+    if not keep_tmp():
         return
     readme = d / "README.txt"
     readme.write_text(description.strip() + "\n")

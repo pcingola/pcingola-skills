@@ -10,7 +10,7 @@ from pptx.util import Pt
 from pptx_tool.cmd_add_slide import add_slides
 from pptx_tool.cmd_edit import apply_operations
 from pptx_tool.cmd_extract_shapes import get_placeholder_type
-from pptx_tool.text_fitting import inherited_font_size
+from pptx_tool.text_metrics import inherited_font_size
 
 TEMPLATE = (Path(__file__).resolve().parents[3]
             / "plugins/brand/skills/brand/brands/neutral/pptx/presentation.pptx")

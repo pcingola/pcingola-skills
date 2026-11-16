@@ -88,8 +88,7 @@ def find_brand_plugin(studio_root: Path, list_plugins: Callable[[], list | None]
 
 
 def brand_path() -> str:
-    """`BRAND_PATH` as the brand plugin's CLI reads it: the setting of the config file, else the process
-    environment."""
+    """`BRAND_PATH` as the brand plugin's CLI reads it: the setting of the config file, else empty."""
     return get("BRAND_PATH", "") or ""
 
 
