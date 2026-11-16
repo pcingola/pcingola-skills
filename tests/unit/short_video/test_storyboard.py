@@ -107,6 +107,68 @@ class TestParse(unittest.TestCase):
                 self.assertTrue(any(m.startswith(prefix) and fragment in m for m in msg.splitlines()), msg)
 
 
+class TestShowAuthor(unittest.TestCase):
+
+    def setUp(self) -> None:
+        settings.use_project(None)
+
+    def test_parse(self) -> None:
+        """storyboard.parse_markdown reads `Show author:` true or false (any case) into a boolean `show_author` and
+        leaves the key out when the line is absent. Guards the per-scene creator caption switch."""
+        self.assertNotIn("show_author", storyboard.parse_markdown(MD)["scenes"][1])
+        for value, parsed in (("false", False), ("False", False), ("true", True), ("TRUE", True)):
+            with self.subTest(value=value):
+                md = MD.replace("Brief: Start wide.\n", f"Brief: Start wide.\nShow author: {value}\n")
+                self.assertIs(storyboard.parse_markdown(md)["scenes"][1]["show_author"], parsed)
+        md = MD.replace("Template: end\n", "Template: end\nShow author: true\n")
+        self.assertIs(storyboard.parse_markdown(md)["scenes"][2]["show_author"], True)
+
+    def test_bad_value(self) -> None:
+        """storyboard.parse_markdown refuses a `Show author:` value other than true or false, an empty one
+        included, naming its line; a capitalised two-word phrase with a colon that is no key stays Brief text.
+        Guards a typo silently captioning a scene, and Brief lines such as `Camera move: ...`."""
+        for value in ("off", "no", ""):
+            with self.subTest(value=value):
+                msg = _error(MD.replace("Brief: Start wide.\n", f"Brief: Start wide.\nShow author: {value}\n"))
+                self.assertIn("storyboard.md line 18: scene 'injection': `Show author:` must be true or false", msg)
+        md = MD.replace("Brief: Start wide.\n", "Brief: Start wide.\nCamera move: pan left.\n")
+        self.assertEqual(storyboard.parse_markdown(md)["scenes"][1]["brief"], "Start wide. Camera move: pan left.")
+
+    def test_key_case(self) -> None:
+        """storyboard.parse_markdown matches every key in any case (`Show Author:`, `SHOW AUTHOR:`, `ENGINE:`), so a
+        known key in another case is never appended to the Brief above it. Guards a caption switch lost as Brief
+        text."""
+        for line in ("Show Author: false", "SHOW AUTHOR: false", "show Author: false"):
+            md = MD.replace("Brief: Start wide.\n", f"Brief: Start wide.\n{line}\n")
+            scene = storyboard.parse_markdown(md)["scenes"][1]
+            if line[0].isupper():
+                with self.subTest(line=line):
+                    self.assertEqual((scene["brief"], scene["show_author"]), ("Start wide.", False))
+            else:  # a key starts with a capital letter, as one-word keys do; `brief: x` is Brief text
+                self.assertEqual(scene["brief"], "Start wide. show Author: false")
+        scene = storyboard.parse_markdown(MD.replace("## injection\n", "## injection\nENGINE: manim\n"))["scenes"][1]
+        self.assertEqual(scene["engine"], "manim")
+
+    def test_json(self) -> None:
+        """storyboard.parse_json keeps `show_author` and to_json writes it back; a non-boolean is refused. Guards
+        the field's round trip through storyboard.json (the file Studio edits)."""
+        data = storyboard.parse_markdown(MD.replace("Brief: Start wide.\n", "Brief: Start wide.\nShow author: false\n"))
+        self.assertEqual(storyboard.parse_json(storyboard.to_json(data)), data)
+        data["scenes"][1]["show_author"] = None
+        with self.assertRaises(storyboard.StoryboardError) as cm:
+            storyboard.parse_json(storyboard.to_json(data))
+        self.assertIn("`show_author` must be true or false", str(cm.exception))
+
+    def test_precedence(self) -> None:
+        """storyboard.show_author is the scene's own value, else its template's `show_author` rule (false for
+        title and end, true for summary), else True. Guards which scenes get the creator caption."""
+        s = storyboard.show_author
+        self.assertEqual([s({"id": "a"}), s({"id": "a", "show_author": False})], [True, False])
+        self.assertEqual([s({"id": "t", "template": t}) for t in ("title", "summary", "end")], [False, True, False])
+        self.assertEqual([s({"id": "t", "template": "title", "show_author": True}),
+                          s({"id": "t", "template": "summary", "show_author": False})], [True, False])
+
+
 SPEAKERS_MD = """\
 # Interview
 
@@ -253,7 +315,7 @@ class TestValidate(unittest.TestCase):
 
     def test_errors(self) -> None:
         """storyboard.validate reports a missing image or source, invalid voice, music, critic and speaker
-        settings, an obsolete `voice.backend` and a model that is not a model id. Guards the checks the parser cannot do, before any voice
+        settings, an obsolete `voice.backend` or template `shows_author` and a model that is not a model id. Guards the checks the parser cannot do, before any voice
         or render."""
         for settings_text, md, fragment in [
             ("", MD.replace("Image: a.png", "Image: b.png"), "image 'b.png' not found"),
@@ -270,6 +332,8 @@ class TestValidate(unittest.TestCase):
             ("critic: {rounds: 1.5}", MD, "`critic.rounds` must be"),
             ("critic: {max_findings: -2}", MD, "`critic.max_findings` must be"),
             ("critic: {max_findings: true}", MD, "`critic.max_findings` must be"),
+            ("templates: {title: {shows_author: true}}", MD,
+             "`templates.title.shows_author` is no longer read: it became `show_author` with the inverted meaning"),
             ("", SPEAKERS_MD.replace("| oai:tts |", "| elevenlabs |"), "speaker 'guest': model must be"),
             ("", SPEAKERS_MD.replace("| 1.1 |", "| 9 |"), "speaker 'host': speed must be"),
         ]:

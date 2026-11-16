@@ -55,7 +55,9 @@ VERSION_JSON = re.compile(r"^v([1-9][0-9]*)\.json$")
 # The storyboard structure, as media:short-video's storyboard check has it.
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
 SCENE_KEYS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
-              "voices", "world", "length")
+              "voices", "world", "length", "show_author")
+# Scene keys that change only the assembled film (the creator caption), not the scene's recording or render.
+FILM_ONLY_KEYS = ("show_author",)
 VOICE_KEYS = ("model", "name", "speed", "style")
 # The voice field of an earlier version; `backend_model` maps its values, as media:short-video does.
 OLD_VOICE_KEY = "backend"
@@ -81,8 +83,11 @@ def backend_model(backend: object) -> str | None:
 
 
 ENGINES = ("html", "manim", "video", "presenter", "clip")
-# The template names of media:short-video's default settings, which Studio's settings.yaml does not change.
-TEMPLATES = ("title", "summary", "end")
+# The templates of media:short-video's default settings (`templates:`), which Studio's settings.yaml does not change,
+# each with its `show_author` rule: whether the creator caption is drawn over a scene of that template that does not
+# set `show_author` itself. tests/unit/studio/test_video.py checks this copy against media:short-video's settings.
+TEMPLATE_SHOW_AUTHOR = {"title": False, "summary": True, "end": False}
+TEMPLATES = tuple(TEMPLATE_SHOW_AUTHOR)
 
 # Film settings (`film` in project.json).
 SPEED = (0.5, 2.0)
@@ -277,6 +282,8 @@ def _check_scene(s: object, i: int, seen: set, speakers: dict, err) -> None:
             err(f"{label}: `ambience` must be true or false")
         elif engine != "video" or template is not None:
             err(f"{label}: only a scene with `engine` video has `ambience` (the video model's sound track)")
+    if "show_author" in s and not isinstance(s["show_author"], bool):
+        err(f"{label}: `show_author` must be true or false")
     silent = (engine == "clip" and template is None) or (html and "length" in s)
     narration = s.get("narration", [] if silent else None)
     if not isinstance(narration, list) or not all(_text(x) for x in narration):
@@ -329,6 +336,14 @@ def scenes_of(storyboard: object) -> list[dict]:
     if not isinstance(scenes, list):
         return []
     return [s for s in scenes if isinstance(s, dict) and isinstance(s.get("id"), str) and SCENE_ID.match(s["id"])]
+
+
+def show_author(scene: dict) -> bool:
+    """Whether the film's creator caption is drawn over a scene: its own `show_author`, else its template's rule
+    (`TEMPLATE_SHOW_AUTHOR`), else True; as media:short-video's `storyboard.show_author`."""
+    if isinstance(scene.get("show_author"), bool):
+        return scene["show_author"]
+    return TEMPLATE_SHOW_AUTHOR.get(scene.get("template"), True)
 
 
 def has_picture(scene: dict) -> bool:
@@ -812,8 +827,17 @@ def review_of(film_dir: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def films_of(project: Path) -> list[dict]:
-    """The complete film versions, newest first."""
+def caption_changed(film_scenes: object, storyboard: object) -> list[str]:
+    """The ids of the storyboard's scenes whose `show_author` differs from the one the MP4 was assembled with (the
+    `show_author` of its manifest's scene entry). An entry without one (an MP4 made before the key existed), and a
+    scene the MP4 does not have, count as unchanged here."""
+    used = {e["id"]: e["show_author"] for e in film_scenes if isinstance(e, dict) and isinstance(e.get("show_author"), bool)
+            and isinstance(e.get("id"), str)} if isinstance(film_scenes, list) else {}
+    return [s["id"] for s in scenes_of(storyboard) if s["id"] in used and used[s["id"]] != show_author(s)]
+
+
+def films_of(project: Path, storyboard: object = None) -> list[dict]:
+    """The complete film versions, newest first; with the `storyboard`, each with `caption_changed`."""
     d = _subdir(project, "film")
     out = []
     for n, v, manifest in _complete(d, MANIFEST) if d else []:
@@ -821,7 +845,8 @@ def films_of(project: Path) -> list[dict]:
         out.append({"n": n, "path": str(v / "film.mp4"), "duration": manifest.get("duration"),
                     "created": manifest.get("created_at"), "scenes": manifest.get("scenes"),
                     "music": _version_n(music.get("version")) if isinstance(music, dict) else None,
-                    "changes": _studio_json(v).get("changes"), "review": review_of(v)})
+                    "changes": _studio_json(v).get("changes"), "review": review_of(v),
+                    "caption_changed": caption_changed(manifest.get("scenes"), storyboard)})
     return out
 
 
@@ -857,8 +882,9 @@ STATES = ("ready", "voice", "render")
 
 def scene_state(scene: dict, storyboard: dict, status: object, film: dict) -> str:
     """The state shown for `scene`: its entry in status.json, moved to `voice` when the narration, speakers or
-    voice changed since that entry and to `render` when another key of the scene, or a template scene's author or
-    brand, changed; a scene without an entry needs a recording when it has narration, else a render."""
+    voice changed since that entry and to `render` when another key of the scene (except `FILM_ONLY_KEYS`), or a
+    template scene's author or brand, changed; a scene without an entry needs a recording when it has narration, else
+    a render."""
     narrated = bool(scene.get("narration"))
     entries = status.get("scenes") if isinstance(status, dict) else None
     entry = entries.get(scene["id"]) if isinstance(entries, dict) else None
@@ -867,6 +893,9 @@ def scene_state(scene: dict, storyboard: dict, status: object, film: dict) -> st
     recorded, basis = entry["state"], normalize(entry["basis"])
     ran = status.get("film") if isinstance(status.get("film"), dict) else {}
     now = normalize(scene)
+    for k in FILM_ONLY_KEYS:
+        now.pop(k, None)
+        basis.pop(k, None)
     if narrated and (normalize(film.get("voice")) != normalize(ran.get("voice"))
                      or normalize(storyboard.get("speakers")) != normalize(status.get("speakers"))):
         return "voice"
@@ -903,13 +932,13 @@ def video_details(project: Path, meta: object) -> dict:
         still = next((v["n"] for v in pictures if is_still(v)), None) if is_drawn(s) else None
         scenes.append({"id": sid, "state": scene_state(s, storyboard, status, film), "pictures": pictures,
                        "picture": picture, "still": still, "recording": recording_of(project, sid),
-                       "clip": clip_of(project, sid), "page": page_scene(project, s)})
+                       "clip": clip_of(project, sid), "page": page_scene(project, s), "show_author": show_author(s)})
     music = music_of(project)
     out |= {
         "scenes": scenes,
         "music": music,
         "music_used": music_used(film, music),
-        "films": films_of(project),
+        "films": films_of(project, storyboard),
         "html_films": html_films_of(project),
         "samples": samples_of(project),
         "status": status.get("created") if isinstance(status, dict) else None,

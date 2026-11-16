@@ -54,6 +54,9 @@
     ["presenter", "Presenter: the person in the scene's picture speaks the narration", "presenter"]];
   /** Engines that animate the scene's picture, so they need one; the presenter takes no brief. */
   const NEEDS_PICTURE = ["video", "presenter"];
+  /** Whether the creator caption is drawn over a scene: its own `show_author`, else what the server gives for it (its
+   *  template's rule, else true). */
+  const showAuthor = s => typeof s.show_author === "boolean" ? s.show_author : info(s.id).show_author !== false;
   const STATES = { ready: ["st-ready", "Ready"], voice: ["st-voice", "Needs voice"], render: ["st-render", "Needs render"] };
   const AUDIO = [".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"];
   const SOURCES = [".pdf", ".txt", ".md", ".docx", ".pptx", ".xlsx", ".csv", ".html", ...AUDIO];
@@ -104,7 +107,7 @@
   const scenes = () => (sb && Array.isArray(sb.scenes) ? sb.scenes : []);
   const sceneOf = id => scenes().find(s => s.id === id) || null;
   const indexOf = id => scenes().findIndex(s => s.id === id);
-  const info = id => (V().scenes || []).find(s => s.id === id) || { id, state: null, pictures: [], picture: null, still: null, recording: null, clip: null, page: null };
+  const info = id => (V().scenes || []).find(s => s.id === id) || { id, state: null, pictures: [], picture: null, still: null, recording: null, clip: null, page: null, show_author: true };
   const samples = () => P().samples || null;
   const reqs = () => (project ? pending(project.dir) : []);
 
@@ -1369,6 +1372,10 @@
                 f.review ? null : [h("button", { class: "mini", ...guard({ action: "review", version: f.n }), onclick: () => send({ action: "review", version: f.n }) }, "Review this film"), " "],
                 film.shape === "16:9" ? h("button", { class: "mini", ...guard({ action: "phone", version: f.n }), onclick: () => phone(f) }, "Phone version") : null)),
             f.changes ? h("div", { class: "changed" }, f.changes) : null,
+            f.n === films[0].n && (f.caption_changed || []).length ? h("div", { class: "changed" },
+              `The author caption changed on ${plural(f.caption_changed.length, "scene")} since this MP4; the caption is drawn on the MP4 only. `,
+              h("button", { class: "mini", disabled: !!exporting, title: exporting ? pendingText(exporting) : "Assembles a new film.mp4 with the current captions",
+                onclick: () => send({ action: "export-mp4" }) }, "Export MP4")) : null,
             f.review ? reviewPart(f, video, f.n === films[0].n) : null,
             onFilm(f.n));
         })));
@@ -1378,8 +1385,9 @@
    * What differs between the newest film (the newest HTML film, else the newest MP4) and the project as it is now:
    * null when the film is up to date; otherwise the number of scenes that changed (added, removed, moved, needing a
    * recording or a new version, or with a newer page or clip than the film plays) and whether the music changed (an
-   * MP4 only: an HTML film plays the newest music version). `label` names the film. With no film, every scene is to
-   * make.
+   * MP4 only: an HTML film plays the newest music version). `label` names the film. `caption` is the number of scenes
+   * whose author caption changed since the newest MP4 (`caption_changed` from the server; the HTML film draws no
+   * caption), named by `mp4`. With no film, every scene is to make.
    */
   function filmChanges() {
     const hf = (V().html_films || [])[0], mf = (V().films || [])[0], list = scenes();
@@ -1396,15 +1404,18 @@
       : (x, k) => !info(x.id).clip || used[k].scene_version !== `v${info(x.id).clip.n}`;
     const changed = moved ? list.length : list.filter((x, k) => stateOf(x.id) !== "ready" || stale(x, k)).length;
     const music = !hf && (film.music.mode === "none" ? null : V().music_used) !== (mf.music ?? null);
-    return changed || music ? { scenes: changed, music, none: false, label: hf ? `HTML v${hf.n}` : `MP4 v${mf.n}` } : null;
+    const caption = mf ? (mf.caption_changed || []).length : 0;
+    return changed || music || caption ? { scenes: changed, music, caption, mp4: mf ? `MP4 v${mf.n}` : null, none: false,
+      label: hf ? `HTML v${hf.n}` : `MP4 v${mf.n}` } : null;
   }
   /** The films step's line: "not made yet", what changed since the newest film, or the number of films. */
   function filmsSummary() {
     const c = filmChanges(), films = (V().html_films || []).length + (V().films || []).length;
     if (!c) return plural(films, "film");
     if (c.none) return "not made yet";
-    return [c.scenes ? `${plural(c.scenes, "scene")} changed` : null, c.music ? "music changed" : null].filter(Boolean).join(" and ")
-      + ` since film ${c.label}`;
+    const sinceFilm = c.scenes || c.music ? [c.scenes ? `${plural(c.scenes, "scene")} changed` : null, c.music ? "music changed" : null]
+      .filter(Boolean).join(" and ") + ` since film ${c.label}` : null;
+    return [sinceFilm, c.caption ? `caption changed since ${c.mp4}` : null].filter(Boolean).join("; ");
   }
   /** The films step before the first film: what "Make the film" will do. */
   function filmPlan() {
@@ -1495,7 +1506,7 @@
     section(() => JSON.stringify([id, sc().narration, sc().beats, sc().speakers, sc().voices, sb && sb.speakers, film.voice,
       info(id).recording && info(id).recording.duration, writeHint, drawn(sc())]), sceneLines);
     section(() => JSON.stringify([id, !!info(id).recording, sc().template, sc().engine, sc().brief, secs(sc()),
-      scenes().slice(0, Math.max(0, indexOf(id))).map(secs), drawn(sc())]), sceneMovement);
+      scenes().slice(0, Math.max(0, indexOf(id))).map(secs), drawn(sc()), showAuthor(sc())]), sceneMovement);
     section(() => JSON.stringify([id, (P().scene_styles || {})[id], P().style, ownStyle, drawn(sc())]), sceneStyle);
     section(() => JSON.stringify([id, drawn(sc())]), sceneAsk);
   }
@@ -1777,7 +1788,16 @@
         textField("textarea", `brief-${view}`, s.brief || "", t => { s.brief = t; }, { class: "sv-brief" })],
       h("dl", { class: "facts", style: "margin-top:12px" },
         h("dt", {}, "Length"), h("dd", {}, `${mmss(secs(s))}, ${rec ? "set by the spoken words" : "estimated from the words"}`),
-        h("dt", {}, "Starts at"), h("dd", {}, `${mmss(start)} in the film`)));
+        h("dt", {}, "Starts at"), h("dd", {}, `${mmss(start)} in the film`)),
+      authorSwitch(s));
+  }
+
+  /** The scene's `show_author`: whether the creator caption ("Created by …") is drawn over it. Each change writes the
+   *  value explicitly, one storyboard write. */
+  function authorSwitch(s) {
+    return h("label", { class: "switch", style: "margin-top:12px" },
+      h("input", { type: "checkbox", checked: showAuthor(s), onchange: e => { s.show_author = e.target.checked; commit(); } }), h("span"),
+      "Show author caption", h("span", { class: "hint" }, "drawn on the MP4 only; off when the picture already shows the author's name"));
   }
 
   /** The engine that animates a scene: html (the default, no `engine`), manim, or a video model of config.yaml,

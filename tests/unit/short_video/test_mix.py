@@ -178,10 +178,14 @@ class TestLogoOnlyCaption(unittest.TestCase):
             self.assertIn('"author": "Jane"', js)
 
     def test_with_text_title_and_end_skipped(self) -> None:
-        """credit.captioned with caption text skips scenes that show the author. Guards no double credit on
-        title and end cards."""
+        """credit.captioned with caption text captions exactly the scenes whose storyboard.show_author is True:
+        not title and end, not a scene with `Show author: false`, the others yes. Guards no double credit on
+        title and end cards and on a slide that already shows the author."""
         settings.use_project(None)
-        self.assertEqual(credit.captioned([True, False]), [False, True])
+        self.assertEqual(credit.captioned([False, True]), [False, True])
+        scenes = [{"id": "t", "template": "title"}, {"id": "a"}, {"id": "b", "show_author": False},
+                  {"id": "e", "template": "end", "show_author": True}]
+        self.assertEqual(credit.captioned([storyboard.show_author(s) for s in scenes]), [False, True, False, True])
 
 
 class TestBrandLogo(unittest.TestCase):

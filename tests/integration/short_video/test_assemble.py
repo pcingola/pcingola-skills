@@ -102,13 +102,14 @@ class TestAssemble(unittest.TestCase):
         return [x / 32768 for x in struct.unpack(f"<{len(raw) // 2}h", raw)]
 
     def test_output_path_and_manifest(self) -> None:
-        """mix.assemble writes film/v1/film.mp4 and a manifest with each scene's scene and voice version and the
-        music version and gain. Guards the manifest film_sources and the agent read."""
+        """mix.assemble writes film/v1/film.mp4 and a manifest with each scene's scene and voice version and
+        `show_author`, and the music version and gain. Guards the manifest film_sources and the agent read."""
         self.assertEqual(self.film, self.project / "film" / "v1" / "film.mp4")
         manifest = json.loads((self.film.parent / "manifest.json").read_text())
         self.assertEqual([s["id"] for s in manifest["scenes"]], ["one", "two"])
         self.assertEqual(manifest["scenes"][0]["scene_version"], "v1")
         self.assertEqual(manifest["scenes"][0]["voice_version"], "v1")
+        self.assertEqual([s["show_author"] for s in manifest["scenes"]], [True, True])
         self.assertEqual(manifest["music"]["version"], "v1")
         self.assertEqual(manifest["music"]["gain_db"], -14.0)
 

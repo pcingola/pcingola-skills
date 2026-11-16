@@ -4,8 +4,10 @@ Every film carries the creator credit. `assemble` adds it in the same encode
 that joins the scenes:
 
 - The caption `credit.text` ("Created by <author>") in the bottom-right
-  corner, small, with no box or shadow, on every scene whose template does
-  not show the author itself (`shows_author`). Its colour follows the
+  corner, small, with no box or shadow, on every scene except those with
+  `Show author: false` in the storyboard and, without that key, the template
+  scenes whose rule is `show_author: false` (title and end, under
+  `templates:`). Its colour follows the
   corner's brightness per scene: dark on a light corner, light on a dark one.
   Font, size, colours and threshold are under `credit:`.
 - With `brand:` set, the brand's PNG (`raster` in `brand.yaml`) right of the
@@ -40,6 +42,8 @@ the audio copied. `--brand` is the brand folder the brand skill reports.
 - On an image scene, the caption is readable, does not draw the eye, and
   covers nothing important. If a scene has content in that corner, move the
   content in the scene.
+- No scene shows the author's name twice: a scene whose picture holds the
+  name (a title or closing slide of the user's) has `Show author: false`.
 - The title scene shows the byline and the end scene ends on the credit line,
   unless `credit.byline` or `credit.text` is null.
 - With a brand, once, at the first assembly with that brand (not at every

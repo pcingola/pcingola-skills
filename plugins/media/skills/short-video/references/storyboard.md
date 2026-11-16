@@ -102,11 +102,21 @@ to sentences or words. The agent writes this detail from the user's short
 request; the user need not give it. Inside a Brief, a line that starts with
 a capitalised word and a colon starts a new field and fails as an unknown
 key: write such labels in lowercase (`palette: #0f1420 ...`) or inside a
-sentence (`The palette is ...`).
+sentence (`The palette is ...`). A key matches in any case after its capital first
+letter (`ENGINE:`, `Show Author:`); `Show author:` is the only key of two words.
 
 Any HTML scene without `Template:` and without `Image:` may have
 `World: <name>`, which joins it to the consecutive scenes with the same name
 in one page (see "Shared worlds").
+
+Any scene may have `Show author: false` or `Show author: true` (case
+insensitive; any other value, an empty one included, is an error). With
+`false` the film's creator caption ("Created by <author>",
+`references/post-production.md`) is not drawn over the scene. Without the
+key a scene follows its template's `show_author` rule (`false` for `title`
+and `end`), and a scene without a template is captioned. Set `false` on a
+scene whose picture already shows the author's name, for example a title or
+closing slide taken from the user's deck.
 
 Below the keys and above the table, a scene with an image has a preview line:
 `<a href="images/1_vaccine.png"><img src="images/1_vaccine.png" width="30%"></a>`
@@ -222,7 +232,8 @@ its sentences' resolved voice.
   `beats` (the On screen cells), lists of one string per sentence (a clip
   scene may leave both out, which makes it silent, and a scene with `length`
   leaves both out); `length` (a number of seconds) and `world` (a name) as
-  the `Length:` and `World:` keys; optional
+  the `Length:` and `World:` keys; `show_author` (true or false; null is an
+  error, leave the key out instead) as the `Show author:` key; optional
   `speakers` (a speaker name or null per sentence), `voices` (null or an
   object with any of `model`, `name`, `speed`, `style` per sentence) and
   `preview` (the image preview path of a storyboard.md; unused otherwise).
@@ -238,8 +249,9 @@ A scene with `Template: title`, `summary` or `end` starts from the suggested
 page `assets/<name>.html`, which the scene author restyles to match the film.
 It takes no `Brief:`; an `Image:` is used as the background. Its On screen
 cells are the text shown, word for word, so keep them short. Position, row
-limit, hold and whether the page shows the author are under `templates:` in
-the settings; `validate` warns when a scene breaks the position or row
+limit, hold and whether the creator caption is drawn over the scene
+(`show_author`; a scene's own `Show author:` overrides it) are under
+`templates:` in the settings; `validate` warns when a scene breaks the position or row
 limit.
 
 - `title`: row 1 is the title, further rows lines under it; the page adds

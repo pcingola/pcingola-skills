@@ -256,6 +256,16 @@ no filtergraph escaping; the file and logo paths sit in a fresh temporary direct
 characters that would need escaping. The brand folder comes from `brand:brand` and is passed as `--brand DIR`; its
 name must equal the `brand:` setting, so a folder of another brand is refused.
 
+Which scenes get the caption is `storyboard.show_author`: the scene's own `show_author` (`Show author: true|false` in
+storyboard.md), else its template's `show_author` rule under `templates:` (false for `title` and `end`, whose pages
+show the author), else true. The per-scene key exists for pictures from the user's material that already show the
+author's name, such as the first and last slide of a deck, where the caption would show the name twice; the agent sets
+it from what it sees in the picture, and the critic reports a scene that shows the name and is still captioned. With
+`credit.text: null` (logo only) every scene gets the logo whatever its `show_author`. Each scene entry of
+`film/v<N>/manifest.json` records the `show_author` the MP4 was assembled with, so a later change is detectable. The
+caption is drawn on the MP4 only; the HTML film has none. `validate` refuses a project settings file that still holds
+the earlier template rule `shows_author` (the inverse of `show_author`), since it is no longer read.
+
 ## Review
 
 Motion is judged by agents looking at stills of the scenes (`stills` on a page, `frames` on a render), and no code

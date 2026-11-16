@@ -97,6 +97,16 @@ number above 0): it is silent and lasts that long. Only such a scene takes
 `World: <name>` (`[a-z0-9_]+`, parsed `world`) puts an HTML scene in a shared
 world: the consecutive scenes with the same name are cut from one page (see
 `world`). A world scene takes no `Template:` and no `Image:`.
+
+Any scene may have `Show author: false` (or `true`; the value is case
+insensitive, anything else is an error): the parsed `show_author` is False
+(True), and with False the film's creator caption ("Created by <author>") is
+not drawn over the scene. The parsed scene has `show_author` only when the key
+is given; without it the scene follows its template's `show_author` rule
+(`templates:` in the settings), and a scene without either is captioned
+(`show_author`). In storyboard.json `show_author` is true or false; null is an
+error (leave the key out instead). Set False on a scene whose picture already
+shows the author's name, so the name is not burned in twice.
 """
 
 from __future__ import annotations
@@ -116,9 +126,15 @@ SCENE_ID_RE = re.compile(r"^[a-z0-9_]+$")
 HEADER_KEYS = ("Topic", "Source")
 # Header keys of older storyboards and where their values live now.
 MOVED_KEYS = {"Voice": "voice", "Music": "music", "Author": "author"}
-SCENE_KEYS = ("Image", "Brief", "Template", "Engine", "Ambience", "Length", "World")
+SCENE_KEYS = ("Image", "Brief", "Template", "Engine", "Ambience", "Length", "World", "Show author")
+# Every key of storyboard.md by its lowercase form: a key is matched in any case.
+KNOWN_KEYS = {k.lower(): k for k in HEADER_KEYS + tuple(MOVED_KEYS) + SCENE_KEYS}
+# A template rule of an earlier version, and its replacement with the inverted meaning.
+OLD_TEMPLATE_KEY = "shows_author"
 # `Ambience:` values of storyboard.md and the parsed `ambience`.
 AMBIENCE_VALUES = {"on": True, "off": False}
+# `Show author:` values of storyboard.md and the parsed `show_author`.
+SHOW_AUTHOR_VALUES = {"true": True, "false": False}
 # Values of a scene's `Engine:` key; a scene without one uses the first.
 ENGINES = tuple(e.value for e in Engine)
 CLIP = Engine.CLIP
@@ -170,11 +186,13 @@ def backend_moved(backend: str | None = None) -> str:
 
 # Keys of the storyboard structure (storyboard.json) and of each scene.
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
-SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "ambience", "length", "world", "preview", "narration",
-                "beats", "speakers", "voices")
+SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "ambience", "length", "world", "show_author", "preview",
+                "narration", "beats", "speakers", "voices")
 # A heading is `#`s followed by a space (or nothing): `#0f1420` in a Brief is text.
 HEADING_RE = re.compile(r"^#+(\s|$)")
-KEY_RE = re.compile(r"^([A-Z][A-Za-z]*):(?:\s+(.*))?$")
+# A key is a word starting with a capital letter, or two words when they are a key of two words (`Show author:`).
+# A known key matches in any case (`ENGINE:`, `Show Author:`).
+KEY_RE = re.compile(r"^([A-Z][A-Za-z]*(?: [A-Za-z]+)?):(?:\s+(.*))?$")
 UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
 SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
 # An image preview line in a scene: HTML <img> (optionally inside <a href>),
@@ -187,7 +205,7 @@ PREVIEW_RES = (
 
 
 def _templates() -> dict:
-    """Template scenes and their rules (position, max_rows, shows_author, hold_seconds)."""
+    """Template scenes and their rules (position, max_rows, show_author, hold_seconds)."""
     return settings.get()["templates"]
 
 
@@ -247,7 +265,8 @@ JSON_NAMES = {"scenes": "an entry to `scenes`", "no_speaker": "use null for the 
               "video_scene": "a scene with `engine` video", "presenter_scene": "a scene with `engine` presenter",
               "ambience": "`ambience`",
               "ambience_values": "true or false", "length": "`length`", "world": "`world`",
-              "silent_scene": "a scene with `engine` clip or with `length`"}
+              "silent_scene": "a scene with `engine` clip or with `length`", "show_author": "`show_author`",
+              "show_author_values": "true or false"}
 MD_NAMES = {
     "title": "`# <title>`", "topic": "`Topic:` paragraph", "source": "`Source:`",
     "scenes": "a `## <scene id>` section", "image": "`Image:`", "brief": "`Brief:`",
@@ -258,6 +277,7 @@ MD_NAMES = {
     "presenter_scene": "an `Engine: presenter` scene",
     "ambience": "`Ambience:`", "ambience_values": "on or off", "length": "`Length:`", "world": "`World:`",
     "silent_scene": "an `Engine: clip` scene or a scene with `Length:`",
+    "show_author": "`Show author:`", "show_author_values": "true or false",
 }
 
 
@@ -407,6 +427,9 @@ def _check_scene(s, p: tuple, seen: set, speakers: dict, templates: dict, name, 
         elif engine != VIDEO or template is not None:
             err(p + ("ambience",), f"{label}: only {name('video_scene')} has {name('ambience')} (the video model's "
                                    "sound track)")
+
+    if "show_author" in s and not isinstance(s["show_author"], bool):
+        err(p + ("show_author",), f"{label}: {name('show_author')} must be {name('show_author_values')}")
 
     silent = (engine == CLIP or has_length) and template is None
     missing = f"{label}: missing {name('narration')} (only {name('silent_scene')} may have none)"
@@ -657,8 +680,11 @@ def parse_markdown(text: str) -> dict:
             continue
 
         m = KEY_RE.match(line)
+        key = KNOWN_KEYS.get(m.group(1).lower(), m.group(1)) if m else None
+        if m and " " in key and key not in KNOWN_KEYS.values():
+            m = None  # "Two words:" that are not a key are text
         if m:
-            key, value = m.group(1), m.group(2) or ""
+            value = m.group(2) or ""
             allowed = SCENE_KEYS if cur is not None else HEADER_KEYS
             target = cur.fields if cur is not None else header
             open_field = None
@@ -704,15 +730,18 @@ def parse_markdown(text: str) -> dict:
         p = ("scenes", i)
         lines[p] = s.line
         scene: dict = {"id": s.id}
-        for key in ("Template", "Image", "Brief", "Engine", "Ambience", "Length", "World"):
+        for key in ("Template", "Image", "Brief", "Engine", "Ambience", "Length", "World", "Show author"):
             if key in s.fields:
                 value = s.fields[key].value
                 if key == "Ambience":
                     value = AMBIENCE_VALUES.get(value.lower(), value)
+                elif key == "Show author":
+                    value = SHOW_AUTHOR_VALUES.get(value.lower(), value)
                 elif key == "Length":
                     value = _seconds(value)
-                scene[key.lower()] = value
-                lines[p + (key.lower(),)] = s.fields[key].line
+                k = key.lower().replace(" ", "_")
+                scene[k] = value
+                lines[p + (k,)] = s.fields[key].line
         if s.preview is not None:
             scene["preview"] = s.preview
         scene["narration"] = [r["narration"] for r, _ in s.rows]
@@ -889,10 +918,14 @@ def image_path(project_dir: Path, image: str) -> Path:
     return project_dir / "images" / rel
 
 
-def shows_author(scene: dict) -> bool:
-    """True for a template scene whose page shows the author itself."""
+def show_author(scene: dict) -> bool:
+    """Whether the film's creator caption is drawn over the scene: the scene's
+    own `show_author` when set, else its template's `show_author` rule, else
+    True."""
+    if "show_author" in scene:
+        return scene["show_author"]
     t = scene.get("template")
-    return bool(t and _templates().get(t, {}).get("shows_author"))
+    return bool(_templates().get(t, {}).get("show_author", True)) if t else True
 
 
 def scenes(data: dict) -> list[dict]:
@@ -1002,7 +1035,7 @@ def voice_errors(voice: dict, label) -> list[str]:
 
 
 def validate_settings(project_dir: Path, brand_dir: Path | None = None) -> Validation:
-    """Check the author, voice, music, critic and brand values in the settings;
+    """Check the author, voice, music, critic, template and brand values in the settings;
     `brand_dir` is the brand folder given as `--brand`."""
     r = Validation()
     err = r.errors.append
@@ -1035,6 +1068,11 @@ def validate_settings(project_dir: Path, brand_dir: Path | None = None) -> Valid
         v = c.get(key, default)
         if not isinstance(v, int) or isinstance(v, bool) or v < 1:
             err(f"`critic.{key}` must be a whole number, 1 or more")
+    for name, rule in (s.get("templates") or {}).items():
+        if isinstance(rule, dict) and OLD_TEMPLATE_KEY in rule:
+            err(f"`templates.{name}.{OLD_TEMPLATE_KEY}` is no longer read: it became `show_author` with the "
+                f"inverted meaning (`{OLD_TEMPLATE_KEY}: true` is `show_author: false`); rename it in "
+                f"{settings.PROJECT_FILE}")
     r.warnings.extend(brand.problems(s.get("brand"), brand_dir))
     return r
 

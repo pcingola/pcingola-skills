@@ -20,6 +20,13 @@ voice are a narrated slide deck, and a failure.
    off, covered, moving too fast, or gone before it can be read.
 5. Sound. Narration hard to hear over the music, and audio defects (clicks,
    bursts, dropouts, cut words).
+6. Author shown twice. A scene whose picture shows the film's author's name
+   and that also gets the creator caption ("Created by <author>", bottom
+   right). In the film the caption is visible. In the storyboard a scene gets
+   it unless it has `Show author: false` (`"show_author": false` in
+   storyboard.json); the `title` and `end` template scenes get none unless
+   they have `Show author: true`. The fix is `Show author: false` on that
+   scene.
 
 Nothing else is a finding: no matter of taste, consistency of fonts and
 colours, the brand logo or timing within a sentence.
@@ -40,7 +47,8 @@ You get `film/v<N>/film.mp4` with its sound, the storyboard file
 
 You get the storyboard file (`storyboard.md` or `storyboard.json`), the
 source text under `sources/`, `lessons.md`,
-every scene's latest `brief.md` (sentence and word times) and the `frames`
+every scene's latest `brief.md` (sentence and word times), the film's author
+(`author:` of `settings.yaml`) and the `frames`
 command with its full path from the agent that briefs you:
 
     short-video.sh frames -p <project> --scene ID --at 3.2,7.5

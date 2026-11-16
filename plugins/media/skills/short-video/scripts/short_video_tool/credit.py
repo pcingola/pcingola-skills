@@ -2,7 +2,8 @@
 `artist` and `copyright` metadata tags.
 
 `assemble` draws the caption in the same encode that builds the film, over
-every scene whose template does not show the author itself. The caption has
+every scene whose `storyboard.show_author` is True (the scene's own
+`Show author:`, else its template's rule, else True). The caption has
 no box: its colour is chosen per scene from the brightness of the corner it
 sits in (dark text on a light corner, light text on a dark one). `credit_file`
 adds it to any existing MP4: the video is re-encoded once, the audio is copied
@@ -23,7 +24,7 @@ that PNG, in the same box, wherever the caption is drawn in the light text
 colour (a dark corner); `raster` everywhere else.
 
 `credit.text: null` means no caption text: the logo alone, in the same box,
-on every scene including those whose template shows the author (`captioned`);
+on every scene including those with `show_author` False (`captioned`);
 without a brand, nothing is drawn. The PNG is then chosen by the brightness
 of the logo's own surroundings (`measured_region`), not of the wider caption
 corner. The metadata tags stay.
@@ -55,11 +56,11 @@ def caption_text(author: str) -> str | None:
     return None if t is None else t.format(author=author)
 
 
-def captioned(shows_author: list[bool]) -> list[bool]:
-    """Which scenes get the caption, given whether each one's template shows
-    the author: all of them when there is no caption text (logo only), else
-    those that do not show the author."""
-    return [_c()["text"] is None or not s for s in shows_author]
+def captioned(show_author: list[bool]) -> list[bool]:
+    """Which scenes get the caption, given each scene's `storyboard.show_author`:
+    all of them when there is no caption text (logo only), else those whose
+    value is True."""
+    return [_c()["text"] is None or s for s in show_author]
 
 
 def metadata_args(author: str, year: int | None = None) -> list[str]:

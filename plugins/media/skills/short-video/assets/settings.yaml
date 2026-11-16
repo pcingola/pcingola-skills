@@ -74,23 +74,23 @@ length:
 # Scenes drawn from a suggested page `assets/<name>.html` (`Template: <name>`
 # in the storyboard). position (first / last / any) and max_rows are
 # suggestions: `validate` warns when a scene does not follow them.
-# shows_author: the page shows the author itself, so the post-production
-# caption skips it. hold_seconds: how long the scene runs past its narration.
+# show_author: false = the page shows the author itself, so the post-production
+# caption skips it (absent: true). A scene's own `Show author:` overrides it. hold_seconds: how long the scene runs past its narration.
 templates:
   title:
     position: first
     max_rows: 3
-    shows_author: true
+    show_author: false
     hold_seconds: 0
   summary:
     position: any
     max_rows: 4
-    shows_author: false
+    show_author: true
     hold_seconds: 0
   end:
     position: last
     max_rows: 2
-    shows_author: true
+    show_author: false
     hold_seconds: 4.0
 
 # Post-production creator credit (see references/post-production.md).

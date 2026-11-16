@@ -1899,6 +1899,93 @@
      }
     ]
    }
+  },
+  {
+   "case": "valid show_author false",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "show_author": false
+     }
+    ]
+   }
+  },
+  {
+   "case": "valid show_author true on a template scene",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "t",
+      "template": "title",
+      "narration": [
+       "Hi."
+      ],
+      "beats": [
+       "Hi"
+      ],
+      "show_author": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid show_author not a boolean",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "show_author": "false"
+     }
+    ]
+   }
+  },
+  {
+   "case": "invalid show_author null",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "s",
+      "image": "a.png",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ],
+      "show_author": null
+     }
+    ]
+   }
   }
  ]
 }

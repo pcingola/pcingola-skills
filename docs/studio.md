@@ -134,7 +134,13 @@ diagram or text), a `manim` scene, a `video` scene (the config task `video` anim
 `brief`), a `presenter` scene (the config task `presenter` makes the person in its picture speak its narration
 recording; `brief` optional) or a `clip` scene. The page sets a scene's `engine` (`html`, `manim`, `video` or
 `presenter`; the last two only for a scene with a picture). A scene's picture is the version its `image` names.
-An HTML scene without narration has `length` (seconds) instead. HTML scenes with the same `world` (`[a-z0-9_]+`)
+An HTML scene without narration has `length` (seconds) instead. Any scene may have `show_author` (true or false),
+whether the film's creator caption is drawn over it. The caption is drawn on the MP4 only (the HTML film has none),
+so a change of it leaves the scene's state as it was. Each MP4 in /api/project has `caption_changed`, the ids of the
+scenes whose `show_author` differs from the one in its `manifest.json` scene entry; the Films step reports "caption
+changed since MP4 v<N>" and offers Export MP4 on that MP4. Each scene of `video.scenes` in /api/project carries its effective `show_author`: its own value,
+else its template's rule from `TEMPLATE_SHOW_AUTHOR` in `video.py` (a copy of `templates:` in media:short-video's
+settings, which Studio does not import; a unit test compares the two), else true. HTML scenes with the same `world` (`[a-z0-9_]+`)
 share one page; they follow each other in the storyboard and have no `template` or `image`.
 
 The film settings, `film` in `project.json`:
@@ -367,7 +373,9 @@ version exist only on an MP4; before the first export they are not shown. The br
 sources and reference videos, which go to `/api/refs`. The storyboard rows and strip show each scene's picture, a
 drawn scene's newest still, or the "Drawn scene" placeholder before it has one. The scene view edits one scene: its
 picture (a drawn scene: the stills of its page versions, with Send, "Use this still" for a still of an older page, "Use as reference" and Download), its sentences with what is on screen and
-optional per-sentence voices, its movement and timing, and a message about the scene. The page writes storyboard edits
+optional per-sentence voices, its movement and timing, the "Show author caption" switch (the scene's `show_author`,
+written explicitly on each change; unset, it shows the scene's `show_author` in /api/project: its template's rule,
+else on), and a message about the scene. The page writes storyboard edits
 directly with `/api/storyboard` and film settings with `/api/film`. Before a storyboard write the page checks the
 rules its edits can break (a sentence per scene, filled sentences and briefs, a picture for `video` and
 `presenter`, `length` only on an HTML scene without narration, a `world` scene HTML only without a picture, the

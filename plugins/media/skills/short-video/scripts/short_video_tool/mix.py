@@ -257,12 +257,13 @@ def assemble(project: Path, data: dict, music_version: str | None = None,
         sdir = state.latest_render(project, s["id"])
         meta = state.read_meta(sdir)
         files.append(sdir / "scene.mp4")
-        entries.append({"id": s["id"], "scene_version": sdir.name, "voice_version": meta.get("voice_version")})
+        entries.append({"id": s["id"], "scene_version": sdir.name, "voice_version": meta.get("voice_version"),
+                        "show_author": storyboard.show_author(s)})
 
     out_dir = versions.next_version(project / "film")
     try:
         result = mix(files, mfile, out_dir / "film.mp4", music_db, author=author,
-                     captioned=credit.captioned([storyboard.shows_author(s) for s in storyboard.scenes(data)]) if author else None,
+                     captioned=credit.captioned([e["show_author"] for e in entries]) if author else None,
                      b=b)
     except Exception:
         # Leave no half-written version behind; its number is still never reused.

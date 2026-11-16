@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 
 import pytest
-from studio_server.video import check_storyboard, default_film, film_of, scene_state
+from short_video_tool import settings
+from studio_server.video import TEMPLATE_SHOW_AUTHOR, check_storyboard, default_film, film_of, scene_state
 
 from tests.settings_env import write_config
 from tests.subproc import child_env, py_value
@@ -264,6 +265,8 @@ def test_scene_state_rules():
     assert scene_state(injection, sb, status, {**film, "author": ["Ada"]}) == "ready"
     render_status = _status({"opening": {"state": "render", "basis": opening}})
     assert scene_state(opening, sb, render_status, {**film, "author": ["Ada"]}) == "render"
+    # `show_author` changes only the assembled film's caption, not the scene.
+    assert scene_state({**injection, "show_author": False}, sb, status, film) == "ready"
 
 
 def test_scene_states_listed(client, studio):
@@ -314,6 +317,59 @@ def test_storyboard_write(client, studio):
                                                     "base": body["storyboard_mtime"]})
     assert status == 200 and body2["storyboard_mtime"] == mtime(p)
     assert video_of(client, p)["video"]["storyboard"]["title"] == "Vaccines, again"
+
+
+def test_storyboard_write_show_author(client, studio):
+    """/api/storyboard keeps a scene's `show_author` (the page's "Show author caption" switch) and refuses a value
+    that is not a boolean. Guards the per-scene caption switch reaching storyboard.json."""
+    p = make_video(studio.root, storyboard=None)
+    sb = copy.deepcopy(STORYBOARD)
+    sb["scenes"][0]["show_author"] = True
+    sb["scenes"][1]["show_author"] = False
+    status, body = client.post("/api/storyboard", {"project": str(p), "storyboard": sb, "base": None})
+    assert status == 200
+    written = json.loads((p / "storyboard.json").read_text(encoding="utf-8"))
+    assert [s.get("show_author") for s in written["scenes"]] == [True, False, None]
+    sb["scenes"][1]["show_author"] = "no"
+    status, refused = client.post("/api/storyboard", {"project": str(p), "storyboard": sb,
+                                                      "base": body["storyboard_mtime"]})
+    assert status == 400 and "show_author" in str(refused)
+
+
+def test_scene_show_author(client, studio):
+    """/api/project gives each scene the `show_author` the page's "Show author caption" switch shows: the scene's
+    own value, else its template's rule (false for title and end, true for summary), else true. Studio's copy of the
+    template rules equals media:short-video's `templates:` settings. Guards the switch's default and the copy."""
+    sb = copy.deepcopy(STORYBOARD)
+    sb["scenes"] += [{"id": "points", "template": "summary", "narration": ["Two."], "beats": ["two"]},
+                     {"id": "close", "template": "end", "narration": ["Bye."], "beats": ["bye"], "show_author": True},
+                     {"id": "slide", "image": "slide/v1.png", "brief": "Hold.", "narration": ["Me."], "beats": ["me"],
+                      "show_author": False}]
+    p = make_video(studio.root, storyboard=sb)
+    got = {s["id"]: s["show_author"] for s in video_of(client, p)["video"]["scenes"]}
+    assert got == {"opening": False, "injection": True, "morph": True, "points": True, "close": True, "slide": False}
+    settings.use_project(None)
+    rules = {name: rule.get("show_author", True) for name, rule in settings.get()["templates"].items()}
+    assert TEMPLATE_SHOW_AUTHOR == rules
+
+
+def test_caption_changed_since_mp4(client, studio):
+    """Each MP4 in /api/project lists in `caption_changed` the scenes whose `show_author` differs from the one in its
+    manifest's scene entry; an entry without `show_author` (an older MP4) counts as unchanged. Guards the Films step
+    reporting an MP4 out of date after the "Show author caption" switch."""
+    p = make_video(studio.root)
+    entries = [{"id": "opening", "scene_version": "v1", "show_author": False},
+               {"id": "injection", "scene_version": "v1", "show_author": True},
+               {"id": "morph", "scene_version": "v1"}]
+    version(p, "film", "v1", meta_name="manifest.json", meta={"scenes": entries, "duration": 9.0, "created_at": "t"},
+            files=("film.mp4",))
+    assert video_of(client, p)["video"]["films"][0]["caption_changed"] == []
+    sb = copy.deepcopy(STORYBOARD)
+    sb["scenes"][1]["show_author"] = False
+    sb["scenes"][2]["show_author"] = False
+    status, _ = client.post("/api/storyboard", {"project": str(p), "storyboard": sb, "base": mtime(p)})
+    assert status == 200
+    assert video_of(client, p)["video"]["films"][0]["caption_changed"] == ["injection"]
 
 
 def test_storyboard_write_stale(client, studio):

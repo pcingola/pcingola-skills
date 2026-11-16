@@ -190,7 +190,10 @@ scene.
    `brand:brand`), else the style's default palette. A style line governs
    the look of the picture only; where it says to avoid camera moves or
    similar, the film's movement still follows this skill. Show the user every image you generate with
-   `play`, and replace the ones the user rejects. Run `validate`, fix every
+   `play`, and replace the ones the user rejects. Look at every picture
+   that comes from the user's material (slides, photos); when the author's
+   name is visible in it, give its scene `Show author: false`, so the
+   creator caption does not show the name a second time. Run `validate`, fix every
    error, and fix or report each warning.
    Give the user the full path of `storyboard.md` and, per scene, its
    method and what moves, and wait for approval. The user edits the file
@@ -250,8 +253,8 @@ scene.
    or presenter scene gets `references/video-model.md`.
 6. Scene critic, only when `critic.claude` is true (default false): a
    subagent that wrote no scene, given `references/critic.md`, the
-   storyboard, the source text, `lessons.md`, every latest `brief.md` and
-   the `stills` command (`frames` for rendered scenes). Fix what holds and re-render.
+   storyboard, the source text, `lessons.md`, every latest `brief.md`, the
+   film's author and the `stills` command (`frames` for rendered scenes). Fix what holds and re-render.
 7. Music, unless the film is voice only or silent: `length` prints the
    length to request. Generate a track of that length into `sources/` with
    `media:music` (usually instrumental; with Lyria, a scene PNG as image input
