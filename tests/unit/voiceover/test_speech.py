@@ -13,6 +13,11 @@ from voiceover_tool.speech import decode
 from voiceover_tool.timing import build_timing
 
 OAI = {"kind": "openai", "base_url": "http://127.0.0.1:1/v1"}
+GOOGLE = {"kind": "google", "api_key": "k"}
+# A vllm-omni provider whose python does not exist, so any server start fails.
+OMNI = {"kind": "vllm-omni", "python": "/nonexistent", "repo": "x/drama-3", "deploy": "fish_omni.yaml", "memory": 70}
+KOKORO = {"kind": "kokoro", "model_url": "http://127.0.0.1:1/m.onnx", "voices_url": "http://127.0.0.1:1/v.bin",
+          "langs": {"af_": "en-us"}}
 
 
 def test_decode_wav_and_raw_pcm():
@@ -34,11 +39,11 @@ def test_voices_of_the_speech_model_and_of_another(tmp_path):
     """`voices` lists the provider's `voices` with its `voice` marked default; `--model` lists that model's voices,
     the kind's default voice without a `voice`; no `speech` task is an error naming it."""
     config = write_config(tmp_path / "config.yaml", providers={"oai": {**OAI, "voice": "two", "voices": ["one", "two"]},
-                                                               "g": {"kind": "google"}}, models={})
+                                                               "g": GOOGLE}, tasks={})
     p = voiceover("voices", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "no model for task 'speech'" in p.stderr
     config = write_config(tmp_path / "config.yaml", providers={"oai": {**OAI, "voice": "two", "voices": ["one", "two"]},
-                                                               "g": {"kind": "google"}}, models={"speech": "oai:tts-1"})
+                                                               "g": GOOGLE}, tasks={"speech": "oai:tts-1"})
     p = voiceover("voices", SKILLS_CONFIG=str(config))
     assert p.returncode == 0 and p.stdout.splitlines() == ["one", "two  (default)"], p.stderr
     p = voiceover("voices", "--model", "g:gemini-tts", SKILLS_CONFIG=str(config))
@@ -51,11 +56,11 @@ def test_speed_and_style_refused_before_any_request(tmp_path):
     port, the Kokoro files at a closed port); a model of a provider kind
     without speech models is refused."""
     config = write_config(tmp_path / "config.yaml",
-                          providers={"oai": OAI, "g": {"kind": "google"},
+                          providers={"oai": OAI, "g": GOOGLE,
                                      "k": {"kind": "kokoro", "model_url": "http://127.0.0.1:1/m.onnx",
                                            "voices_url": "http://127.0.0.1:1/v.bin", "langs": {"af_": "en-us"}},
                                      "local": {"kind": "diffusers"}},
-                          models={"speech": "oai:tts-1"})
+                          tasks={"speech": "oai:tts-1"})
     script = tmp_path / "s.txt"
     script.write_text("Hello there.\n")
     synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
@@ -81,9 +86,9 @@ def test_lines_as_the_model_takes_them(tmp_path):
     """`Narrator.lines` reads speakers and inline tags for a model that takes tags (vllm-omni), a leading `[style]`
     for one that takes styles (OpenAI), and literal text without tags for one that takes neither (Kokoro)."""
     config = write_config(tmp_path / "config.yaml",
-                          providers={"oai": OAI, "k": {"kind": "kokoro", "langs": {"af_": "en-us"}},
-                                     "f": {"kind": "vllm-omni", "python": "/nonexistent"}},
-                          models={"speech": "oai:tts-1"})
+                          providers={"oai": OAI, "k": KOKORO,
+                                     "f": OMNI},
+                          tasks={"speech": "oai:tts-1"})
     imports = "from voiceover_tool.speech import Narrator"
     lines = ["[whisper] Keep it quiet.", "@guest Well [laughs] maybe that's fair."]
     expr = "[[l.text, l.said, l.style, l.speaker] for l in Narrator({m}).lines({lines!r})]"
@@ -103,9 +108,9 @@ def test_speakers_and_params_refused_by_a_model_that_takes_none(tmp_path):
     """`--speaker` with a model that takes no inline tags and `--param` with one that takes no request fields are
     refused before any request; a `--param` that is not KEY=VALUE is refused; a line of only tags is refused."""
     config = write_config(tmp_path / "config.yaml",
-                          providers={"k": {"kind": "kokoro", "langs": {"af_": "en-us"}},
-                                     "f": {"kind": "vllm-omni", "python": "/nonexistent"}},
-                          models={"speech": "k:kokoro-v1.0"})
+                          providers={"k": KOKORO,
+                                     "f": OMNI},
+                          tasks={"speech": "k:kokoro-v1.0"})
     script = tmp_path / "s.txt"
     script.write_text("@host Hello.\n")
     synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
@@ -132,9 +137,9 @@ def test_speakers_checked_before_any_request(tmp_path):
     voices_dir = tmp_path / "voices"
     voices_dir.mkdir()
     (voices_dir / "anna.wav").write_bytes(b"RIFF")
-    config = write_config(tmp_path / "config.yaml", {"VOICEOVER_VOICES_DIR": str(voices_dir)},
-                          providers={"f": {"kind": "vllm-omni", "python": "/nonexistent"}},
-                          models={"speech": "f:drama-3"})
+    config = write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices_dir)},
+                          providers={"f": OMNI},
+                          tasks={"speech": "f:drama-3"})
     script = tmp_path / "s.txt"
     script.write_text("@host Hello.\n@guest Hi.\n")
     synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
@@ -154,8 +159,8 @@ def test_speakers_checked_before_any_request(tmp_path):
 def test_first_takes_per_speaker_written(tmp_path):
     """`Narrator.first_takes` gives the first `default` take of the narrator and of each made-up speaker that
     `omni.keep_take` kept, and `write_takes` writes them as `voice.wav` and `voice-<name>.wav` with transcripts."""
-    config = write_config(tmp_path / "config.yaml", providers={"f": {"kind": "vllm-omni", "python": "/nonexistent"}},
-                          models={"speech": "f:drama-3"})
+    config = write_config(tmp_path / "config.yaml", providers={"f": OMNI},
+                          tasks={"speech": "f:drama-3"})
     code = f"""
 from ai_models import omni
 from voiceover_tool.cli import write_takes
@@ -185,19 +190,17 @@ def test_params_parse_as_json_else_string():
 
 
 def test_earlier_model_settings_refused(tmp_path):
-    """A `VOICEOVER_*` setting other than VOICEOVER_VOICES_DIR stops every command with one message naming the
-    template entries that replace it; with VOICEOVER_MODEL_DIR, the message gives it as the providers' `dir` and its
-    voices/ as VOICEOVER_VOICES_DIR."""
-    config = write_config(tmp_path / "config.yaml", {"VOICEOVER_KOKORO_VOICE": "af_heart",
-                                                     "VOICEOVER_MODEL_DIR": "/old/voiceover",
-                                                     "VOICEOVER_VOICES_DIR": "/old/voiceover/voices"},
-                          providers={"oai": OAI}, models={"speech": "oai:tts-1"})
+    """A `VOICEOVER_*` setting of the earlier layout stops every command with one message naming its new place
+    (`plugin_settings.old_keys`): VOICEOVER_VOICES_DIR moved to `voiceover.voices_dir`, the model settings are
+    `tasks.speech`, `tasks.align` and their providers, VOICEOVER_MODEL_DIR becomes the providers' `dir`."""
+    config = tmp_path / "config.yaml"
+    config.write_text("settings:\n  VOICEOVER_KOKORO_VOICE: af_heart\n  VOICEOVER_MODEL_DIR: /old/voiceover\n"
+                      "  VOICEOVER_VOICES_DIR: /old/voiceover/voices\n", encoding="utf-8")
     p = voiceover("voices", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "Traceback" not in p.stderr, p.stderr
-    for part in ("VOICEOVER_KOKORO_VOICE, VOICEOVER_MODEL_DIR", "`kokoro` and `torchaudio`", "`chatterbox`",
-                 "`models.speech` and `models.align`", "config.example.yaml", "`dir: /old/voiceover`",
-                 "VOICEOVER_VOICES_DIR: /old/voiceover/voices"):
+    for part in ("settings.VOICEOVER_KOKORO_VOICE: no longer read", "tasks.speech and tasks.align",
+                 "dir: /old/voiceover", "settings.VOICEOVER_VOICES_DIR: moved to voiceover.voices_dir"):
         assert part in p.stderr, (part, p.stderr)
-    config = write_config(tmp_path / "ok.yaml", {"VOICEOVER_VOICES_DIR": str(tmp_path)}, providers={"oai": OAI},
-                          models={"speech": "oai:tts-1"})
+    config = write_config(tmp_path / "ok.yaml", voiceover={"voices_dir": str(tmp_path)}, providers={"oai": OAI},
+                          tasks={"speech": "oai:tts-1"})
     assert voiceover("voices", SKILLS_CONFIG=str(config)).returncode == 0

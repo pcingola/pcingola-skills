@@ -43,7 +43,7 @@ def _add_backend_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--backend", choices=backends.BACKENDS,
                    help="system1 (a System-1 model, probabilities) or chat (a chat model, label only; "
                         "choice and noul); default system1 when config.yaml names a System-1 model, else chat")
-    p.add_argument("--model", help="model id <provider>:<model> (default: models.system1 or models.chat "
+    p.add_argument("--model", help="model id <provider>:<model> (default: tasks.system1 or tasks.chat "
                                    "of config.yaml)")
     p.add_argument("--concurrency", type=int, default=config.DEFAULT_CONCURRENCY,
                    help=f"concurrent requests (default {config.DEFAULT_CONCURRENCY})")

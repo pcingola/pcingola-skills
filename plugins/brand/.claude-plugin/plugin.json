@@ -1,6 +1,6 @@
 {
   "name": "brand",
-  "description": "Brand folders (logos, colours, fonts, guidelines, PowerPoint templates) found in the bundled brands and in BRAND_PATH.",
+  "description": "Brand folders (logos, colours, fonts, guidelines, PowerPoint templates) found in the bundled brands and in the brand.path directories.",
   "author": {
     "name": "Pablo Cingolani"
   },

@@ -37,7 +37,7 @@ claude plugin install <plugin>@pcingola-skills --scope user
 
 The data directory is outside the plugin directory, so updates keep it. Without `--keep-data`, `uninstall` deletes the plugin's data directory. That directory holds the plugin's Python environments under `env/`. The media data directory also holds the voiceover weights (the default `dir` of the `kokoro`, `chatterbox` and `torchaudio` providers) and voices, and the image-gen and music environments, which hold torch and diffusers when `config.yaml` has a `diffusers` provider.
 
-`config.yaml` is outside every plugin data directory, so an uninstall keeps it. The weights of local `diffusers` models are in the Hugging Face cache (`HF_HOME`, default `~/.cache/huggingface`), and those of the `kokoro`, `chatterbox` and `torchaudio` providers in their `dir`, also kept when it is set; the default `dir`, `voiceover/` in the media data directory, goes with that directory.
+`config.yaml` is outside every plugin data directory, so an uninstall keeps it. The weights of local `diffusers` models are in the Hugging Face cache (`huggingface.home`, default `~/.cache/huggingface`), and those of the `kokoro`, `chatterbox` and `torchaudio` providers in their `dir`, also kept when it is set; the default `dir`, `voiceover/` in the media data directory, goes with that directory.
 
 A plugin installed from a local directory is read in place, so edits take effect at the next session start or `/reload-plugins`. A plugin installed from a git or remote marketplace loads a copy under `~/.claude/plugins/cache/`.
 
@@ -52,7 +52,7 @@ A skill installed as part of a plugin loads as `<plugin>:<skill>`. A skill that 
 | dev | implementation plans, Agent Skill authoring and review |
 | brand | brand folders (logos, colours, fonts, guidelines, PowerPoint templates) and a catalogue of visual styles |
 | ai | text classification with a System-1 model (class probabilities) or a chat model; file review by a second model |
-| studio | a page in the browser for making images, infographics, slide decks and short videos with Claude (`/studio`); projects under `STUDIO_DIR`, default `~/Documents/Studio` |
+| studio | a page in the browser for making images, infographics, slide decks and short videos with Claude (`/studio`); projects under `studio.dir`, default `~/Documents/Studio` |
 | setup | this skill: installation and settings |
 
 ## Python environments
@@ -76,26 +76,38 @@ Short-video Manim scenes on Linux also need `libcairo2-dev`, `libpango1.0-dev`, 
 
 ## The settings file: config.yaml
 
-Every skill reads its settings from one file: `<config dir>/plugins/data/config.yaml`. `<config dir>` is `$CLAUDE_CONFIG_DIR`, else `~/.claude`. `SKILLS_CONFIG` in the process environment names another file. The file has four sections:
+Every skill reads its settings from one file: `<config dir>/plugins/data/config.yaml`. `<config dir>` is `$CLAUDE_CONFIG_DIR`, else `~/.claude`. `SKILLS_CONFIG` in the process environment names another file. The sections:
 
 | Section | Holds |
 |---|---|
-| `providers` | where models run: `kind`, `base_url`, the key as `api_key`, `timeout`, `api_version`, `vertex` |
-| `models` | the model of each task, as `<provider name>:<model>` |
-| `diffusers` | local image, music and video models (GPU) |
-| `settings` | every other setting, `KEY: value` (for example `EXTRA_CA_CERT`, `HF_HOME`) |
+| `providers` | where models run: `kind`, `base_url`, the key as `api_key`, `timeout` and the keys of each kind (Models below); `models`, the attributes of each model of the provider |
+| `tasks` | the model of each task, as `<provider name>:<model>` |
+| `network` | `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` (a list), `extra_ca_cert` (a CA trusted on top of the public roots, for a TLS-intercepting proxy), `ca_bundle` (a trust store that replaces the default one) |
+| `huggingface` | `home` (the weights cache of the `diffusers` models, default `~/.cache/huggingface`), `token` (gated repositories only) |
+| `brand` | `path`: directories searched for brand folders after the bundled ones |
+| `studio` | `dir` (the Studio projects, absolute or `~`, default `~/Documents/Studio`), `author` (the default "Made by" names of a new film) |
+| `voiceover` | `voices_dir`: the reference recordings of `add-voice` |
 
-`assets/config.example.yaml` is the template. It lists every setting a skill reads, commented, with its meaning, default, accepted values and the skills that require it. Read it to find a setting's name and values.
+`assets/config.example.yaml` is the template. It lists every section and key, commented, with its meaning, default, accepted values and the skills that read it. Read it to find a key's name and values.
 
 Rules:
 
-- A skill reads `settings.<KEY>`, else its default. A variable `KEY` exported in the shell is not a setting: skills ignore it. Put every setting in the file.
-- A key with no value (`KEY:`) is unset. An empty string (`KEY: ""`) is set but empty, and a required setting treats it as missing.
-- `true` and `false` are read as the strings `true` and `false`.
-- A value with `: ` or ` #` in it needs quotes, for example `NO_PROXY: "localhost # local only"`.
-- `CLAUDE_CONFIG_DIR`, `CLAUDE_PLUGIN_DATA` and `SKILLS_CONFIG` come from the process environment only.
-- A skill sets `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` (also in lower case), `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME` and `HF_TOKEN` in its process environment from `settings`, where libraries and child processes read them, and removes each one `settings` does not set.
-- A skill removes the variables the model client libraries read for keys, endpoints and headers: every `OPENAI_*`, `AZURE_OPENAI_*`, `OPENROUTER_*`, `OLLAMA_*`, `GOOGLE_GENAI_*`, `GOOGLE_CLOUD_*` and `SYSTEM_ONE_*` variable, and `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`. A key or proxy exported in the shell (for example `OPENAI_API_KEY`, `https_proxy`) has no effect: a user who relied on one moves it into the file (keys as `api_key` of the provider).
+- The whole file is validated when a skill starts. A misspelt section or key, a missing required key, a wrong type, a CA file that does not exist, a task whose provider is not in `providers`, or a task naming a `diffusers` model without an entry stops the skill with an error that names the YAML path of each problem.
+- A section that is empty or holds only comments takes its defaults. Every key is optional unless the template says "required".
+- A list is a YAML list: `brand.path: [/path/to/brands]`, `studio.author: [Alice Example]`, `network.no_proxy: [localhost, 127.0.0.1]`. Paths take `~`.
+- An empty `api_key` or `huggingface.token` is an error; leave the key out instead.
+- A value with `: ` or ` #` in it needs quotes.
+- A variable exported in the shell is not a setting: skills ignore it. `CLAUDE_CONFIG_DIR`, `CLAUDE_PLUGIN_DATA` and `SKILLS_CONFIG` come from the process environment only.
+- A skill sets these variables in its process environment from the file, where libraries and child processes read them, and removes each one the file does not set:
+
+  | Variable | From |
+  |---|---|
+  | `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` (also in lower case) | `network.http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` |
+  | `SSL_CERT_FILE` | `network.ca_bundle` |
+  | `NODE_EXTRA_CA_CERTS` | `network.extra_ca_cert` |
+  | `HF_HOME`, `HF_TOKEN` | `huggingface.home`, `huggingface.token` |
+
+- A skill removes the variables the model client libraries read for keys, endpoints and headers: every `OPENAI_*`, `AZURE_OPENAI_*`, `OPENROUTER_*`, `OLLAMA_*`, `GOOGLE_GENAI_*`, `GOOGLE_CLOUD_*` and `SYSTEM_ONE_*` variable, and `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`. A key or proxy exported in the shell (for example `OPENAI_API_KEY`, `https_proxy`) has no effect: a user who relied on one moves it into the file (keys as `api_key` of the provider, proxies under `network`).
 - The file holds API keys; tell the user to run `chmod 600` on it.
 
 ## Create or change config.yaml
@@ -103,10 +115,10 @@ Rules:
 When the user asks to set up the skills, or a skill reports a missing config, setting or key:
 
 1. Find the file: `$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`. Read it when it exists.
-2. When it does not exist, read `${CLAUDE_SKILL_DIR}/assets/config.example.yaml`. Ask the user's level (below), then write the file from the template: the `providers` and `models` of that level (every level includes `kokoro` and `torchaudio` with the tasks `speech` and `align`: voiceover aligns by default), `diffusers` only for the GPU level, and the whole commented `settings` section. Create the directory when it is missing.
+2. When it does not exist, read `${CLAUDE_SKILL_DIR}/assets/config.example.yaml`. Ask the user's level (below), then write the file from the template: the `providers` and `tasks` of that level (every level includes `kokoro` and `torchaudio` with the tasks `speech` and `align`: voiceover aligns by default), the `local` provider of kind `diffusers` only for the GPU level, and the sections `network`, `huggingface`, `brand`, `studio` and `voiceover` with their keys commented. Create the directory when it is missing.
    Then write `routes.md` in the same directory as a copy of `${CLAUDE_SKILL_DIR}/assets/routes.md` (Model routes below), unless it exists.
 3. Ask for each key the chosen providers need and write it as `api_key` of the provider. Never echo a key back in the reply.
-4. Ask for the settings of the skills the user wants (the table of required settings below), and uncomment or add them under `settings`.
+4. Ask for the settings of the skills the user wants (the table of required settings below and the other sections), and uncomment or add them.
 5. Tell the user to run `chmod 600 <file>`.
 
 Change an existing file with Edit, one entry at a time. Do not overwrite it.
@@ -119,35 +131,48 @@ Each level adds to the one before.
 |---|---|---|---|
 | 1. API only | a key of OpenRouter, of Azure OpenAI and Vertex AI, or of a company (enterprise) gateway that serves them; no GPU | `openrouter` (kind `openrouter`) or `azure` (kind `azure`) and `vertex` (kind `google`, `vertex: true`), each with the `base_url` of the service or of the gateway; `kokoro` (kind `kokoro`) and `torchaudio` (kind `torchaudio`) on the CPU, no key | `chat`, `vision`, `image`, `image_best`, `speech`, `align`, `audio`; `image_edit` and `image_multi_ref` on `azure` or `vertex` (OpenRouter serves no image edits: `POST /images/edits` returns 404); `music` on a provider of kind `google` (Lyria) |
 | 2. Ollama | a running Ollama server with the models pulled (`ollama pull <tag>`); no key | add `ollama` (kind `ollama`) | `system1` (System-1 models, needed by classify `--backend system1`), small `chat` and `vision` models, `speech` on macOS (`lfm3-audio`, for tests only: its intonation is odd and uncontrolled) |
-| 3. GPU | an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon | add `local` (kind `diffusers`) and the `diffusers` section | `image`, `image_edit`, `image_best`, `image_multi_ref`, `music`, `video`, `presenter` in the skill's process |
+| 3. GPU | an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon | add `local` (kind `diffusers`) with its `models` | `image`, `image_edit`, `image_best`, `image_multi_ref`, `music`, `video`, `presenter` in the skill's process |
 
-Point each task the user needs at a provider of the chosen level. A task without a model fails only when a skill asks for it. The model ids of the template are examples; ask the user which models to use when the template has none for a provider. At level 3 the image-gen, music and short-video wrappers install torch and diffusers (the skill's `local` extra) when they build the environment, and the first run downloads the weights. The default local image model is FLUX.2 klein 4B (`local:flux2-klein-4b`); Qwen-Image 2.1 (`local:qwen-image`) spells text right at about 9 times the wall time; Z-Image-Turbo is optional. The default local music model is `local:ace-step-sft` (50 steps, about 12 s per 30 s clip); `local:ace-step` (8 steps, about 2 s per 30 s clip) gives loud, compressed sound and serves tests and quick drafts. A music model entry's optional `min_crest_db` makes `music generate` send a request again when a track's crest factor is below it (`--min-crest-db` overrides it per call); the template sets 10 on `ace-step-sft` only.
+Point each task the user needs at a provider of the chosen level. A task without a model fails only when a skill asks for it. The model ids of the template are examples; ask the user which models to use when the template has none for a provider. An image model of an OpenAI kind (`openai`, `azure`, `openrouter`, `ollama`) gets an `image` entry under its provider's `models` with its size limits, as `gpt-image-2` has in the template; `max_edge: 3840`, `min_pixels: 655360` and `max_pixels: 8294400` are gpt-image-2's and serve when the model's own are unknown. At level 3 the image-gen, music and short-video wrappers install torch and diffusers (the skill's `local` extra) when they build the environment, and the first run downloads the weights. The default local image model is FLUX.2 klein 4B (`local:flux2-klein-4b`); Qwen-Image 2.1 (`local:qwen-image`) spells text right at about 9 times the wall time; Z-Image-Turbo is optional. The default local music model is `local:ace-step-sft` (50 steps, about 12 s per 30 s clip); `local:ace-step` (8 steps, about 2 s per 30 s clip) gives loud, compressed sound and serves tests and quick drafts. A music model entry's optional `min_crest_db` makes `music generate` send a request again when a track's crest factor is below it (`--min-crest-db` overrides it per call); the template sets 10 on `ace-step-sft` only.
 
 ## Settings errors
 
-A missing required setting exits with a message like:
+A file that is not valid stops the skill with one message that lists every problem, each with its YAML path:
 
 ```
-Error: <KEY> is not set.
-Settings are read from ~/.claude/plugins/data/config.yaml (not found), section `settings`.
-Add it to that file:
-  settings:
-    <KEY>: <value>
-The setup:settings skill describes every setting and creates the file.
+Error: ~/.claude/plugins/data/config.yaml is not valid:
+  providers.azure.api_version: required for kind azure
+  providers.openrouter.api_key: required for kind openrouter
+  network.extra_ca_cert: file /path/ca.pem does not exist
+  studio.dirr: not a setting
+The setup:settings skill describes every key and creates the file.
 ```
 
-A value a skill rejects exits with `KEY='value' (settings.KEY in <file>) is not valid: <what is accepted>` and the line naming `setup:settings`.
+Fix each line in the file with Edit. The task references are checked once the rest is valid: `tasks.music: provider 'vertex' is not in providers`, `tasks.image: model 'qwen-image' is not in providers.local.models`.
 
-A model call without the file exits with `no config at <file>; the setup:settings skill creates it`. A task without a model names the missing `models.<task>`. A provider with an empty `api_key` names the provider kind and the file. A provider that needs a key (`openrouter`, `azure`, `google`, `openai` without `base_url`) and has no `api_key` exits naming the provider and `api_key`; `azure` also needs `base_url` and `api_version`. A provider without `api_key` whose server refuses the request (401 or 403) exits naming `providers.<name>.api_key` and the file. A client library's own variables (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_ENDPOINT`, ...) are ignored.
+A key of an earlier layout of the file is an error that names its new place. Move each one there:
+
+```
+Error: ~/.claude/plugins/data/config.yaml is not valid:
+  models: renamed to tasks
+  settings.BRAND_PATH: moved to brand.path, a list of directories
+  settings.IMAGE_GEN_LOCAL_MAX_EDGE: moved to providers.<p>.models.<m>.image.max_edge of each diffusers image model
+The setup:settings skill describes every key and creates the file.
+```
+
+The earlier `diffusers:` section becomes the `models` of the provider of kind `diffusers`, with the same entries. `predict_models: [m]` of a provider becomes `models: {m: {predict: true}}`. Values change type: `BRAND_PATH: a:b` is `brand.path: [a, b]`, `AUTHOR_NAME: A, B` is `studio.author: [A, B]`, `NO_PROXY: a,b` is `network.no_proxy: [a, b]`; `IMAGE_GEN_SIZED_MODELS` becomes `always_sized: true` and `IMAGE_GEN_SIZED_QUALITY` `default_quality` in the `image` entry of each listed model. `EXTRA_CA_CERT` and `NODE_EXTRA_CA_CERTS` become one key, `network.extra_ca_cert`.
+
+A model call without the file exits with `no config at <file>; the setup:settings skill creates it`. A task without a model exits with `no model for task 'chat': add `tasks.chat: <provider>:<model>` to <file>`. A provider without `api_key` whose server refuses the request (401 or 403) exits naming `providers.<name>.api_key` and the file. A client library's own variables (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_ENDPOINT`, ...) are ignored.
 
 Required settings, per skill:
 
 | Plugin | Skill and command | Required |
 |---|---|---|
-| ai, media | classify, second-opinion, image-gen, music, voiceover, short-video video and presenter scenes | a model for the task in `models`, and the `api_key` of its provider when the provider needs one |
-| media | image-gen with a model of kind `openai`, `azure`, `openrouter`, `ollama` or `diffusers` | `IMAGE_GEN_OPENAI_MAX_EDGE`, `IMAGE_GEN_OPENAI_MIN_PIXELS`, `IMAGE_GEN_OPENAI_MAX_PIXELS`, `IMAGE_GEN_LOCAL_MAX_EDGE`, `IMAGE_GEN_LOCAL_MIN_EDGE` |
+| ai, media | classify, second-opinion, image-gen, music, voiceover, short-video video and presenter scenes | a model for the task in `tasks`, and the `api_key` of its provider when the provider kind needs one |
+| media | image-gen with `--size`, or with a model whose `image` entry has `always_sized`, on a model of kind `openai`, `azure`, `openrouter` or `ollama` | `providers.<p>.models.<m>.image` with `max_edge`, `min_pixels`, `max_pixels` |
+| media | image-gen on a `diffusers` model, except an edit without `--size` and `--aspect` | `providers.<p>.models.<m>.image` with `max_edge` and `min_edge` |
 
-The values of these settings are in `assets/config.example.yaml`.
+A missing `image` entry exits with `<provider>:<model> has no image limits: add providers.<p>.models.<m>.image with max_edge (and ...) to <file>`. The values for the template's models are in `assets/config.example.yaml`.
 
 ## Models
 
@@ -161,8 +186,8 @@ Provider kinds (`providers.<name>.kind`):
 | `openrouter` | chat, vision, audio input, embeddings, images (no image edits: `image_edit`, `image_multi_ref` and `--ref` need another kind), speech | `api_key` |
 | `openai` | any OpenAI-compatible server: chat, embeddings, images, speech | `base_url` (default the OpenAI API), `api_key` (required without `base_url`) |
 | `azure` | Azure OpenAI: chat, images with masks, speech | `base_url` (the Azure endpoint), `api_version`, `api_key` |
-| `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint, which takes Google Cloud credentials in place of `api_key`: `credentials` (path to a service-account JSON file; its project unless `project` is set), else Application Default Credentials (`gcloud auth application-default login`), with `project` and `location` (default `us-central1`); the `:predict` models need `api_key`; `predict_models`, the music models served by the Vertex `:predict` endpoint (the others stream) |
-| `diffusers` | local images, image edits with masks, music, image to video, portrait and speech to video, in the skill's process on a CUDA or Apple MPS GPU | none; the models are in `diffusers` |
+| `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint, which takes Google Cloud credentials in place of `api_key`: `credentials` (path to a service-account JSON file; its project unless `project` is set), else Application Default Credentials (`gcloud auth application-default login`), with `project` and `location` (default `us-central1`); the `:predict` models need `api_key`; `models.<m>.predict: true` for a music model served by the Vertex `:predict` endpoint (the others stream) |
+| `diffusers` | local images, image edits with masks, music, image to video, portrait and speech to video, in the skill's process on a CUDA or Apple MPS GPU | `models`: one entry per local model (below) |
 | `kokoro` | local speech (Kokoro 82M) on the CPU, in the skill's process | `model_url`, `voices_url` (the model files), `langs` (voice-name prefix to espeak language), `dir` (optional: weights directory; without it the voiceover skill keeps the weights in `voiceover/` of the media data directory) |
 | `chatterbox` | local speech with voice cloning (Chatterbox Turbo) on the CPU, in a worker process of its own Python environment | `python` (the environment's interpreter, which the voiceover skill's `setup --chatterbox` builds and prints), `url` and `files` (the model files under that URL), `dir`, `start_timeout` and `timeout` (optional, seconds for the load and for each sentence, default 600) (optional, as for `kokoro`) |
 | `torchaudio` | forced alignment (`align`) on the CPU, in the skill's process | `url` (the pipeline's weights file), `dir` (optional, as for `kokoro`) |
@@ -172,7 +197,7 @@ A provider that serves speech takes `voice` (optional: its default voice, else t
 
 Every provider except `diffusers` takes `timeout` (seconds per request, default 600). System-1 models go to the `base_url` of their provider, so any provider with a `base_url` can serve them; Ollama serves them at `/v1/systemone`.
 
-Tasks (`models.<task>`) and the skills that ask for them:
+Tasks (`tasks.<task>`) and the skills that ask for them:
 
 | Task | Skill |
 |---|---|
@@ -188,16 +213,18 @@ Tasks (`models.<task>`) and the skills that ask for them:
 | `audio` | music `analyze` (a chat model that takes audio) |
 | `video` | short-video video scenes (`Engine: video`): an image animated into a clip |
 | `presenter` | short-video presenter scenes (`Engine: presenter`): a portrait and the scene's narration recording made into a clip of the person speaking it |
+| `film_critic` | short-video film critic, through second-opinion (a model that takes video with sound) |
+| `embed` | embeddings |
 
 The `audio` task is optional; without it `music analyze` skips the model section. `image_best` and `image_multi_ref` are optional; without them the image-gen tiers `best` and `multi-ref` fail with a message naming the task. `video` is optional; without it a short-video scene with `Engine: video` fails at `render` with a message naming the task.
 
-`diffusers.<name>` describes one local model: `repo` (a Hugging Face repository; weights go to the Hugging Face cache), `steps`, `guidance`, and `inpaint` (the diffusers pipeline class for edits with a mask). A model id `local:<name>` names it. A video model also has these keys, all required: `pipeline` (the diffusers class to load), `fps`, `size_multiple` (width and height are rounded to it), `frame_step` (frame counts are `frame_step * k + 1`), `width`, `height` (the default size) and `max_frames`.
+`providers.<p>.models.<m>` holds the attributes of one model, by the model name after the colon. For a remote provider it is optional and holds `image` (image-gen size limits: `max_edge`, `min_edge`, `min_pixels`, `max_pixels`, `always_sized`, `default_quality`) and, for `google`, `predict`; such a provider serves any model id. A provider of kind `diffusers` serves only the models it lists. Each entry has `repo` (required: a Hugging Face repository; weights go to the Hugging Face cache), `steps`, `guidance`, `inpaint` (the diffusers pipeline class for edits with a mask), `args`, `skip` and `image`. A model id `local:<name>` names the entry `<name>` of the provider `local`. A video model also has these keys, all required: `pipeline` (the diffusers class to load), `fps`, `size_multiple` (width and height are rounded to it), `frame_step` (frame counts are `frame_step * k + 1`), `width`, `height` (the default size) and `max_frames`. A presenter model has `pipeline`, `fps`, `buckets`, `audio_rate` and `output`. The template's comments give the meaning of each key.
 
 ## Model routes: routes.md
 
 A route row names the model for some requests of a task. Per task, a `default` row names the recommended default model with its strengths and limits, and the other rows are escalations: another model for the requests their condition names. The table is `routes.md` in the directory of `config.yaml` (beside `$SKILLS_CONFIG` when that is set); no plugin update changes it. Its template is `${CLAUDE_SKILL_DIR}/assets/routes.md`, with wall times and quality notes measured on an NVIDIA GB10 for the `local` models of `config.example.yaml`.
 
-The model in use is still `models.<task>`. Each model-calling skill's `routes` command prints, per task, the default row with the model of `models.<task>`, then the escalation rows. When `models.<task>` differs from the table's default model, the default row's `why` is `set in config.yaml; the table recommends <model>: <its why>`. Without `routes.md` the command prints only the defaults of `models.<task>` and says that the table is missing.
+The model in use is still `tasks.<task>`. Each model-calling skill's `routes` command prints, per task, the default row with the model of `tasks.<task>`, then the escalation rows. When `tasks.<task>` differs from the table's default model, the default row's `why` is `set in config.yaml; the table recommends <model>: <its why>`. Without `routes.md` the command prints only the defaults of `tasks.<task>` and says that the table is missing.
 
 The file holds one Markdown table; text outside the table is ignored:
 
@@ -208,9 +235,9 @@ The file holds one Markdown table; text outside the table is ignored:
 | image | local:qwen-image | only when the image is an architecture diagram | labels spelled right |
 ```
 
-- `task`: a task of the `models` section (`image`, `video`, `speech`, ...).
-- `model`: `<provider name>:<model>` of `config.yaml`. A row whose provider is not in `providers`, or whose `diffusers` model is not in `diffusers`, is left out.
-- `when`: `default`, or a condition beginning with `only when`. A task has at most one `default` row. To change the model in use, change `models.<task>`. The agent uses the default row and takes an escalation row only when its condition holds for the request; the first such row wins.
+- `task`: a task of the `tasks` section (`image`, `video`, `speech`, ...).
+- `model`: `<provider name>:<model>` of `config.yaml`. A row whose provider is not in `providers`, or whose `diffusers` model is not in that provider's `models`, is left out.
+- `when`: `default`, or a condition beginning with `only when`. A task has at most one `default` row. To change the model in use, change `tasks.<task>`. The agent uses the default row and takes an escalation row only when its condition holds for the request; the first such row wins.
 - `why`: strengths and limits (quality, wall time).
 
 To add a row, create the file from the template when it is missing and add the row with Edit; put a more specific row above a general one of the same task. A malformed row makes the `routes` command fail with the file and line.

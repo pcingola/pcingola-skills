@@ -29,7 +29,7 @@ Run every applicable item. Items marked *(CLI)* apply only to skills with script
 
 - B1. `SKILL.md` exists at skill root
 - B2. No stray files at root that don't belong (see `references/structure.md`)
-- B3. No committed secrets (`config.yaml`, API keys). Code loads settings with `plugin_settings` (`Plugin.of(__file__).load()`), reads them with its `get` (never from `os.environ`: `config.yaml` is the only source of a setting), and uses its `require` and `invalid` for missing and invalid values; every setting is documented in the `assets/config.example.yaml` of the settings skill of the setup plugin
+- B3. No committed secrets (`config.yaml`, API keys). Code loads settings with `plugin_settings` (`Plugin.of(__file__).load()`, which validates the whole `config.yaml` and exits naming the YAML path of each problem) and reads them as typed attributes of the returned config or of `plugin_settings.config()`, for example `config().studio.dir` (never from `os.environ`: `config.yaml` is the only source of a setting). A new setting is a field of its section's class in the `plugin_settings` schema, where its type, default and validators check it, and is documented in the `assets/config.example.yaml` of the settings skill of the setup plugin
 - B4. All files referenced in SKILL.md body exist on disk
 - B5. *(CLI)* `scripts/` dir with `<name>.sh`, `pyproject.toml`, and `<name>_tool/` package
 

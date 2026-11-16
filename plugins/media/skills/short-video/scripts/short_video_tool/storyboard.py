@@ -178,7 +178,7 @@ def backend_moved(backend: str | None = None) -> str:
     msg = ("Backend (`backend`) became Model (`model`), a speech model id <provider>:<model> of config.yaml: for an "
            "earlier backend named after a provider kind (kokoro, chatterbox), a model of a provider of that kind (the "
            "voiceover skill's `routes` lists the speech models); for speech, an empty Model (config.yaml's "
-           "models.speech)")
+           "tasks.speech)")
     if backend and backend != SPEECH_BACKEND and (model := backend_model(backend)):
         msg += f"; here {backend} is {model}"
     return msg

@@ -1,18 +1,18 @@
 """Settings and brand lookup for the brand CLI.
 
 A brand is a folder `<name>/` holding `brand.yaml`. Search order: the bundled
-`brands/` directory of the skill, then each entry of the colon-separated
-`BRAND_PATH`, in order. Empty entries and entries that are not directories are
-skipped. The first folder named `<name>` with a `brand.yaml` wins.
+`brands/` directory of the skill, then each directory of the setting `brand.path`
+of config.yaml, in order. Entries that are not directories are skipped. The
+first folder named `<name>` with a `brand.yaml` wins.
 
-`BRAND_PATH` is a setting. Settings are loaded by `plugin_settings` (`Plugin.load`), which documents the sources.
+Settings are loaded by `plugin_settings` (`Plugin.load`), which documents the file.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from plugin_settings import Plugin
+from plugin_settings import Plugin, config
 
 # config.py -> brand_tool -> scripts -> <skill>
 BUNDLED_DIR = Path(__file__).resolve().parents[2] / "brands"
@@ -30,14 +30,10 @@ class BrandError(Exception):
 def search_dirs(bundled: Path | None = None) -> list[Path]:
     """Directories searched for brands, in order, without duplicates.
 
-    The bundled directory first (if it exists), then each `BRAND_PATH` entry
-    that is a directory. `~` in an entry is expanded.
+    The bundled directory first (if it exists), then each `brand.path` entry
+    that is a directory (`~` expanded by the schema).
     """
-    candidates = [bundled if bundled is not None else BUNDLED_DIR]
-    for entry in PLUGIN.get("BRAND_PATH", "").split(":"):
-        entry = entry.strip()
-        if entry:
-            candidates.append(Path(entry).expanduser())
+    candidates = [bundled if bundled is not None else BUNDLED_DIR, *config().brand.path]
     dirs: list[Path] = []
     seen: set[Path] = set()
     for d in candidates:

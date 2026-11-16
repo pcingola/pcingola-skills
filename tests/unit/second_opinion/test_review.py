@@ -68,7 +68,7 @@ def test_check_answer_rejects_malformed(bad):
 
 
 def test_models_task_by_kinds(models_env):
-    """`second-opinion models` shows models.chat and models.vision of config.yaml. Guards
+    """`second-opinion models` shows tasks.chat and tasks.vision of config.yaml. Guards
     models.describe.
     """
     p = run(["models"], models_env)
@@ -77,7 +77,7 @@ def test_models_task_by_kinds(models_env):
 
 
 def test_review_with_ollama(models_env, tmp_path):
-    """`second-opinion review` sends a text file to models.chat and writes findings JSON whose
+    """`second-opinion review` sends a text file to tasks.chat and writes findings JSON whose
     findings pass check_answer. Guards the agent request, its native output and the --out record.
     """
     require(CHAT_MODEL)

@@ -2,7 +2,7 @@
 name = "studio-server"
 version = "0.1.0"
 requires-python = ">=3.11"
-# Standard-library HTTP server; plugin-settings reads STUDIO_DIR.
+# Standard-library HTTP server; plugin-settings reads the studio and brand sections of config.yaml.
 dependencies = [
     # the settings file config.yaml (lib/plugin_settings, git source)
     "plugin-settings",

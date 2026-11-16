@@ -1,27 +1,22 @@
-"""`python -m studio_server [--parent-pid PID]`: serve the projects root `STUDIO_DIR` (default ~/Documents/Studio)."""
+"""`python -m studio_server [--parent-pid PID]`: serve the projects root `studio.dir` of config.yaml (default
+~/Documents/Studio)."""
 
 from __future__ import annotations
 
 import argparse
-import os
 
-from plugin_settings import Plugin
+from plugin_settings import Plugin, StudioSettings
 
 from .catalogue import find_brand_plugin
 from .server import Studio, start_loops
 
-DEFAULT_ROOT = "~/Documents/Studio"
+DEFAULT_ROOT = StudioSettings().dir
 
 
 def projects_root() -> str:
-    """`STUDIO_DIR` from the settings, else DEFAULT_ROOT; `~` is expanded by the server. A relative path
-    exits with an error naming where it was set."""
-    plugin = Plugin.of(__file__)
-    plugin.load()
-    value = (plugin.get("STUDIO_DIR") or "").strip() or DEFAULT_ROOT
-    if not os.path.isabs(os.path.expanduser(value)):
-        plugin.invalid("STUDIO_DIR", value, "an absolute path or one starting with ~")
-    return value
+    """`studio.dir` from the settings (default DEFAULT_ROOT); `~` is expanded by the server. A relative path
+    fails at load (the schema), and the process exits with the message."""
+    return Plugin.of(__file__).load().studio.dir
 
 
 def main() -> None:

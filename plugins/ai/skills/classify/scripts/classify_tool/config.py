@@ -1,6 +1,6 @@
 """Settings of the classify tool, loaded by `plugin_settings` (`Plugin.load`), which
-documents the sources. The models are those of `config.yaml` of `ai_models`
-(`models.system1`, `models.chat`), with the provider keys."""
+documents the file. The models are those of `config.yaml` (`tasks.system1`,
+`tasks.chat`), with the provider keys."""
 
 from __future__ import annotations
 

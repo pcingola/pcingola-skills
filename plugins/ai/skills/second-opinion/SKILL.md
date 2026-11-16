@@ -36,8 +36,8 @@ ${CLAUDE_SKILL_DIR}/scripts/second-opinion.sh models
 
 ## Models and inputs
 
-The models come from the settings file `config.yaml`: `models.vision`
-when an image is among the files, else `models.chat`. `--model` takes any
+The models come from the settings file `config.yaml`: `tasks.vision`
+when an image is among the files, else `tasks.chat`. `--model` takes any
 `<provider>:<model>` id of that file; `models` prints the two models.
 
 ## Model routes

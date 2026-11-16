@@ -24,7 +24,7 @@ def lines(text):
 
 
 def test_system1_run(models_env):
-    """`classify run` without --backend uses the system1 backend with models.system1 of config.yaml
+    """`classify run` without --backend uses the system1 backend with tasks.system1 of config.yaml
     and writes a record with id, backend, model, UTC timestamp, top, p_top and answers whose
     probabilities cover the options. Guards default_backend, System1Backend and runner.record.
     """
@@ -38,7 +38,7 @@ def test_system1_run(models_env):
 
 
 def test_chat_run(models_env):
-    """`classify run --backend chat` classifies with models.chat and records a label among the
+    """`classify run --backend chat` classifies with tasks.chat and records a label among the
     options with p_top null. Guards ChatBackend's structured output and chat_result.
     """
     require(CHAT_MODEL)
@@ -51,11 +51,11 @@ def test_chat_run(models_env):
 
 
 def test_default_backend_without_system1_model(models_env, tmp_path):
-    """Without models.system1 in config.yaml the default backend is chat, whose check refuses a score
+    """Without tasks.system1 in config.yaml the default backend is chat, whose check refuses a score
     question before any request. Guards default_backend.
     """
     cfg = tmp_path / "chat_only.yaml"
-    cfg.write_text("providers:\n  ollama: {kind: ollama}\nmodels:\n  chat: ollama:x\n")
+    cfg.write_text("providers:\n  ollama: {kind: ollama}\ntasks:\n  chat: ollama:x\n")
     p = run(["run", "--type", "score", "--instructions", "x", "--level", "a", "--level", "b", "--item", "t"],
             {**models_env, "SKILLS_CONFIG": str(cfg)})
     assert p.returncode == 1 and "the chat backend takes choice and noul questions only" in p.stderr
@@ -124,7 +124,7 @@ def test_missing_model_stops_before_other_items(models_env, tmp_path):
 
     cfg = tmp_path / "config.yaml"
     cfg.write_text(f"providers:\n  ollama: {{kind: ollama, base_url: {OLLAMA}/v1}}\n"
-                   "models:\n  system1: ollama:no-such-model:1b\n")
+                   "tasks:\n  system1: ollama:no-such-model:1b\n")
     out = tmp_path / "out.jsonl"
     p = run(["run", "--type", "noul", "--instructions", "Urgent?", *[a for i in range(5) for a in ("--item", f"t{i}")],
              "--out", str(out)], models_env)

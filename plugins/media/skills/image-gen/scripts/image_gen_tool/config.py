@@ -1,8 +1,8 @@
 """Settings of the image-gen CLI.
 
 Settings are loaded by `plugin_settings` (`Plugin.load`), which documents the sources.
-The model of each task (`image`, `image_edit`, `image_best`, `image_multi_ref`), the providers and their keys are in
-the settings file `config.yaml`.
+The model of each task (`tasks.image`, `tasks.image_edit`, `tasks.image_best`, `tasks.image_multi_ref`), the
+providers, their keys and each model's image limits are in the settings file `config.yaml`.
 """
 
 from __future__ import annotations

@@ -74,7 +74,7 @@ def cmd_copy(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="brand",
-        description="Find, show and copy brand folders (bundled brands, then BRAND_PATH).",
+        description="Find, show and copy brand folders (bundled brands, then the brand.path setting).",
     )
     sub = p.add_subparsers(dest="command", required=True)
 

@@ -2,7 +2,7 @@
 skill, `voice`, `scaffold`, `render` and `assemble`, all run through the
 wrappers as the agent runs them.
 
-The speech model is `models.speech` of the user's config.yaml, a Kokoro model
+The speech model is `tasks.speech` of the user's config.yaml, a Kokoro model
 whose default voice is `af_heart` (`voice:` in settings); the speaker `guest`
 is its voice `bm_george`. Fails until that config and HyperFrames are in
 place.

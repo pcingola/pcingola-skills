@@ -27,8 +27,12 @@ skill CLI.
 | Page | `plugins/studio/server/page/` | shared shell (`index.html`, `studio.css`, `shell.js`) and one module per workspace skill (`images.js`, `videos.js`) |
 | Skills | `plugins/studio/skills/<skill>/SKILL.md` | the project format of a workspace and how the agent answers each action |
 
-The server is a standard-library Python program whose only dependency is `plugin-settings`; its environment lives in
-the plugin data directory like every skill wrapper's. The page loads nothing from another host.
+The server is a standard-library Python program that depends on `plugin-settings` and `ai-models`; its environment
+lives in the plugin data directory like every skill wrapper's. It reads `studio.dir` at start (`Plugin.load`) and
+exits when `config.yaml` is not valid. Later reads (`brand.path`, `studio.author`, `tasks`) load the file on each
+call (`load_config`, cached per file version), so edits apply without a restart; an invalid file then gives the
+section's default (an empty list, or no tasks), with a log line for `brand.path` and `studio.author`, and the
+server keeps running. The page loads nothing from another host.
 
 ## Kinds of project
 
@@ -44,7 +48,7 @@ of that skill draws its workspace, so `images.js` serves three kinds.
 
 ## Projects
 
-`STUDIO_DIR` (default `~/Documents/Studio`) holds one directory per kind. A project is
+`studio.dir` of `config.yaml` (default `~/Documents/Studio`) holds one directory per kind. A project is
 `<root>/<directory>/<project>/` with a `project.json`. The folder name is the creation time (`YYYYMMDD-HHMMSS`), so
 renaming a project moves no files. Every request carries the project's absolute directory, so the skills read no
 setting.
@@ -151,7 +155,7 @@ The film settings, `film` in `project.json`:
 | `music` | `mode` (`made`, `own`, `none`), `brief`, `volume`, `version` (the track to use, or the newest) | `made` |
 | `shape` | `16:9` or `9:16`, fixed once the storyboard has scenes | `16:9` |
 | `length` | 30, 60, 120 or 180 seconds; a length the brief names (such as "40 seconds") takes its place in the storyboard and `settings.yaml` | 60 |
-| `author` | names for the creator credit | from the `AUTHOR_NAME` setting |
+| `author` | names for the creator credit | from `studio.author` of `config.yaml` |
 | `brand` | brand name or null | null |
 | `review` | whether `export-mp4` runs the film critic on the MP4 | true |
 | `silent` | a film without narration: every scene is a silent HTML scene with `length`, or a clip; no voice is recorded | false |
@@ -255,7 +259,7 @@ The server watches the project directories by polling modification times about o
 
 The style catalogue and brands come from the brand plugin, which the server finds with `claude plugin list --json`,
 else in the repository checkout. It reads `brand:style`'s `catalogue.json` and the brand folders of `brand:brand` and
-`BRAND_PATH`, then sends `catalogue`.
+`brand.path`, then sends `catalogue`.
 
 ## Events
 

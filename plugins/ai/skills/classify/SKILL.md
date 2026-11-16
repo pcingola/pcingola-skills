@@ -24,8 +24,8 @@ Common options: `--backend system1|chat`, `--model PROVIDER:MODEL`,
 `--concurrency N` (default 4), `--timeout S` (seconds per request, default
 the provider's `timeout`), `--retry-failed N` (default 2).
 
-The models come from the settings file `config.yaml`: `models.system1`
-for `--backend system1`, `models.chat` for `--backend chat`. `--model` takes
+The models come from the settings file `config.yaml`: `tasks.system1`
+for `--backend system1`, `tasks.chat` for `--backend chat`. `--model` takes
 any `<provider>:<model>` id of that file. The default backend is `system1`
 when `config.yaml` names a System-1 model, else `chat`. The request timeout
 is `--timeout`, else the provider's `timeout` in `config.yaml`.

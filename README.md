@@ -46,7 +46,7 @@ The CLI tools need `uv` on `PATH`. uv builds each skill's environment on first u
 
 `claude plugin uninstall` deletes the plugin's data directory unless `--keep-data` is passed. That directory holds the plugin's environments. The media data directory also holds the voiceover weights, the cloned voices, and the image-gen and music environments (with torch and diffusers when `config.yaml` has a `diffusers` provider).
 
-The settings file `config.yaml` and the weights of local `diffusers` models (Hugging Face cache, `HF_HOME`, default `~/.cache/huggingface`) are outside every plugin data directory, so an uninstall keeps them.
+The settings file `config.yaml` and the weights of local `diffusers` models (Hugging Face cache, `huggingface.home` of `config.yaml`, default `~/.cache/huggingface`) are outside every plugin data directory, so an uninstall keeps them.
 
 Reinstall a plugin without losing them:
 
@@ -57,9 +57,9 @@ claude plugin install <plugin>@pcingola-skills --scope user
 
 ## Models
 
-The skills that call a model (classify, second-opinion, image-gen, music, voiceover, short-video) go through the shared package `lib/ai_models`, built on Pydantic-AI. One YAML file holds every setting: `~/.claude/plugins/data/config.yaml` (`SKILLS_CONFIG` names another file). Its sections are `providers` (with each provider's key in `api_key`), `models` (the model of each task), `diffusers` (local models) and `settings` (every other setting). The `setup:settings` skill creates it from `plugins/setup/skills/settings/assets/config.example.yaml`. A model id is `<provider name>:<model>`, for example `ollama:d3:4b`.
+The skills that call a model (classify, second-opinion, image-gen, music, voiceover, short-video) go through the shared package `lib/ai_models`, built on Pydantic-AI. One YAML file holds every setting: `~/.claude/plugins/data/config.yaml` (`SKILLS_CONFIG` names another file). Its sections are `providers` (each provider's key in `api_key`, and the attributes of its models in `models`, including the local `diffusers` models), `tasks` (the model of each task), `network` (proxies, CA files), `huggingface`, `brand`, `studio` and `voiceover`. The file is validated at load; an error names the YAML path of each wrong key. The `setup:settings` skill creates it from `plugins/setup/skills/settings/assets/config.example.yaml`. A model id is `<provider name>:<model>`, for example `ollama:d3:4b`.
 
-Provider kinds: `ollama`, `openrouter`, `openai` (any OpenAI-compatible server), `azure`, `google` (Gemini API or Vertex), `diffusers` (local models in process), `kokoro` and `chatterbox` (local speech on the CPU), `torchaudio` (word alignment on the CPU) and `vllm-omni` (local speech on a GPU). Tasks: `chat`, `vision`, `system1`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`, `film_critic`. The `setup:settings` skill documents the file, every kind and every task.
+Provider kinds: `ollama`, `openrouter`, `openai` (any OpenAI-compatible server), `azure`, `google` (Gemini API or Vertex), `diffusers` (local models in process), `kokoro` and `chatterbox` (local speech on the CPU), `torchaudio` (word alignment on the CPU) and `vllm-omni` (local speech on a GPU). Tasks: `chat`, `vision`, `system1`, `embed`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`, `film_critic`. The `setup:settings` skill documents the file, every kind and every task.
 
 Three levels of setup, each adding to the one before:
 
@@ -88,34 +88,33 @@ With an OpenRouter key only:
 
 ```yaml
 providers:
-  openrouter: {kind: openrouter, api_key: sk-or-v1-replace-me}
+  openrouter:
+    kind: openrouter
+    api_key: sk-or-v1-replace-me
+    models:
+      google/gemini-3-pro-image:
+        image: {max_edge: 3840, min_pixels: 655360, max_pixels: 8294400}
   kokoro:     {kind: kokoro, model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx, voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin, langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}, voice: af_heart}
   torchaudio: {kind: torchaudio, url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt}
-models:
+tasks:
   chat: openrouter:google/gemini-3.1-pro-preview
   vision: openrouter:google/gemini-3.1-pro-preview
   image: openrouter:google/gemini-3-pro-image
   image_best: openrouter:google/gemini-3-pro-image
   speech: kokoro:kokoro-v1.0
   align: torchaudio:MMS_FA
-settings:
-  IMAGE_GEN_OPENAI_MAX_EDGE: 3840
-  IMAGE_GEN_OPENAI_MIN_PIXELS: 655360
-  IMAGE_GEN_OPENAI_MAX_PIXELS: 8294400
-  IMAGE_GEN_LOCAL_MAX_EDGE: 2048
-  IMAGE_GEN_LOCAL_MIN_EDGE: 256
 ```
 
-Kokoro speech and the torchaudio aligner run on the CPU with no key; their first use downloads about 1.6 GB. OpenRouter serves no image edits (`POST /images/edits` returns 404), so `image_edit`, `image_multi_ref` and every image-gen call with `--ref` need a provider of kind `azure`, `google` or `openai` (a server with image edits), or level 3. Music needs a provider of kind `google` (Lyria) or level 3. Copied unchanged, `config.example.yaml` is a level 3 file: its `local` provider of kind `diffusers` makes the image-gen, music and short-video wrappers install PyTorch and diffusers, and several of its tasks name local GPU models.
+The `image` entry gives image-gen the size limits of the model for `--size`. Kokoro speech and the torchaudio aligner run on the CPU with no key; their first use downloads about 1.6 GB. OpenRouter serves no image edits (`POST /images/edits` returns 404), so `image_edit`, `image_multi_ref` and every image-gen call with `--ref` need a provider of kind `azure`, `google` or `openai` (a server with image edits), or level 3. Music needs a provider of kind `google` (Lyria) or level 3. Copied unchanged, `config.example.yaml` is a level 3 file: its `local` provider of kind `diffusers` makes the image-gen, music and short-video wrappers install PyTorch and diffusers, and several of its tasks name local GPU models.
 
 With no key:
 
 1. Install Ollama and pull the models the config names with `ollama pull <tag>`. A skill that finds a model not pulled names the command.
-2. For images and music, add a `diffusers` provider and its models to the config (see the example). The first run downloads the weights.
+2. For images and music, add a provider of kind `diffusers` with its `models` to the config (see the example). The first run downloads the weights.
 
 ## Studio
 
-`/studio` in a Claude Code session with the `studio` plugin starts a local server on `127.0.0.1` (a free port) and opens its page in the default browser (`open` on macOS, `xdg-open` on Linux). Projects are kept in `STUDIO_DIR`, default `~/Documents/Studio`. The session carries out the page's requests with the media skills, so Studio needs the models of the work it is asked for.
+`/studio` in a Claude Code session with the `studio` plugin starts a local server on `127.0.0.1` (a free port) and opens its page in the default browser (`open` on macOS, `xdg-open` on Linux). Projects are kept in `studio.dir` of `config.yaml`, default `~/Documents/Studio`. The session carries out the page's requests with the media skills, so Studio needs the models of the work it is asked for.
 
 ## Settings and documentation
 

@@ -37,36 +37,49 @@ per concern). It has four parts:
 ## Config
 
 The config is the settings file of `plugin_settings` (`docs/plugin_settings.md`): `$SKILLS_CONFIG`, else
-`<config dir>/plugins/data/config.yaml`. `config.path` and `config.load` read it through `plugin_settings`
-(`config_file`, `read_config`), so the skills and the package use one file and one loader. `config.use(path)` sets
-another file for the process (the tests use it). The template is `assets/config.example.yaml` of `setup:settings`,
-which creates the user's file. A missing or malformed file, a missing task, a provider without `kind` and an empty
-key are each a `ConfigError` whose message names the fix.
+`<config dir>/plugins/data/config.yaml`, validated against its schema at load. `config.load()` returns the typed
+`Config` of `plugin_settings.load_config()`, so the skills and the package use one file and one loader; a missing
+file, or the message of `ConfigFileError`, is a `ConfigError`. `config.use(path)` sets another file for the process
+(the tests use it). The template is `assets/config.example.yaml` of `setup:settings`, which creates the user's file.
 
-The package reads three sections; the fourth, `settings`, belongs to `plugin_settings`:
+The schema checks every key at load: the required keys of each provider kind, a task naming a missing provider, a
+`diffusers` task model without an entry. The functions of `config` look entries up and raise `ConfigError` naming
+the YAML path to add:
 
-- `providers`: name to settings. Every provider has `kind`. A provider that needs a key holds it in `api_key`;
-  `config.api_key` returns None for an entry without `api_key` and raises `ConfigError` for an empty one. `timeout`
-  (seconds, default 600) applies to every request of that provider.
-- Keys come only from `api_key`. `openrouter`, `azure`, `google` and `openai` without `base_url` need it; building
-  one of them without it raises `ConfigError` before any request. A Vertex provider (`google` with `vertex: true`)
-  may instead set `project`, `location` and `credentials` (a service-account JSON file; without it, Application
-  Default Credentials); its predict models (Lyria) still need `api_key`. `ollama` and `openai` with a `base_url` need no key and send a placeholder, so no client
-  library reads its own environment variable. A 401 or 403 from a provider without `api_key` names
+| Function | Returns |
+|---|---|
+| `split_id(model_id)` | (provider name, model); the first colon splits, so `ollama:d3:4b` is the Ollama tag `d3:4b` |
+| `model_for(task)`, `resolve(model, task)` | `tasks.<task>`; `resolve` returns `model` when given |
+| `provider(name)` | the typed provider `providers.<name>` |
+| `model_entry(model_id)` | `providers.<p>.models.<m>`, None when the provider has no entry for the model |
+| `diffusers_model(model_id)` | the `DiffusersModel` entry of a local model |
+| `image_limits(model_id)` | `providers.<p>.models.<m>.image`, the `ImageLimits` of media:image-gen |
+
+The package reads two sections, `providers` and `tasks`, and `network.extra_ca_cert` (TLS):
+
+- `providers`: name to provider. Every provider has `kind`. `timeout` (seconds, default 600) applies to every
+  request of a provider of any kind except `diffusers`.
+- Keys come only from `api_key` (`RemoteProvider.key()`). The schema requires it for `openrouter`, `azure` and
+  `openai` without `base_url`, and for `google` unless `vertex: true` with `credentials`, `project` or `location`;
+  `azure` also needs `base_url` and `api_version`. A Vertex provider takes `credentials` (a service-account JSON
+  file; without it, Application Default Credentials), `project` and `location`; its predict models (Lyria) still
+  need `api_key`. `ollama` and `openai` with a `base_url` need no key and send a placeholder, so no client library
+  reads its own environment variable. A 401 or 403 from a provider without `api_key` names
   `providers.<name>.api_key` and the config file.
-- `models`: task to model id. A model id is `<provider name>:<model>`; the first colon splits it, so
-  `ollama:d3:4b` is the Ollama tag `d3:4b`. A caller passes its own id (a `--model` flag) or asks for a task and gets
-  `models.<task>` (`config.resolve`). The tasks the skills use: `chat`, `vision`, `system1`, `image`,
-  `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`,
-  `film_critic`. The package has no model defaults.
-- `diffusers`: name to local model: `repo` (a Hugging Face repository), `steps`, `guidance` (optional: without it
-  no `guidance_scale` is passed), `inpaint` (the diffusers pipeline class for an edit with a mask, built over the
-  loaded modules with `from_pipe`), `args` (optional: more pipeline call arguments, after steps and guidance and
-  before the caller's) and `skip` (optional: pipeline components loaded as None). A music model adds `duration_arg`
-  and `lyrics_arg`, the pipeline call argument names for the length in seconds and the lyrics; a model without one
-  does not take that option. It may add `min_crest_db` (`music.min_crest_db`), the crest factor in dB below which
-  music `generate` sends the request again (docs/music.md). A model id
-  `<diffusers provider>:<name>` names it. A video model adds the keys of the Video section.
+- `providers.<p>.models`: model name to its attributes. For a remote provider it is optional and holds `image` (the
+  limits of an image model) and, for `google`, `predict` (Music). A remote provider serves any model id. A provider
+  of kind `diffusers` serves only the models listed: each entry has `repo` (a Hugging Face repository), `steps`,
+  `guidance` (optional: without it no `guidance_scale` is passed), `inpaint` (the diffusers pipeline class for an
+  edit with a mask, built over the loaded modules with `from_pipe`), `args` (optional: more pipeline call
+  arguments, after steps and guidance and before the caller's) and `skip` (optional: pipeline components loaded as
+  None). A music model adds `duration_arg` and `lyrics_arg`, the pipeline call argument names for the length in
+  seconds and the lyrics; a model without one does not take that option. It may add `min_crest_db`
+  (`music.min_crest_db`), the crest factor in dB below which music `generate` sends the request again
+  (docs/music.md). A video or presenter model adds the keys of the Video section.
+- `tasks`: task to model id `<provider name>:<model>`. A caller passes its own id (a `--model` flag) or asks for a
+  task and gets `tasks.<task>` (`config.resolve`). The tasks (`plugin_settings.Task`): `chat`, `vision`,
+  `system1`, `embed`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`,
+  `video`, `presenter`, `film_critic`. The package has no model defaults.
 
 The image-gen, music and short-video wrappers install the extra when the config has a provider of kind `diffusers`
 (`docs/architecture.md`, CLI wrappers).
@@ -78,7 +91,7 @@ A model route says which model serves a request of a task. `routes` reads one Ma
 `config.path().parent`, so it follows `SKILLS_CONFIG`). No plugin update writes it. setup:settings creates it from
 its template `assets/routes.md`, next to `config.example.yaml`, and merges template changes that the user accepts.
 
-`task` is a task of the `models` section. `model` is a `<provider>:<model>` id. `when` is `default` (the
+`task` is a task of the `tasks` section. `model` is a `<provider>:<model>` id. `when` is `default` (the
 recommended default model of the task) or a condition beginning with `only when` (an escalation). `why` gives the
 model's strengths and limits (quality, wall time). Lines outside the table are ignored. The first table line is the
 header; a wrong header, a row of another width, an empty `task`, `model` or `when`, any other `when`, a second
@@ -87,15 +100,15 @@ line.
 
 `table(tasks)` returns, per task in order:
 
-1. The default row. The model in use stays `models.<task>` of the config, so the row has that model. The table's
+1. The default row. The model in use stays `tasks.<task>` of the config, so the row has that model. The table's
    default row gives the `why` when its model is the same; when it differs, `why` is
    `set in config.yaml; the table recommends <model>: <its why>`. Without a table default row, `why` is
-   `set in config.yaml`; without `models.<task>`, there is no default row.
+   `set in config.yaml`; without `tasks.<task>`, there is no default row.
 2. The escalation rows in file order, without the rows whose model is not configured: the provider is missing from
-   `providers`, or, for a provider of kind `diffusers`, the model is missing from `diffusers`. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud provider
+   `providers`, or, for a provider of kind `diffusers`, the model is missing from its `models`. For the other kinds the provider is enough; whether Ollama has pulled a tag or a cloud provider
    serves a model shows only at the call.
 
-Without the file, `table` returns only the default rows of `models.<task>`. No code reads `when`: the agent uses the
+Without the file, `table` returns only the default rows of `tasks.<task>`. No code reads `when`: the agent uses the
 default row, and takes a later row only when its condition holds for the request, the first such row. `markdown`
 prints the rows as a table. `command(subparsers, tasks)` adds `routes [--task T]` to a skill's CLI; it prints the
 table of the skill's tasks and returns 0, with a note on stderr when the file is missing (`missing_message`: the
@@ -108,7 +121,7 @@ goes to the call as `--model`. Skills that load image-gen (infographic, pptx-aut
 through image-gen, by the tier they ask for.
 
 The template rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
-`config.example.yaml`. Each template default row names the config template's `models.<task>`
+`config.example.yaml`. Each template default row names the config template's `tasks.<task>`
 (`local:flux2-klein-4b` for `image`, `local:ltx-2.5` for `video`, `local:ace-step-sft` for `music`,
 `kokoro:kokoro-v1.0` for `speech`). A user without one of the escalation models has that row dropped.
 
@@ -184,7 +197,7 @@ The adapters cover what Pydantic-AI has no call for:
   `instructions` and a speed other than 1 (a server may refuse it; Ollama does). `google` calls `generate_content`
   with an AUDIO response and a prebuilt voice, with the style as a text prefix the model does not speak; raw PCM comes
   back as a WAV file at the rate of its MIME type. The `google` kind has no speed setting.
-- Music. A model listed in the provider's `predict_models` gets a plain `:predict` POST on the provider's `base_url`
+- Music. A model with `predict: true` in the provider's `models` gets a plain `:predict` POST on the provider's `base_url`
   (default Vertex), with `sample_count` inside the instance, where the API honours it; one WAV per sample. Other
   models of the `google` kind stream with
   AUDIO and TEXT parts; length and lyrics go in the prompt, images as parts after it, and the text parts come back
@@ -247,7 +260,7 @@ list `speech.voices` returns; without it a `kokoro` model lists its voices and t
 `speech.check` refuses a speed outside the kind's range, instructions a kind does not take, and `params` of a kind
 that takes none or that name a field the request is built with (`omni.BUILT_FIELDS`), before any request or model
 load; `speak` calls it. `speech.model_of_kind(kind)` is the configured speech model of a provider kind:
-`models.speech` when its provider has the kind, else the first speech routes row of such a provider, else None
+`tasks.speech` when its provider has the kind, else the first speech routes row of such a provider, else None
 (media:short-video and Studio map the voice `backend` field of an earlier storyboard with it). `aspeak` runs Kokoro and Chatterbox in a
 worker thread (`asyncio.to_thread`), so they do not block the event loop; one lock per kind serializes a model load
 or a worker request.
@@ -284,7 +297,7 @@ final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files
 - `torchaudio`: a forced-alignment pipeline of `torchaudio.pipelines` by name (`torchaudio:MMS_FA`), task `align`, in
   the caller's process on the CPU (extra `ai-models[align]`, torchaudio 2.11, the last release with `forced_align`).
   `url` is the pipeline's weights file: `weights.ensure_file` downloads it (TLS context of `tls`, so
-  `EXTRA_CA_CERT` applies) into the model directory under its own file name, the name torch.hub looks for, and the
+  `network.extra_ca_cert` applies) into the model directory under its own file name, the name torch.hub looks for, and the
   pipeline loads it from there (`get_model(dl_kwargs={"model_dir": ...})`), so torch.hub downloads nothing. `Aligner.align(samples, rate, tokens)` resamples to the pipeline's
   rate and returns one (start, end) in seconds per token. One aligner per model id stays loaded for the life of the
   process.
@@ -411,9 +424,10 @@ takes one reference per request (`ref_audio` and `ref_text`, or `ref_audio_codes
 ## Video
 
 `video.animate(image, prompt, *, seconds, model=None, width=None, height=None, aspect=None, seed=None)` returns an MP4 of the
-image animated as the prompt says; `aanimate` runs it in a worker thread. The model is `model`, else `models.video`.
-Only the `diffusers` kind serves video. A video model is a `diffusers.<name>` entry with these keys besides `repo`,
-`steps` and `guidance`, all required (`video.video_spec` raises a `ConfigError` that names each missing key):
+image animated as the prompt says; `aanimate` runs it in a worker thread. The model is `model`, else `tasks.video`.
+Only the `diffusers` kind serves video. A video model is a `providers.<p>.models.<name>` entry of a `diffusers`
+provider with these keys besides `repo`, `steps` and `guidance`, all required (`DiffusersModel.missing_video`;
+`video.video_spec` raises a `ConfigError` that names each missing key):
 
 | Key | Meaning |
 |---|---|
@@ -438,8 +452,9 @@ need it to re-encode their conditioning image.
 
 `video.present(image, speech, *, model=None, aspect=None, prompt=None, seed=None)` returns an MP4 of the person in
 the image speaking `speech` (an audio file), as long as the speech, with the speech muxed in as AAC at the file's
-sample rate; `apresent` runs it in a worker thread. The model is `model`, else `models.presenter`, a `diffusers.<name>`
-entry with optional `steps`, `guidance`, `args` and `skip`, and these keys, all required (`video.presenter_spec`):
+sample rate; `apresent` runs it in a worker thread. The model is `model`, else `tasks.presenter`, a
+`providers.<p>.models.<name>` entry of a `diffusers` provider with optional `steps`, `guidance`, `args` and `skip`,
+and these keys, all required (`DiffusersModel.missing_presenter`, `video.presenter_spec`):
 
 | Key | Meaning |
 |---|---|
@@ -464,9 +479,9 @@ RoPE has 128 positions, so its config passes a short `prompt` in `args`.
 
 ## TLS
 
-A machine behind a TLS-intercepting proxy can set `SSL_CERT_FILE` to the proxy CA alone, which replaces the public
+A machine behind a TLS-intercepting proxy can set `network.ca_bundle` (`SSL_CERT_FILE`) to the proxy CA alone, which replaces the public
 root bundle and breaks verification of public endpoints. `tls` therefore starts from certifi's roots and adds the
-extra CA of `plugin_settings.ca` (`EXTRA_CA_CERT`, then `NODE_EXTRA_CA_CERTS`, `docs/plugin_settings.md`). The default
+extra CA `network.extra_ca_cert` (`tls.ca_cert()`, `docs/plugin_settings.md`). The default
 verify flags stay on, `VERIFY_X509_STRICT` included.
 
 `PYDANTIC_AI_NO_BANNER` is set on import unless already set, because the skills' output is read by programs.

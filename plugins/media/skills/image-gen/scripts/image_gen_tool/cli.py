@@ -126,7 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     g.add_argument(
         "--quality", choices=QUALITIES, default=None,
-        help="OpenAI-style models only (default: IMAGE_GEN_SIZED_QUALITY for the models of IMAGE_GEN_SIZED_MODELS, else the model's)"
+        help="OpenAI-style models only (default: the model's image.default_quality in config.yaml, else the model's)"
     )
     g.add_argument(
         "--background",

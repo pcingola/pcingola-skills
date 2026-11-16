@@ -16,8 +16,10 @@ TEST_MODEL = {"repo": "ACE-Step/acestep-v15-xl-turbo-diffusers", "steps": 8, "gu
 def generate(tmp_path: Path, name: str, *argv: str) -> tuple[dict, str]:
     """Run `music generate` with a config whose `ace-step` entry has `min_crest_db: 30` (no track reaches it); return
     the sidecar and stderr."""
-    cfg = write_config(tmp_path / "config.yaml", providers={"local": {"kind": "diffusers"}},
-                       models={"music": "local:ace-step"}, diffusers={"ace-step": {**TEST_MODEL, "min_crest_db": 30}})
+    cfg = write_config(tmp_path / "config.yaml",
+                       providers={"local": {"kind": "diffusers",
+                                            "models": {"ace-step": {**TEST_MODEL, "min_crest_db": 30}}}},
+                       tasks={"music": "local:ace-step"})
     out = tmp_path / f"{name}.wav"
     p = subprocess.run([sys.executable, "-m", "music_tool", "generate", "calm piano", "--instrumental", "--seconds", "4",
                         "-o", str(out), *argv], env=child_env(SKILLS_CONFIG=str(cfg), HOME=str(Path.home())),

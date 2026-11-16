@@ -1,4 +1,4 @@
-"""The narrator: a speech model of the `ai_models` config (`--model`, else `models.speech`), one request per
+"""The narrator: a speech model of the `ai_models` config (`--model`, else `tasks.speech`), one request per
 sentence through `ai_models.speech.speak`.
 
 `ai_models.speech.check` refuses a speed or a style the model does not take when the narrator is made, before
@@ -57,7 +57,7 @@ def resample(samples: np.ndarray, rate: int, target: int) -> np.ndarray:
 
 
 class Narrator:
-    """Speech model `model` (else `models.speech`) with `style`, `speed`, the voice of each named speaker
+    """Speech model `model` (else `tasks.speech`) with `style`, `speed`, the voice of each named speaker
     (`speakers`, a name of `@name` lines to a voice) and more request fields (`params`); `ValueError` when the config
     names no such model or the model does not take the style, speed, speakers or parameters. Local weights live in
     `config.weights_dir()` unless the provider sets `dir`."""

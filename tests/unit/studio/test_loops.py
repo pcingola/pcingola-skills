@@ -91,25 +91,23 @@ IMPORT = "from studio_server.__main__ import projects_root"
 
 def studio_env(tmp_path: Path, studio_dir: str | None = None, **extra: str) -> dict[str, str]:
     """A child environment with HOME and CLAUDE_PLUGIN_DATA in `tmp_path` and a config.yaml that sets
-    STUDIO_DIR to `studio_dir` (no setting when None)."""
-    settings = {} if studio_dir is None else {"STUDIO_DIR": studio_dir}
-    cfg = write_config(tmp_path / "config.yaml", settings)
+    `studio.dir` to `studio_dir` (no setting when None)."""
+    sections = {} if studio_dir is None else {"studio": {"dir": studio_dir}}
+    cfg = write_config(tmp_path / "config.yaml", **sections)
     return child_env({"HOME": str(tmp_path / "home"), "CLAUDE_PLUGIN_DATA": str(tmp_path / "pd"),
                       "SKILLS_CONFIG": str(cfg), **extra})
 
 
 def test_projects_root_default_and_setting(tmp_path):
-    """STUDIO_DIR is read from config.yaml; unset or blank, the root is ~/Documents/Studio. Guards the
-    setting."""
+    """`studio.dir` is read from config.yaml; unset, the root is ~/Documents/Studio. Guards the setting."""
     assert DEFAULT_ROOT == "~/Documents/Studio"
     assert py_value(IMPORT, "projects_root()", studio_env(tmp_path)) == DEFAULT_ROOT
-    for value, expected in (("  ", DEFAULT_ROOT), ("/tmp/somewhere", "/tmp/somewhere"),
-                            ("~/Pictures/Studio", "~/Pictures/Studio")):
+    for value, expected in (("/tmp/somewhere", "/tmp/somewhere"), ("~/Pictures/Studio", "~/Pictures/Studio")):
         assert py_value(IMPORT, "projects_root()", studio_env(tmp_path, value)) == expected
 
 
 def test_projects_root_ignores_the_environment(tmp_path):
-    """A process variable STUDIO_DIR is ignored, with and without the setting in config.yaml. Guards
+    """A process variable STUDIO_DIR is ignored, with and without `studio.dir` in config.yaml. Guards
     config.yaml as the only source of the setting."""
     assert py_value(IMPORT, "projects_root()", studio_env(tmp_path, STUDIO_DIR="/from/process")) == DEFAULT_ROOT
     env = studio_env(tmp_path, "/from/file", STUDIO_DIR="/from/process")
@@ -117,11 +115,13 @@ def test_projects_root_ignores_the_environment(tmp_path):
 
 
 def test_relative_root_refused(tmp_path):
-    """A relative STUDIO_DIR exits non-zero with a message naming the setting. Guards a root that would depend on
+    """A relative or blank `studio.dir` exits non-zero with a message naming the setting. Guards a root that would
+    depend on
     the directory the server was started in."""
-    done = run_python(f"{IMPORT}\nprojects_root()", studio_env(tmp_path, "Documents/Studio"))
-    assert done.returncode not in (0, None)
-    assert "STUDIO_DIR" in done.stderr
+    for value in ("Documents/Studio", "  "):
+        done = run_python(f"{IMPORT}\nprojects_root()", studio_env(tmp_path, value))
+        assert done.returncode not in (0, None)
+        assert "studio.dir" in done.stderr, done.stderr
 
 
 def test_main_prints_ready(tmp_path):
@@ -129,7 +129,7 @@ def test_main_prints_ready(tmp_path):
     process named by --parent-pid is gone. Guards the start-up the mod waits for."""
     root = tmp_path / "Studio"
     parent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
-    cfg = write_config(tmp_path / "config.yaml", {"STUDIO_DIR": str(root)})
+    cfg = write_config(tmp_path / "config.yaml", studio={"dir": str(root)})
     env = {**child_env(SKILLS_CONFIG=str(cfg)), "PYTHONPATH": str(SERVER_DIR)}
     assert env["CLAUDE_PLUGIN_DATA"] != os.environ.get("CLAUDE_PLUGIN_DATA")  # the user's settings stay hidden
     proc = subprocess.Popen([sys.executable, "-m", "studio_server", "--parent-pid", str(parent.pid)],

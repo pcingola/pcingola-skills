@@ -1,63 +1,147 @@
 # plugin_settings
 
-`lib/plugin_settings` reads the settings file `config.yaml` of every skill, resolves each plugin's data directory, and
-holds the lookup of the extra CA that the TLS code of ai_models adds to its trust. The file, its
-sections, every setting and the error messages are documented for users in the `setup:settings` skill; its template
-is `plugins/setup/skills/settings/assets/config.example.yaml`.
+`lib/plugin_settings` reads and validates the settings file `config.yaml` of every skill, exports the settings that
+libraries read from the process environment, and resolves each plugin's data directory. The sections and keys are
+documented for users in the `setup:settings` skill; the template is
+`plugins/setup/skills/settings/assets/config.example.yaml`.
+
+## Files
+
+| File | Content |
+|---|---|
+| `paths.py` | `config_dir`, `config_file`, `use`, `display` (home shown as `~`), `CONFIG_ENV` |
+| `loader.py` | `load_config`, `config`, `error`, `ConfigFileError`, `SETUP_LINE`, the error formatter |
+| `env_export.py` | `EnvVar`, `ENV_EXPORTS`, `CLEARED_PREFIXES`, `CLEARED_KEYS`, `export` |
+| `old_keys.py` | `OLD_SECTIONS`, `OLD_SETTINGS`, `OLD_PROVIDER_KEYS`, `old_key_errors` |
+| `plugin.py` | `Plugin`: name, directory, data directory, `load` |
+| `schema/` | the Pydantic classes of the file; `__init__` re-exports them |
 
 ## The settings file
 
-One file for all plugins: `$SKILLS_CONFIG` when set, else `<config dir>/plugins/data/config.yaml`, where `<config
-dir>` is `$CLAUDE_CONFIG_DIR`, else `~/.claude`. `use(path)` sets another file for the process, over `$SKILLS_CONFIG`. `read_config()`
-returns the parsed file, `{}` when the file is missing or empty, and raises `ConfigFileError` when it is not valid
-YAML or not a mapping. ai_models reads its sections (`providers`, `models`, `diffusers`) through `config_file()`
-and `read_config()` (`docs/ai_models.md`), so there is one file and one loader.
+One file for all plugins: the file set by `use(path)`, else `$SKILLS_CONFIG`, else `<config
+dir>/plugins/data/config.yaml`, where `<config dir>` is `$CLAUDE_CONFIG_DIR`, else `~/.claude`. These variables
+locate the file, so they are read from the process environment and never set by it.
 
-The fourth section, `settings`, holds every other setting as `KEY: value` (`HF_HOME`, `EXTRA_CA_CERT`, ...). It is flat: no setting name is read by two plugins
-with two meanings. `settings()` returns it as strings: a YAML boolean becomes `true` or `false`, a number its text,
-and a key with no value (null) is left out. A list or mapping value, or a `settings` that is not a mapping, exits
-with an error naming the file.
+The sections, each a class in `schema/`:
 
-## Reading a setting
+| Section | Class | Content |
+|---|---|---|
+| `providers` | `Provider` (`schema/providers/`), one class per `kind`, discriminated on `kind` | endpoints, keys, local servers; `models`, the attributes of each model |
+| `tasks` | `dict[Task, ModelId]` | the model id `<provider>:<model>` of each task; the first colon splits it |
+| `network` | `Network` | proxies, `extra_ca_cert`, `ca_bundle` |
+| `huggingface` | `HuggingFace` | `home`, `token` |
+| `brand` | `BrandSettings` | `path`, a list of directories |
+| `studio` | `StudioSettings` | `dir` (absolute or `~`), `author` (a list of names) |
+| `voiceover` | `VoiceoverSettings` | `voices_dir` |
 
-`get(key, default)` returns `settings.<key>` of the file, else `default`. A process environment variable with the
-name of a setting is ignored. Skills read every setting through `get` (or `Plugin.get`), never from `os.environ`.
+Every class derives from `Strict` (`extra="forbid"`, frozen), so an unknown section or key fails with its path. A
+section that is empty or holds only comments parses as null and takes its defaults. Paths have `~` expanded;
+`network.extra_ca_cert` and `network.ca_bundle` must name existing files. `api_key` and `huggingface.token` are
+`SecretStr`, and an empty one is an error.
 
-`require(key)` returns the value stripped of whitespace and treats an empty or blank value as missing. A missing key
-exits with a message that names the file (with `~` for the home directory), says whether it exists, and shows the two
-lines to add. `invalid(key, value, expected)` exits naming `settings.<key>` of the file. Both end with a line naming
-`setup:settings`. `Plugin.require`, `Plugin.invalid` and `Plugin.get` are the same calls.
+`providers.<p>.models` maps a bare model name (the part after the first colon) to its attributes:
+
+| Provider kind | Class of `models.<m>` | Fields |
+|---|---|---|
+| `ollama`, `openrouter`, `openai`, `azure` | `RemoteModel` | `image` |
+| `google` | `GoogleModel` | `image`, `predict` (served by the Vertex `:predict` endpoint) |
+| `diffusers` | `DiffusersModel` | `repo` (required) and the pipeline fields |
+| `vllm-omni`, `kokoro`, `chatterbox`, `torchaudio` | none | one model per provider, its fields on the provider |
+
+A remote provider serves any model id; its `models` holds attributes only. A `diffusers` model needs an entry,
+since the entry holds its `repo`. `image` is `ImageLimits`: `max_edge` (required), `min_edge`, `min_pixels`,
+`max_pixels`, `always_sized`, `default_quality` (`Quality`: low, medium, high, auto).
+
+`Config` checks cross references after every section validates: each `tasks.<task>` names a provider in `providers`,
+and a task on a `diffusers` provider names a model in its `models`. Each provider class checks its own required
+keys (`setup:settings` lists them).
+
+`Config.provider(name)`, `Config.model_entry(model_id)` and `Config.task_model(task)` return None when absent;
+`ai_models.config` turns that into a `ConfigError` (`docs/ai_models.md`).
+
+## Loading
+
+`load_config()` returns the validated `Config`. A missing or empty file gives `Config()`, every default. A file that
+is not YAML, not a mapping, or not valid raises `ConfigFileError`. The result is cached per process, keyed by
+`(path, st_mtime_ns, st_size)`, so the long-running Studio server sees edits and every other call is a dict lookup.
+`use()` clears the cache.
+
+`config()` is `load_config()` that prints `Error: <message>` on stderr and exits 1 on `ConfigFileError`. Skills read
+settings as typed attributes, `plugin_settings.config().studio.dir`, never from `os.environ`.
+
+## Errors
+
+One message lists every problem, each on its own line as `<YAML path>: <reason>`, and ends with `SETUP_LINE`:
+
+```
+Error: ~/.claude/plugins/data/config.yaml is not valid:
+  providers.azure.api_version: required for kind azure
+  providers.openrouter.api_key: required for kind openrouter
+  network.extra_ca_cert: file /path/ca.pem does not exist
+  studio.dirr: not a setting
+The setup:settings skill describes every key and creates the file.
+```
+
+The cross references run only when every section is valid, so their lines (`tasks.music: provider 'vertex' is not
+in providers`) appear once the other errors are fixed.
+
+The path comes from Pydantic's `loc`, joined with `.` and list indexes as `[i]`; the provider kind tag of the
+discriminated union is dropped from it. An unknown key reads `not a setting` (`not a setting of kind <k>` inside a
+provider). Home paths show as `~`.
+
+## Keys of the earlier layout
+
+`Config` runs `old_key_errors` before validation and fails with one line per key of the earlier layout, naming its
+new place:
+
+| Earlier key | Error names |
+|---|---|
+| `models` | `tasks` |
+| `diffusers` | `providers.<p>.models.<name>` of the provider of kind `diffusers` |
+| `settings` | each key: `IMAGE_GEN_*` to `providers.<p>.models.<m>.image.*`, `BRAND_PATH` to `brand.path`, `STUDIO_DIR` and `AUTHOR_NAME` to `studio.*`, `VOICEOVER_VOICES_DIR` to `voiceover.voices_dir`, proxies, `EXTRA_CA_CERT`, `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE` to `network.*`, `HF_HOME` and `HF_TOKEN` to `huggingface.*`; another `VOICEOVER_*` to `tasks.speech`, `tasks.align` and their providers; any other key is `not a setting` |
+| `providers.<p>.predict_models` | `providers.<p>.models.<m>.predict: true` |
+| `providers.<p>.memory_share` | `memory`, in GB |
+
+The full texts are `OLD_SECTIONS`, `OLD_SETTINGS` and `OLD_PROVIDER_KEYS` in `old_keys.py`.
 
 ## Export to the environment
 
-`Plugin.load()` reads the file, exits on a malformed one, and makes `os.environ` agree with it (`export()`), so a
-shell variable is never a setting, for the skills' code, the libraries it calls or its child processes:
+`Plugin.load()` calls `config()` and `export(cfg)`, and returns the `Config`. `export` makes `os.environ` agree with
+the file, so a shell variable is never a setting for the skills' code, the libraries it calls or its child processes:
 
-- Each variable of `ENV_KEYS` is set to the file's value, over a process value, or removed when the file does not
-  set it. The proxy variables (`PROXY_KEYS`) are set or removed in upper and lower case together, since httpx
-  prefers `https_proxy` over `HTTPS_PROXY`.
+- Each row of `ENV_EXPORTS` (`EnvVar(name, getter, lower)`) sets its variable to the config value, or removes it
+  when the value is None or empty. A row with `lower` sets or removes the lower-case name too, since httpx prefers
+  `https_proxy` over `HTTPS_PROXY`.
 - Every variable whose name starts with one of `CLEARED_PREFIXES` (`OPENAI_`, `AZURE_OPENAI_`, `AZURE_VOICELIVE_`,
   `OPENROUTER_`, `OLLAMA_`, `GOOGLE_GENAI_`, `GOOGLE_CLOUD_`, `SYSTEM_ONE_`) or is one of `CLEARED_KEYS`
   (`GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GEMINI_BASE_URL`,
   `GOOGLE_VERTEX_BASE_URL`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`) is removed. The model clients of
-  ai_models (OpenAI, Azure OpenAI, google-genai, google-auth, Pydantic-AI's providers) read keys, endpoints, API
-  versions, projects, credentials, extra headers and CA bundles from them; ai_models passes each of those from
-  `config.yaml` instead.
+  ai_models read keys, endpoints, API versions, projects, credentials, extra headers and CA bundles from them;
+  ai_models passes each of those from `config.yaml` instead.
 
-The settings of `ENV_KEYS` are the ones code outside the skills reads from the environment:
+`ENV_EXPORTS`:
 
-| Setting | Read there by |
-|---|---|
-| `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` | httpx and requests of ai_models (model calls and weight downloads) |
-| `SSL_CERT_FILE` | the default TLS verification of libraries outside ai_models, which uses certifi's roots plus `EXTRA_CA_CERT` |
-| `NODE_EXTRA_CA_CERTS` | Node.js child processes (short-video) |
-| `HF_HOME`, `HF_TOKEN` | huggingface_hub, for the weights of the `diffusers` models |
+| Variable | From | Lower case too | Read there by |
+|---|---|---|---|
+| `HTTP_PROXY` | `network.http_proxy` | yes | httpx and requests (model calls, weight downloads) |
+| `HTTPS_PROXY` | `network.https_proxy` | yes | same |
+| `ALL_PROXY` | `network.all_proxy` | yes | same |
+| `NO_PROXY` | `network.no_proxy`, joined with `,` | yes | same |
+| `SSL_CERT_FILE` | `network.ca_bundle` | no | Python's default `ssl` context (httpx, requests), as the whole trust store |
+| `NODE_EXTRA_CA_CERTS` | `network.extra_ca_cert` | no | Node.js child processes (short-video) |
+| `HF_HOME` | `huggingface.home` | no | huggingface_hub, the weights of the `diffusers` models |
+| `HF_TOKEN` | `huggingface.token` | no | huggingface_hub, gated repositories |
 
-No other setting is exported. `EXTRA_CA_CERT` is read by `ca` through `get`. A skill calls `Plugin.load()` at the
-start of its CLI, before it imports a library that reads one of these variables at import time (huggingface_hub reads `HF_HOME`).
+A skill calls `Plugin.load()` at the start of its CLI, before it imports a library that reads one of these
+variables at import time (huggingface_hub reads `HF_HOME`). `export()` without an argument calls `config()`.
 
-The file never sets `CLAUDE_CONFIG_DIR`, `CLAUDE_PLUGIN_DATA` or `SKILLS_CONFIG`: they decide where the file and the
-data directory are, so the code reads them from the process environment only.
+## Extra CA
+
+A TLS-intercepting proxy re-signs HTTPS traffic with its own root CA. `network.extra_ca_cert` names that CA as a PEM
+file. ai_models adds it to certifi's roots (`ai_models.tls.ca_cert()`, `docs/ai_models.md`), and `export` sets
+`NODE_EXTRA_CA_CERTS` to it. `network.ca_bundle` is different: as `SSL_CERT_FILE` it replaces the default trust
+store of libraries outside ai_models; ai_models does not read it, since its context starts from certifi. The
+package ships no CA file.
 
 ## Binding to a plugin
 
@@ -79,13 +163,3 @@ The marketplace name has two sources:
 When neither gives a name, or the plugin manifest has no name, the lookup exits asking for `CLAUDE_PLUGIN_DATA`
 instead of guessing a directory Claude Code would not use. `plugin_env` in each plugin's `lib/uv_env.sh` resolves the
 same directory in shell (`docs/architecture.md`).
-
-## Extra CA
-
-A TLS-intercepting proxy re-signs HTTPS traffic with its own root CA. The user exports that root
-CA to a PEM file and names it in the setting `EXTRA_CA_CERT`. `ca.ca_cert()` returns the first of `CA_CERT_KEYS`
-(`EXTRA_CA_CERT`, then `NODE_EXTRA_CA_CERTS`, each through `get`) that names an existing file, else None. With None,
-callers keep the default trust. ai_models adds the CA to certifi's roots (`docs/ai_models.md`). The package ships no CA file and keeps no per-skill CA setting.
-
-`SSL_CERT_FILE` is not read by `ca`. Python's default `ssl` context reads it, so httpx or requests with
-their default verification use it as the whole trust store. ai_models does not: its context starts from certifi.

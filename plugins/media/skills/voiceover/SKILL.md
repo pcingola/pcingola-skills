@@ -125,7 +125,7 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup --chatterbox
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out/
 
 # Options
-#   --model ID       <provider>:<model> of config.yaml (default: models.speech)
+#   --model ID       <provider>:<model> of config.yaml (default: tasks.speech)
 #   --voice NAME     default: the model's default voice; for a model that
 #                    clones a voice also a voice of add-voice or a path
 #   --speed 1.0      models with a speed setting
@@ -137,7 +137,7 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out
 #   --tail 0.6       silence after the last sentence (s)
 #   --no-align       sentence times only, no word alignment
 
-# List the voices of a model (default models.speech), its default voice
+# List the voices of a model (default tasks.speech), its default voice
 # marked `(default)`; a model that clones a voice also lists every recording
 # (.wav/.flac/.mp3/.m4a) in the voices directory
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh voices [--model ID]
@@ -161,7 +161,7 @@ user with `play`. Do not use QuickTime or a bare `open`.
 A model of provider kind `chatterbox` (Chatterbox-Turbo, Resemble AI,
 English, MIT) clones a voice from one reference recording, with no
 transcript and no training. A voice is `<name>.wav`, `.flac`, `.mp3` or
-`.m4a` in the voices directory, `VOICEOVER_VOICES_DIR` (default
+`.m4a` in the voices directory, `voiceover.voices_dir` of `config.yaml` (default
 `voiceover/voices` under the plugin's data directory); `--voice` also takes
 a path to a recording; `default` is the model's built-in voice. The model
 uses the first 10-15 s of the recording, which must be longer than 5 s.

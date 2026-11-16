@@ -241,7 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--script", required=True, help="Text file, one sentence per line")
     p.add_argument("--out-dir", required=True, help="Directory for narration.wav and timing.json")
     p.add_argument("--model", default=None,
-                   help="Speech model id <provider>:<model> of the ai_models config (default: models.speech)")
+                   help="Speech model id <provider>:<model> of the ai_models config (default: tasks.speech)")
     p.add_argument("--voice", default=None,
                    help="Voice name (default: the model's default voice); for a model that clones a voice also a "
                    "recording of add-voice or a path to one")
@@ -261,12 +261,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_cmd_synth)
 
     p = sub.add_parser("voices", help="List the voices of a speech model")
-    p.add_argument("--model", default=None, help="Speech model id <provider>:<model> (default: models.speech)")
+    p.add_argument("--model", default=None, help="Speech model id <provider>:<model> (default: tasks.speech)")
     p.set_defaults(func=_cmd_voices)
 
     p = sub.add_parser("setup", help="Download the weights of the speech and align models, or build the Chatterbox "
                                      "environment")
-    p.add_argument("--model", default=None, help="Speech model id <provider>:<model> (default: models.speech)")
+    p.add_argument("--model", default=None, help="Speech model id <provider>:<model> (default: tasks.speech)")
     p.add_argument("--chatterbox", action="store_true",
                    help="Build the Python environment the chatterbox provider runs its worker in, and print its python")
     p.set_defaults(func=_cmd_setup)

@@ -1,7 +1,7 @@
 # Fish Audio Drama 3 (provider kind vllm-omni)
 
 Fish Audio Drama 3 (`fishaudio/drama-3`) is a local speech model served by vLLM-Omni. It is used when
-`models.speech` of `config.yaml`, or `--model`, names a model of a provider of kind `vllm-omni`.
+`tasks.speech` of `config.yaml`, or `--model`, names a model of a provider of kind `vllm-omni`.
 
 ## Running
 

@@ -34,10 +34,10 @@ def require(model: str) -> None:
 @pytest.fixture
 def models_env(tmp_path) -> dict[str, str]:
     """The environment of a CLI subprocess with a `config.yaml` of the local Ollama
-    (`models.system1` SYSTEM1_MODEL, `models.chat` CHAT_MODEL) and no user settings."""
+    (`tasks.system1` SYSTEM1_MODEL, `tasks.chat` CHAT_MODEL) and no user settings."""
     cfg = tmp_path / "config.yaml"
     cfg.write_text(f"providers:\n  ollama: {{kind: ollama, base_url: {OLLAMA}/v1}}\n"
-                   f"models:\n  system1: ollama:{SYSTEM1_MODEL}\n  chat: ollama:{CHAT_MODEL}\n")
+                   f"tasks:\n  system1: ollama:{SYSTEM1_MODEL}\n  chat: ollama:{CHAT_MODEL}\n")
     return {**os.environ, "SKILLS_CONFIG": str(cfg), "HOME": str(tmp_path / "home"),
             "CLAUDE_PLUGIN_DATA": str(tmp_path / "plugin-data"),
             "PYTHONPATH": os.pathsep.join([SCRIPTS, os.environ.get("PYTHONPATH", "")])}

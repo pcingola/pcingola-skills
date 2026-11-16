@@ -1,4 +1,4 @@
-"""The review model: `--model` (a `<provider>:<model>` id of `config.yaml` of `ai_models`),
+"""The review model: `--model` (a `<provider>:<model>` id of `config.yaml`),
 else the model of task `vision` when an image is among the files, else of task `chat`.
 Which inputs a model takes is the provider's to decide; a refused input fails the request."""
 
@@ -21,8 +21,8 @@ def resolve(model: str | None, kinds) -> str:
 
 
 def describe() -> str:
-    m = config.load().get("models") or {}
+    cfg = config.load()
     return (f"Config: {config.path()}\n"
-            f"chat    {m.get(CHAT, '(not set)')}  (default)\n"
-            f"vision  {m.get(VISION, '(not set)')}  (when an image is among the files)\n"
+            f"chat    {cfg.task_model(CHAT) or '(not set)'}  (default)\n"
+            f"vision  {cfg.task_model(VISION) or '(not set)'}  (when an image is among the files)\n"
             "--model takes any <provider>:<model> id of the config.")

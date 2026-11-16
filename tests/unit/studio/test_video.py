@@ -457,8 +457,11 @@ def test_film_voice_of_the_earlier_form_maps_its_backend(tmp_path):
     from ai_models import config as ai_config
 
     cfg = tmp_path / "config.yaml"
-    cfg.write_text("providers: {kokoro: {kind: kokoro}, cb: {kind: chatterbox}}\n"
-                   "models: {speech: 'kokoro:kokoro-v1.0'}\n")
+    cfg.write_text("providers:\n"
+                   "  kokoro: {kind: kokoro, model_url: 'http://127.0.0.1:1/m', voices_url: 'http://127.0.0.1:1/v', "
+                   "langs: {af_: en-us}}\n"
+                   "  cb: {kind: chatterbox, python: /nonexistent, url: 'http://127.0.0.1:1', files: [a]}\n"
+                   "tasks: {speech: 'kokoro:kokoro-v1.0'}\n")
     (tmp_path / "routes.md").write_text("| task | model | when | why |\n|---|---|---|---|\n"
                                         "| speech | cb:chatterbox-turbo | only when cloned | x |\n")
     ai_config.use(cfg)
@@ -896,11 +899,11 @@ def test_fix(client, studio, emitted):
 
 
 def test_default_film_author(tmp_path):
-    """A new film's author is the AUTHOR_NAME setting of config.yaml split on commas, blanks dropped; [] when unset.
-    Guards "Made by" defaulting to the user's name."""
+    """A new film's author is the list `studio.author` of config.yaml, whitespace collapsed, blanks dropped; [] when
+    unset. Guards "Made by" defaulting to the user's name."""
     imports = "from studio_server.video import default_film"
     base = {"HOME": str(tmp_path / "home"), "CLAUDE_PLUGIN_DATA": str(tmp_path / "pd")}
-    cfg = write_config(tmp_path / "config.yaml", {"AUTHOR_NAME": " Ada  Lovelace , ,Bob "})
+    cfg = write_config(tmp_path / "config.yaml", studio={"author": [" Ada  Lovelace ", " ", "Bob"]})
     assert py_value(imports, 'default_film()["author"]', child_env({**base, "SKILLS_CONFIG": str(cfg)})) == [
         "Ada Lovelace", "Bob"]
     assert py_value(imports, 'default_film()["author"]', child_env(base)) == []

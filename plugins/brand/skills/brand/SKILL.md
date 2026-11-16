@@ -45,13 +45,13 @@ Run every command with `${CLAUDE_SKILL_DIR}/scripts/brand.sh <command> [args]`.
 ## Lookup
 
 Brands are searched in the bundled `brands/` directory of this skill, then in
-each directory of `BRAND_PATH` (colon-separated), in order. Empty entries and
-directories that do not exist are skipped. The first folder `<name>/` with a
-`brand.yaml` wins. `BRAND_PATH` is a setting.
+each directory of the setting `brand.path` of config.yaml (a list), in order.
+Directories that do not exist are skipped. The first folder `<name>/` with a
+`brand.yaml` wins.
 
 Bundled brand: `neutral`, with no logo. It holds colours, fonts, layout rules
 and a 16:9 PowerPoint template for a deck or figure without a brand. Add other
-brands (for example `acme`) in a directory on `BRAND_PATH`.
+brands (for example `acme`) in a directory of `brand.path`.
 
 ## Commands
 
@@ -70,7 +70,7 @@ Errors go to stderr with exit status 1 and name the directories searched.
 3. Use each file in place, at `<folder>/<path>` for the path under its key,
    read-only. Callers keep no copy of the folder.
 4. `copy <name> <dir>` starts a new brand from an existing one: copy into a
-   directory on `BRAND_PATH`, rename the folder (a bundled brand of the same
+   directory of `brand.path`, rename the folder (a bundled brand of the same
    name is found first) and edit its files.
 
 Do not edit the files of a bundled brand.

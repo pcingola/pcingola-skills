@@ -78,5 +78,5 @@ bundled brand still naming the old style fails the brand tests.
 ## Untested
 
 - Style names are kebab-case; no test enforces it.
-- A `brand.yaml` under `BRAND_PATH` naming a renamed or removed style.
+- A `brand.yaml` under a `brand.path` directory naming a renamed or removed style.
 - Mentions of a renamed or removed style in other skills' files.

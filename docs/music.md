@@ -6,7 +6,7 @@ behaviour and the local models are in `ai_models` (`docs/ai_models.md`).
 
 ## Generation
 
-The model is `--model` (a `<provider>:<model>` id), else `models.music`. The skill has no model table in code.
+The model is `--model` (a `<provider>:<model>` id), else `tasks.music`. The skill has no model table in code.
 The wrapper installs the skill's `local` extra (`ai-models[diffusers]`) when the config has a provider of kind
 `diffusers`.
 
@@ -16,7 +16,7 @@ The wrapper installs the skill's `local` extra (`ai-models[diffusers]`) when the
 | API | Models | Options |
 |---|---|---|
 | `diffusers` | ACE-Step | `--seconds`, `--lyrics`, `--seed` |
-| `predict` | `google` models in the provider's `predict_models` (`lyria-002`) | `--seed`, `--negative`, `--samples` |
+| `predict` | `google` models with `predict: true` in the provider's `models` (`lyria-002`) | `--seed`, `--negative`, `--samples` |
 | `stream` | other `google` models (Lyria 3) | `--seconds`, `--lyrics`, `--image` (up to 10) |
 
 `--seed` with `--samples` is refused. The endpoint can answer a bad streaming request with no cause, so refusing early gives
@@ -35,7 +35,7 @@ with the audio (lyrics or song structure).
 
 ACE-Step 1.5 XL turbo (`ACE-Step/acestep-v15-xl-turbo-diffusers`, 8 steps) generates loud, compressed audio at 8,
 16 and 32 steps. The XL SFT model (`ACE-Step/acestep-v15-xl-sft-diffusers`, 50 steps, guidance 7) takes about 12 s
-per 30 s clip and won a listening test against turbo. The config template's `models.music` is `local:ace-step-sft`;
+per 30 s clip and won a listening test against turbo. The config template's `tasks.music` is `local:ace-step-sft`;
 the turbo model `local:ace-step` is for tests and quick drafts.
 
 The crest factor (`measure.crest_db`) is sample peak minus RMS over the 2 s windows whose RMS is within 6 dB of the
@@ -55,8 +55,8 @@ The template sets `min_crest_db: 10` on the SFT entry: it passes every SFT clip 
 quietest turbo clips. The turbo entry has none, since it is chosen knowing its sound is compressed.
 
 Because the crest factor depends on the seed, `generate` runs the check when `--min-crest-db` is above 0, or without
-it when the model entry has `min_crest_db` (`ai_models.music.min_crest_db`; only diffusers entries exist, so remote
-models get a check only from the option). Mastered rock, techno and EDM sit around 8 to 12 dB, so the threshold is per
+it when the model entry has `min_crest_db` (`ai_models.music.min_crest_db`; only `DiffusersModel` has the field, so
+remote models get a check only from the option). Mastered rock, techno and EDM sit around 8 to 12 dB, so the threshold is per
 model and per call, and the music skill tells the agent to pass 0 for those genres. `crest.regenerate` sends a request
 with a track below the threshold again, up to `--crest-attempts` requests (default 3). A model whose kind takes a seed
 (`ai_models.music.takes`) gets the next seed, the first being `--seed` or a random one; another, or a call with
@@ -67,7 +67,7 @@ model choices are in `config.example.yaml` and `routes.md`.
 
 ## Model description in analyze
 
-The model is `--model`, else `models.audio`, a chat model that takes audio. Without either, the model section is
+The model is `--model`, else `tasks.audio`, a chat model that takes audio. Without either, the model section is
 skipped with the reason, and the run continues.
 
 The clip is sent inline. WAV, MP3, FLAC and OGG files up to 14 MiB go as they are (Gemini's inline limit of 20 MiB

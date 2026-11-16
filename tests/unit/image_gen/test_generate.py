@@ -10,20 +10,22 @@ import pytest
 
 from image_gen_tool import cli
 from image_gen_tool.generate import ImageError, media_type, settings
-from image_gen_tool.models import SizeLimits, task_for
+from image_gen_tool.models import task_for
+from plugin_settings import ImageLimits
 from tests.settings_env import write_config
 from tests.subproc import child_env, run_python
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 24
-# Size limits as the settings give them (config.example.yaml), with one sized model.
-LIMITS = SizeLimits(openai_max_edge=3840, openai_min_pixels=655_360, openai_max_pixels=8_294_400,
-                    local_max_edge=2048, local_min_edge=256, sized_models=("azure:sized-model",),
-                    sized_quality="high")
+# Image limits of an OpenAI-kind and a local model as config.example.yaml gives them, and of a sized model.
+OPENAI_LIMITS = ImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8_294_400)
+LOCAL_LIMITS = ImageLimits(max_edge=2048, min_edge=256)
+SIZED_LIMITS = ImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8_294_400, always_sized=True,
+                           default_quality="high")
 
 
 def opts(kind, **kw):
     args = dict(aspect_ratio=None, image_size=None, n=1, quality=None, background=None, output_format="png",
-                edit=False, limits=LIMITS)
+                edit=False, limits=LOCAL_LIMITS if kind == "diffusers" else OPENAI_LIMITS)
     args.update(kw)
     return settings(kind, "p:m", **args)
 
@@ -38,17 +40,43 @@ def test_openai_kinds_one_request_with_n():
     assert opts("openai", aspect_ratio="3:2")[0] == {"openai_n": 1, "aspect_ratio": "3:2"}
 
 
-def test_sized_model_defaults_square_1k_and_sized_quality():
-    """A model of `sized_models` (setting IMAGE_GEN_SIZED_MODELS) gets 1:1 1K and `sized_quality` unless the
-    options say otherwise; the choice follows the setting, not the model name."""
+def test_sized_model_defaults_square_1k_and_default_quality():
+    """A model whose image limits have `always_sized` gets 1:1 1K, and `default_quality` unless the options say
+    otherwise; the choice follows the model's config entry, not its name (design: config_schema.md section 2)."""
     def gpt(**kw):
         args = dict(aspect_ratio=None, image_size=None, n=1, quality=None, background=None, output_format="png",
-                    edit=False, limits=LIMITS)
+                    edit=False, limits=SIZED_LIMITS)
         return settings("azure", "azure:sized-model", **{**args, **kw})[0]
 
     assert gpt() == {"openai_n": 1, "dimensions": (1024, 1024), "openai_quality": "high"}
     assert gpt(aspect_ratio="16:9", quality="low")["openai_quality"] == "low"
     assert gpt(aspect_ratio="16:9")["dimensions"][0] > gpt(aspect_ratio="16:9")["dimensions"][1]
+
+
+def test_openai_kind_without_limits_sends_no_size():
+    """An OpenAI-kind model without image limits takes a request without --size (aspect as `aspect_ratio`), so
+    a model with no config entry still serves plain requests."""
+    assert opts("ollama", limits=None, aspect_ratio="3:2") == ({"openai_n": 1, "aspect_ratio": "3:2"}, 1)
+
+
+def test_size_without_limits_names_config_entry(tmp_path):
+    """--size for a model without image limits fails with the config entry to add, for an OpenAI kind and a
+    diffusers model. Runs in a child with its own config.yaml (ai_models.config.image_limits)."""
+    cfg = write_config(tmp_path / "config.yaml", providers={"o": {"kind": "ollama"},
+                                                            "local": {"kind": "diffusers",
+                                                                      "models": {"m": {"repo": "x/m"}}}})
+    code = ("from image_gen_tool.generate import settings, ImageError\n"
+            "for kind, mid in (('ollama', 'o:img'), ('diffusers', 'local:m')):\n"
+            "    try:\n"
+            "        settings(kind, mid, aspect_ratio=None, image_size='2K', n=1, quality=None, background=None,\n"
+            "                 output_format='png', edit=False, limits=None)\n"
+            "    except ImageError as e:\n"
+            "        print(e.message)\n")
+    done = run_python(code, child_env(SKILLS_CONFIG=str(cfg)))
+    assert done.returncode == 0, done.stderr
+    lines = done.stdout.splitlines()
+    assert "add providers.o.models.img.image with max_edge" in lines[0], lines
+    assert "add providers.local.models.m.image with max_edge (and min_edge)" in lines[1], lines
 
 
 def test_google_one_request_per_image():
@@ -124,25 +152,26 @@ def test_tier_tasks():
 
 
 def test_cli_tier_without_task_names_config_key(tmp_path):
-    """A tier whose task the config lacks fails before any model call with a message naming models.<task>."""
+    """A tier whose task the config lacks fails before any model call with a message naming tasks.<task>."""
     cfg = write_config(tmp_path / "config.yaml", providers={"o": {"kind": "ollama"}},
-                       models={"image": "o:img", "image_edit": "o:edit"})
+                       tasks={"image": "o:img", "image_edit": "o:edit"})
     ref = tmp_path / "ref.png"
     ref.write_bytes(PNG)
     out = str(tmp_path / "o.png")
     env = child_env(SKILLS_CONFIG=str(cfg))
-    for tier, extra, key in (("best", [], "models.image_best"), ("multi-ref", ["--ref", str(ref)],
-                                                                 "models.image_multi_ref")):
+    for tier, extra, key in (("best", [], "tasks.image_best"), ("multi-ref", ["--ref", str(ref)],
+                                                                "tasks.image_multi_ref")):
         argv = ["generate", "--prompt", "a cat", "--out", out, "--tier", tier, *extra]
         done = run_python(f"from image_gen_tool import cli\ncli.main({argv!r})", env)
         assert done.returncode != 0 and key in done.stderr and f"--tier {tier}" in done.stderr, done.stderr
 
 
 @pytest.mark.parametrize("text, extra", [("providers:\n  local: {kind: diffusers}\n", "--extra local"),
+                                         ("providers:\n  local:\n    kind: diffusers\n", "--extra local"),
                                          ("providers:\n  o: {kind: ollama}\n", "")])
 def test_wrapper_local_extra(tmp_path, text, extra):
     """The wrapper adds `--extra local` to `uv run` exactly when the config of SKILLS_CONFIG has a
-    provider of kind diffusers. Runs the wrapper's own lines in bash."""
+    provider of kind diffusers, in flow and block style. Runs the wrapper's own lines in bash."""
     scripts = Path(__file__).resolve().parents[3] / "plugins/media/skills/image-gen/scripts"
     config = tmp_path / "config.yaml"
     config.write_text(text)

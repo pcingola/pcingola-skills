@@ -19,10 +19,10 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from plugin_settings import get
+from plugin_settings import ConfigFileError, load_config
 
 from .deck import versions_of
-from .paths import HttpError, read_json
+from .paths import HttpError, log, read_json
 
 DIRECTORY = "short-video"
 STORYBOARD = "storyboard.json"
@@ -65,7 +65,7 @@ OLD_VOICE_KEY = "backend"
 SPEECH_BACKEND = "speech"
 BACKEND_MOVED = ("Backend (`backend`) became Model (`model`), a speech model id <provider>:<model> of config.yaml: for "
                  "an earlier backend named after a provider kind (kokoro, chatterbox), a model of a provider of that "
-                 "kind; for speech, null (config.yaml's models.speech)")
+                 "kind; for speech, null (config.yaml's tasks.speech)")
 
 
 def backend_model(backend: object) -> str | None:
@@ -122,12 +122,17 @@ FILM_PICTURE_ACTIONS = ("storyboard", "use-style", "style-samples", "add-scene")
 
 
 def default_authors() -> list[str]:
-    """The names of the `AUTHOR_NAME` setting (comma-separated), a new film's "Made by"; [] when it is not set."""
-    return [n for n in (" ".join(x.split()) for x in (get("AUTHOR_NAME", "") or "").split(",")) if n]
+    """The names of the setting `studio.author` of config.yaml, a new film's "Made by"; [] when it is not set or
+    the file is not valid (the error is logged, so the server keeps running)."""
+    try:
+        return list(load_config().studio.author)
+    except ConfigFileError as e:
+        log(f"studio.author not read: {e}")
+        return []
 
 
 def default_film() -> dict:
-    """The settings of a new film: FILM_DEFAULTS with `author` from the AUTHOR_NAME setting."""
+    """The settings of a new film: FILM_DEFAULTS with `author` from the setting `studio.author`."""
     return copy.deepcopy(FILM_DEFAULTS) | {"author": default_authors()}
 
 

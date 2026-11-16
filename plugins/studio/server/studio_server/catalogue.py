@@ -7,8 +7,7 @@ lists no brand plugin, the folder is the `brand` directory next to the studio pl
 
 The styles are `skills/style/references/catalogue.json` of that folder, each `sample` (relative to `skills/style/`)
 made absolute. The brands are the folders holding a `brand.yaml` in its `skills/brand/brands/`, then in each
-directory of `BRAND_PATH`, first match per name, as the brand CLI lists them; `BRAND_PATH` is the setting the
-brand CLI reads (`plugin_settings.get`).
+directory of the setting `brand.path` of config.yaml, first match per name, as the brand CLI lists them.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
-from plugin_settings import MANIFEST, get
+from plugin_settings import MANIFEST, ConfigFileError, load_config
 
 from .paths import log
 
@@ -87,16 +86,20 @@ def find_brand_plugin(studio_root: Path, list_plugins: Callable[[], list | None]
     return sibling if (sibling / MANIFEST).is_file() else None
 
 
-def brand_path() -> str:
-    """`BRAND_PATH` as the brand plugin's CLI reads it: the setting of the config file, else empty."""
-    return get("BRAND_PATH", "") or ""
+def brand_path() -> list[Path]:
+    """`brand.path` of config.yaml as the brand plugin's CLI reads it; [] when the file is not valid (the error is
+    logged, so the server keeps running)."""
+    try:
+        return list(load_config().brand.path)
+    except ConfigFileError as e:
+        log(f"brand.path not read: {e}")
+        return []
 
 
-def list_brands(brand_root: Path, path_setting: str) -> list[str]:
-    """Names of the brand folders in the bundled directory, then each `path_setting` entry (colon-separated, `~`
-    expanded, empty entries, non-directories and repeated directories skipped), first match per name."""
-    candidates = [brand_root / BUNDLED_BRANDS]
-    candidates += [Path(e.strip()).expanduser() for e in path_setting.split(":") if e.strip()]
+def list_brands(brand_root: Path, path_setting: list[Path]) -> list[str]:
+    """Names of the brand folders in the bundled directory, then each directory of `path_setting` (non-directories
+    and repeated directories skipped), first match per name."""
+    candidates = [brand_root / BUNDLED_BRANDS, *path_setting]
     names: list[str] = []
     seen: set[Path] = set()
     for d in candidates:

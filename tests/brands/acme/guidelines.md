@@ -1,7 +1,7 @@
 # Brand: acme
 
 Acme is a fictitious brand for the test suites. It is not bundled with the
-brand skill; tests reach it through `BRAND_PATH` or by its folder path.
+brand skill; tests reach it through `brand.path` or by its folder path.
 
 Files in this folder:
 

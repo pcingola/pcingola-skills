@@ -73,8 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--brief-file", help="file holding the brief")
     r.add_argument("--file", action="append", required=True, metavar="PATH",
                    help="file to review (repeat for several): text, PNG, JPEG, WebP, WAV, MP3, FLAC, MP4, MOV, PDF")
-    r.add_argument("--model", help="review model <provider>:<model> (default: models.vision of config.yaml "
-                                   "when an image is among the files, else models.chat)")
+    r.add_argument("--model", help="review model <provider>:<model> (default: tasks.vision of config.yaml "
+                                   "when an image is among the files, else tasks.chat)")
     r.add_argument("--out", help="write the findings JSON (model, files, brief, summary, findings) here")
     r.add_argument("--force", action="store_true", help="replace an existing --out file")
     r.set_defaults(func=cmd_review)

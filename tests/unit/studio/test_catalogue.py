@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from studio_server.catalogue import brand_from_list, find_brand_plugin, read_catalogue
+from studio_server.catalogue import brand_from_list, find_brand_plugin, list_brands, read_catalogue
 from studio_server.server import LOADING
 
 from tests.settings_env import write_config
@@ -190,23 +190,19 @@ def test_read_catalogue_errors(checkout):
 
 
 def test_list_brands_with_brand_path(checkout, tmp_path):
-    """BRAND_PATH directories add brands after the bundled ones; the first folder of a name wins; empty entries,
-    missing directories and repeats are skipped; `~` is expanded. Guards matching the brand CLI's list."""
-    home = tmp_path / "home"
-    extra, more = tmp_path / "extra", home / "more"
+    """`brand.path` directories add brands after the bundled ones; the first folder of a name wins; missing
+    directories and repeats are skipped. Guards matching the brand CLI's list."""
+    extra, more = tmp_path / "extra", tmp_path / "more"
     make_brand(extra, "zeta")
     make_brand(extra, "neutral")
     make_brand(more, "beta")
-    setting = f"{extra}::{tmp_path / 'missing'}:{extra}:~/more"
-    # `~` expands against HOME, so list_brands runs in a child process with HOME in tmp_path.
-    got = py_value("from pathlib import Path\nfrom studio_server.catalogue import list_brands",
-                   f"list_brands(Path({str(brand_root(checkout))!r}), {setting!r})", child_env(HOME=str(home)))
-    assert got == ["acme", "neutral", "zeta", "beta"]
+    setting = [extra, tmp_path / "missing", extra, more]
+    assert list_brands(brand_root(checkout), setting) == ["acme", "neutral", "zeta", "beta"]
 
 
 def test_brand_path_from_settings(checkout, tmp_path):
-    """BRAND_PATH comes from config.yaml, as the brand CLI reads it; a process variable BRAND_PATH is ignored.
-    Guards the catalogue listing the brands the brand CLI finds."""
+    """`brand.path` comes from config.yaml, as the brand CLI reads it, with `~` expanded; a process variable
+    BRAND_PATH is ignored. Guards the catalogue listing the brands the brand CLI finds."""
     from_process, from_file = tmp_path / "process", tmp_path / "file"
     make_brand(from_process, "proc")
     make_brand(from_file, "filed")
@@ -214,8 +210,11 @@ def test_brand_path_from_settings(checkout, tmp_path):
     expr = f"read_catalogue(Path({str(brand_root(checkout))!r}))[0]['brands']"
     env = child_env(CLAUDE_CONFIG_DIR=str(tmp_path / "config"), BRAND_PATH=str(from_process))
     assert py_value(imports, expr, env) == ["acme", "neutral"]
-    cfg = write_config(tmp_path / "config.yaml", {"BRAND_PATH": str(from_file)})
-    assert py_value(imports, expr, {**env, "SKILLS_CONFIG": str(cfg)}) == ["acme", "neutral", "filed"]
+    home = tmp_path / "home"
+    make_brand(home / "more", "beta")
+    cfg = write_config(tmp_path / "config.yaml", brand={"path": [str(from_file), "~/more"]})
+    got = py_value(imports, expr, {**env, "HOME": str(home), "SKILLS_CONFIG": str(cfg)})
+    assert got == ["acme", "neutral", "filed", "beta"]
 
 
 # The server

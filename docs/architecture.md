@@ -52,15 +52,16 @@ Each concern has one location, and every other skill reaches it through that loc
   there. No module of a `<skill>_tool` package of a plugin project that depends on `ai-models` imports
   google-genai, the OpenAI SDK or a model library (`test_model_calls_only_through_ai_models`).
 - Settings: one file, `config.yaml` (`$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`). It holds the
-  providers with their keys, the model of each task, the local `diffusers` models and, under `settings`, every other
-  setting. A skill has no model setting and no model default in code; it asks `ai_models` for a task (the list is
-  in `docs/ai_models.md`, Config) or passes the user's `--model`.
-- Reading the settings file and the plugin data directory: `lib/plugin_settings`. `ai_models` reads the file through
-  it.
+  providers with their keys and the attributes of their models (`providers`), the model of each task (`tasks`), and
+  one section per other concern (`network`, `huggingface`, `brand`, `studio`, `voiceover`). A skill has no model
+  setting and no model default in code; it asks `ai_models` for a task (the list is in `docs/ai_models.md`, Config)
+  or passes the user's `--model`.
+- The schema of the settings file, its loader and the plugin data directory: `lib/plugin_settings`. `ai_models`
+  reads the file through it.
 - Model routes, per task the recommended default model and the escalations from it to another model for some
   requests: `ai_models.routes` reads the user's `routes.md` beside the settings file (`docs/ai_models.md`, Model
   routes); setup:settings creates it from its template `assets/routes.md`. The model in use for a task stays
-  `models.<task>` of the settings file; a table's default row is a recommendation. Each skill that calls a model
+  `tasks.<task>` of the settings file; a table's default row is a recommendation. Each skill that calls a model
   prints the table with its `routes` command.
 - Brands (logos, colours, fonts, guidelines, PowerPoint templates): `brand:brand`. Callers get a brand folder
   from it, locate each file through its `brand.yaml` key and read it in place without keeping a copy.
@@ -101,14 +102,20 @@ committed. The library's own tests run against the working tree's `lib/`.
 ## Plugin data directory and settings
 
 Each plugin has a data directory outside the plugin directory. Every plugin reads its settings from the one file
-`config.yaml`: a setting is `settings.<KEY>` of the file, else the caller's default (`docs/plugin_settings.md`). The
-skills' code never reads a setting from the process environment, so a setting has one place to look and a skill
-behaves the same whatever shell started Claude Code. The variables that locate files are not settings and are read
-from the environment: `CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` (Claude Code), `SKILLS_CONFIG` (the settings
-file) and `PLUGIN_ENV_DIR` (set by the wrappers). The settings that libraries and child processes read from the
-environment (proxies, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME`, `HF_TOKEN`) are set there by
-`Plugin.load` from the file (`ENV_KEYS` of `plugin_settings`), and removed when the file does not set them; it also removes the variables the model
-client libraries read for keys, endpoints and headers (`OPENAI_*`, `GOOGLE_API_KEY`, ...).
+`config.yaml`, validated as a whole against one schema in `lib/plugin_settings/plugin_settings/schema/`, and reads
+a setting as a typed attribute: `plugin_settings.config().studio.dir` (`docs/plugin_settings.md`). The schema knows
+every section, so one load checks the whole file and names the YAML path of each misspelt, missing or invalid key;
+a section read by two plugins (`brand.path`: brand CLI and Studio catalogue) has one definition. A section of a
+plugin that is not installed is optional. A new setting is a field of its section's class in the schema plus its
+line in the template, a `lib/` change that reaches the skills by relock (Shared packages).
+
+The skills' code never reads a setting from the process environment, so a setting has one place to look and a
+skill behaves the same whatever shell started Claude Code. The variables that locate files are not settings and are
+read from the environment: `CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` (Claude Code), `SKILLS_CONFIG` (the
+settings file) and `PLUGIN_ENV_DIR` (set by the wrappers). The settings that libraries and child processes read from
+the environment (`network`, `huggingface`) are set there by `Plugin.load` from the file (`ENV_EXPORTS` of
+`plugin_settings`), and removed when the file does not set them; it also removes the variables the model client
+libraries read for keys, endpoints and headers (`OPENAI_*`, `GOOGLE_API_KEY`, ...).
 
 ## Data outside the plugin
 

@@ -12,7 +12,7 @@ def test_setup_failure_is_one_error_line(tmp_path):
     config = write_config(tmp_path / "config.yaml",
                           providers={"k": {"kind": "kokoro", "model_url": UNREACHABLE, "voices_url": UNREACHABLE,
                                            "langs": {"af_": "en-us"}, "dir": str(tmp_path / "w")}},
-                          models={"speech": "k:kokoro-v1.0"})
+                          tasks={"speech": "k:kokoro-v1.0"})
     p = voiceover("setup", SKILLS_CONFIG=str(config))
     assert p.returncode == 1, p.stderr
     assert "Traceback" not in p.stderr

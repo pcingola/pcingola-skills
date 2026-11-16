@@ -6,8 +6,8 @@ providers are in `ai_models` (`docs/ai_models.md`).
 
 ## Models
 
-The model is `--model` (a `<provider>:<model>` id of `config.yaml`), else `models.vision` when an image is among the
-files, else `models.chat` (`models.resolve`). `models` prints these two config entries and the config path without a
+The model is `--model` (a `<provider>:<model>` id of `config.yaml`), else `tasks.vision` when an image is among the
+files, else `tasks.chat` (`models.resolve`). `models` prints these two config entries and the config path without a
 request.
 
 Which inputs a model takes is the provider's to decide; the skill keeps no table of models. Text goes inline, every
@@ -41,4 +41,4 @@ still over 14 MiB after transcoding is refused.
 ## Reading
 
 The CLI classifies the files by extension before reading them; the classification tells the CLI whether an image is
-among the files (`models.vision`). A file with an unknown extension has its first 64 KiB read for the UTF-8 probe.
+among the files (`tasks.vision`). A file with an unknown extension has its first 64 KiB read for the UTF-8 probe.

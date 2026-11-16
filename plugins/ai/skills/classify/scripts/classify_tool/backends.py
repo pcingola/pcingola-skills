@@ -2,7 +2,7 @@
 chat model through a Pydantic-AI agent of `ai_models.models` (label only).
 
 The model is `--model` (a `provider:model` id), else the model of the task in
-`config.yaml` (`models.system1`, `models.chat`). The default backend is `system1`
+`config.yaml` (`tasks.system1`, `tasks.chat`). The default backend is `system1`
 when `config.yaml` names a System-1 model, else `chat`."""
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ BACKENDS = (SYSTEM1, CHAT)
 
 
 def default_backend() -> str:
-    """SYSTEM1 when `config.yaml` has `models.system1`, else CHAT."""
-    return SYSTEM1 if (config.load().get("models") or {}).get(SYSTEM1) else CHAT
+    """SYSTEM1 when `config.yaml` has `tasks.system1`, else CHAT."""
+    return SYSTEM1 if config.load().task_model(SYSTEM1) else CHAT
 
 
 @dataclass(frozen=True)
@@ -108,7 +108,7 @@ def system1_result(questions: Questions, response: DecisionResponse) -> Result:
 
 
 class System1Backend:
-    """A System-1 model: `model`, else `models.system1` of `config.yaml`."""
+    """A System-1 model: `model`, else `tasks.system1` of `config.yaml`."""
 
     name = SYSTEM1
 
@@ -173,7 +173,7 @@ def chat_result(values: dict[str, Any], model: str | None, request_id: str | Non
 
 
 class ChatBackend:
-    """A chat model (`model`, else `models.chat` of `config.yaml`) whose structured output
+    """A chat model (`model`, else `tasks.chat` of `config.yaml`) whose structured output
     restricts each answer to its question's classes; choice and noul questions only."""
 
     name = CHAT

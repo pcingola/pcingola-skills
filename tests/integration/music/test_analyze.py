@@ -91,7 +91,7 @@ class TestAnalyze(unittest.TestCase):
         `skipped` and the reason in summary.md."""
         out = Path(self._tmp.name) / "skip"
         config = Path(self._tmp.name) / "config.yaml"
-        config.write_text("providers: {}\nmodels: {}\n")
+        config.write_text("providers: {}\ntasks: {}\n")
         env = {**os.environ, "SKILLS_CONFIG": str(config),
                "PYTHONPATH": os.pathsep.join([str(SCRIPTS), os.environ.get("PYTHONPATH", "")])}
         p = subprocess.run([sys.executable, "-m", "music_tool", "analyze", str(self.dir / "pad.mp3"), "--only",

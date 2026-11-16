@@ -37,7 +37,7 @@
   const hasSpeed = id => Boolean((speechModel(id) || {}).speed);
   const hasStyle = id => Boolean((speechModel(id) || {}).style);
   const voiceLabel = v => `${modelName(v.model)}, ${v.name || "default voice"}`;
-  /** The settings of a new film, from /api/config (its "Made by" from the AUTHOR_NAME setting). */
+  /** The settings of a new film, from /api/config (its "Made by" from the setting studio.author). */
   const defaultFilm = () => Studio.config().film;
   const MUSIC_MODES = [["made", "Made for this film"], ["own", "My own track"], ["none", "No music"]];
   const VOLUMES = [["quiet", "Quiet"], ["normal", "Normal"], ["louder", "Louder"]];
@@ -425,7 +425,7 @@
   /* ---------- film settings ---------- */
 
   /** "Made by" of the last film settings changed in this browser, null when never changed: a blank workspace starts
-   *  with it, else with the AUTHOR_NAME setting's names. */
+   *  with it, else with the names of the setting studio.author. */
   const AUTHOR_KEY = "studio-author";
   const savedAuthor = () => { try { const a = JSON.parse(localStorage.getItem(AUTHOR_KEY)); return Array.isArray(a) ? a : null; } catch { return null; } };
 

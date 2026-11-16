@@ -2,7 +2,7 @@
 
 The voiceover skill turns a script of one sentence per line into `narration.wav` and `timing.json` with the start and
 end of every sentence and word. Every model it uses is a model of `config.yaml`, run by `ai_models`
-(`docs/ai_models.md`): the speech model (`--model`, else `models.speech`) and the align model (`models.align`).
+(`docs/ai_models.md`): the speech model (`--model`, else `tasks.speech`) and the align model (`tasks.align`).
 
 ## Speech models
 
@@ -25,7 +25,7 @@ A provider's `voices` replaces the list. The voice of an API model is checked by
 The answer is a WAV file, or raw 16-bit PCM taken as 24 kHz. Whether OpenRouter passes `instructions` on to Gemini TTS
 is not verified.
 
-A reference recording is a name in the voices directory (`VOICEOVER_VOICES_DIR`, default
+A reference recording is a name in the voices directory (`voiceover.voices_dir` of `config.yaml`, default
 `<media data dir>/voiceover/voices`) or a path; the skill passes its path to `ai_models`. A `vllm-omni` model also
 needs its transcript, `<name>.txt` beside it (`add-voice --text`).
 
@@ -76,10 +76,8 @@ voiceover passes it to `ai_models` as `weights_dir`. `setup --chatterbox` syncs 
 voiceover's own environment under the plugin data directory (`config.chatterbox_env`, the `uv_env.sh` rule) and
 prints its python, the `python` of the `chatterbox` provider. It needs the wrapper's `PLUGIN_ENV_DIR`.
 
-`load_settings` refuses every `VOICEOVER_*` setting of the file other than `VOICEOVER_VOICES_DIR` (the model settings
-of an earlier version), naming the template's provider entries and models that replace them; when
-`VOICEOVER_MODEL_DIR` is among them, the message gives its value as the providers' `dir` and its `voices/` as
-`VOICEOVER_VOICES_DIR`. It also refuses a routes.md row whose model is an earlier name (`kokoro`, `chatterbox`),
+The `VOICEOVER_*` settings of an earlier layout fail at load in `plugin_settings` (`docs/plugin_settings.md`).
+`load_settings` refuses a routes.md row whose model is an earlier name (`kokoro`, `chatterbox`),
 asking for a model id of a provider of that kind. A config error about a missing provider or model gets a hint that
 the setup:settings template has the entries (`config.TEMPLATE_HINT`).
 

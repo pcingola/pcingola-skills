@@ -17,8 +17,8 @@ def test_critic_model(tmp_path):
     """`critic` prints task `film_critic` of config.yaml; a project's `critic.model` replaces it, `critic.model: null`
     prints `off`, and a config without the task is a one-line error. Guards where the film critic's model comes
     from."""
-    config = write_config(tmp_path / "config.yaml", providers={"g": {"kind": "google"}},
-                          models={"film_critic": "g:gemini-x"})
+    config = write_config(tmp_path / "config.yaml", providers={"g": {"kind": "google", "api_key": "k"}},
+                          tasks={"film_critic": "g:gemini-x"})
     project = tmp_path / "film"
     project.mkdir()
     done = _critic(project, config)
@@ -28,5 +28,5 @@ def test_critic_model(tmp_path):
     (project / "settings.yaml").write_text("critic: {model: null}\n")
     assert _critic(project, config).stdout.strip() == "off"
     (project / "settings.yaml").unlink()
-    done = _critic(project, write_config(tmp_path / "empty.yaml", providers={}, models={}))
+    done = _critic(project, write_config(tmp_path / "empty.yaml", providers={}, tasks={}))
     assert done.returncode == 1 and "film_critic" in done.stderr and "Traceback" not in done.stderr

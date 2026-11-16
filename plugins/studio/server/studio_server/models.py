@@ -1,4 +1,4 @@
-"""The model of each image-gen tier and of the media tasks the page shows, from `models` in config.yaml, and the
+"""The model of each image-gen tier and of the media tasks the page shows, from `tasks` in config.yaml, and the
 speech models the voice picker offers.
 
 A model id is `<provider>:<model>`. Nothing here calls a model.
@@ -6,7 +6,7 @@ A model id is `<provider>:<model>`. Nothing here calls a model.
 
 from __future__ import annotations
 
-from plugin_settings import ConfigFileError, read_config
+from plugin_settings import ConfigFileError, load_config
 
 # Each image-gen tier (`--tier`, in the order the page lists them): its task without and with reference images.
 TIERS = {"best": ("image_best", "image_best"), "multi-ref": ("image_multi_ref", "image_multi_ref"),
@@ -47,10 +47,10 @@ def read_models() -> dict:
     `tiers`: each tier's `id`, `model` (without reference images) and `ref_model` (with them); `speech` and
     `speech_error`: the speech models of `speech_models` and its error."""
     try:
-        models = read_config().get("models") or {}
+        configured = load_config().tasks
     except ConfigFileError:
-        models = {}
-    tasks = {t: models.get(t) or None for t in TASKS}
+        configured = {}
+    tasks = {t: configured.get(t) for t in TASKS}
     speech, speech_error = speech_models()
     return {"tasks": tasks,
             "tiers": [{"id": tier, "model": tasks[task], "ref_model": tasks[ref]} for tier, (task, ref) in TIERS.items()],

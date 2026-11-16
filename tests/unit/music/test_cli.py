@@ -15,7 +15,7 @@ SCRIPTS = Path(__file__).resolve().parents[3] / "plugins/media/skills/music/scri
 @pytest.fixture
 def music(tmp_path):
     config = tmp_path / "config.yaml"
-    config.write_text("providers:\n  oai: {kind: openai, base_url: http://127.0.0.1:1/v1}\nmodels: {}\n")
+    config.write_text("providers:\n  oai: {kind: openai, base_url: http://127.0.0.1:1/v1}\ntasks: {}\n")
     env = {**os.environ, "SKILLS_CONFIG": str(config),
            "PYTHONPATH": os.pathsep.join([str(SCRIPTS), os.environ.get("PYTHONPATH", "")])}
 
@@ -80,8 +80,9 @@ def test_options_the_model_does_not_take(music, tmp_path):
     """Options are refused before any request: by the CLI (`--seed` with `--samples`, an image that is not
     PNG, JPEG or WebP) and by `ai_models.music` for the model's kind (images for lyria-002, a negative
     prompt for Lyria 3, samples for a local model)."""
-    (tmp_path / "config.yaml").write_text("providers:\n  g: {kind: google, predict_models: [lyria-002]}\n"
-                                          "  local: {kind: diffusers}\nmodels: {}\n")
+    (tmp_path / "config.yaml").write_text("providers:\n  g: {kind: google, api_key: k, models: {lyria-002: {predict: true}}}\n"
+                                          "  local: {kind: diffusers, models: {ace-step: {repo: x/ace-step}}}\n"
+                                          "tasks: {}\n")
     gif = tmp_path / "a.gif"
     gif.write_bytes(b"GIF8")
     png = tmp_path / "a.png"

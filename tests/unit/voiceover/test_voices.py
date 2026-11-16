@@ -29,8 +29,9 @@ def test_add_voice_rules_and_listing(tmp_path):
     and an existing name without --force; `voices` of a model that clones a voice then lists `default` and the new
     voice, and that of a model that does not lists only its own."""
     voices = tmp_path / "voices"
-    config = write_config(tmp_path / "config.yaml", {"VOICEOVER_VOICES_DIR": str(voices)},
-                          providers={"cb": CHATTERBOX, "g": {"kind": "google"}}, models={"speech": "cb:chatterbox-turbo"})
+    config = write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices)},
+                          providers={"cb": CHATTERBOX, "g": {"kind": "google", "api_key": "k"}},
+                          tasks={"speech": "cb:chatterbox-turbo"})
     env = {"SKILLS_CONFIG": str(config)}
     short, ok = write_wav(tmp_path / "short.wav", 3.0), write_wav(tmp_path / "ok.wav", 6.0)
 

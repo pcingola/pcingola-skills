@@ -50,7 +50,7 @@ dependencies = ["plugin-settings"]
 plugin-settings = { git = "<origin URL>", subdirectory = "lib/plugin_settings", branch = "main" }
 ```
 
-No path sources: a plugin's cache copy holds only the plugin directory.
+No path sources: a plugin's cache copy holds only the plugin directory. `plugin-settings` brings `pydantic` and `pyyaml`; the skill does not declare them for reading settings.
 
 ## Python package
 

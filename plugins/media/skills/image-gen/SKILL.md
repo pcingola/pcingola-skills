@@ -23,7 +23,7 @@ and replaces the tier's model. Model routes (below) choose `--model`.
 | `multi-ref` | combining several reference images, a character or product kept the same across shots | `image_multi_ref` | `image_multi_ref` |
 
 A tier whose task is missing in the config fails with a message naming the
-config key (`models.image_best` or `models.image_multi_ref`). Then use
+config key (`tasks.image_best` or `tasks.image_multi_ref`). Then use
 another tier, or ask the user to add the task to the config.
 
 What each provider kind takes:
@@ -33,8 +33,13 @@ What each provider kind takes:
   `ollama`) with a gpt-image model. The other kinds write PNG.
 - `--mask`: OpenAI-style providers and local `diffusers` models with an
   `inpaint` pipeline in the config. Google models take none.
-- Local `diffusers` models: sizes up to 2048 px on the long edge (`2K` and
-  `4K` both give 2048 px). A local edit without `--aspect` and `--size` keeps
+- `--size` needs the model's image limits in the config
+  (`providers.<p>.models.<m>.image`, with `max_edge`); without them the
+  command fails naming that key. A model with `always_sized` always gets a
+  size (default 1:1, `1K`); one with `default_quality` gets that quality
+  unless `--quality` is given.
+- Local `diffusers` models: sizes up to the model's `image.max_edge` on the
+  long edge (2048 px in the config template). A local edit without `--aspect` and `--size` keeps
   the first `--ref`'s size. They need the skill's `local` extra (torch and
   diffusers, installed when the config has a `diffusers` provider) and a
   CUDA or Apple MPS GPU.
@@ -176,8 +181,9 @@ ${CLAUDE_SKILL_DIR}/scripts/image-gen.sh generate --prompt 'Title says "Spring F
 
 ## Configuration
 
-The providers, their keys and the model of each task (`image`, `image_edit`,
-`image_best`, `image_multi_ref`) are in the `ai_models` config file; local models are its `diffusers` entries.
-The skill has no model settings of its own. Behind a TLS-intercepting proxy,
-set `EXTRA_CA_CERT` (else `NODE_EXTRA_CA_CERTS` is used) to the proxy root CA
-PEM file; it is added to the certifi roots.
+The providers, their keys and the model of each task (`tasks.image`,
+`tasks.image_edit`, `tasks.image_best`, `tasks.image_multi_ref`) are in
+config.yaml; local models are the `models` entries of the provider of kind
+`diffusers`, and each model's image limits are its `image` entry. Behind a
+TLS-intercepting proxy, set `network.extra_ca_cert` to the proxy root CA PEM
+file; it is added to the certifi roots.

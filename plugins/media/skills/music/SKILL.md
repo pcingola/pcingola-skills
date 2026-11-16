@@ -218,5 +218,6 @@ clips to the user, who listens to them.
 
 - All Lyria output carries Google's SynthID watermark.
 - Lyria 3 output is MP3 only, and Lyria 3 has no seed.
-- The providers, their keys and the `music` and `audio` models are in the
-  `ai_models` config file. The skill has no model settings of its own.
+- The providers, their keys and the models of `tasks.music` and
+  `tasks.audio` are in config.yaml; a local model's attributes, such as
+  `min_crest_db`, are its entry under the `models` of its provider.

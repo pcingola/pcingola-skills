@@ -6,11 +6,10 @@ script `scripts/build_neutral_pptx.py`. The brand folder format is in the skill'
 ## Code
 
 `config.py` holds the lookup and `cli.py` the argparse commands `list`, `show` and `copy`. The CLI depends only on
-`plugin_settings`, which reads the one setting, `BRAND_PATH`, from `config.yaml`. A `BRAND_PATH` in the process
-environment is ignored.
+`plugin_settings`, which reads the one setting, `brand.path` (a list of directories), from `config.yaml`.
 
-`search_dirs` returns the bundled `brands/` directory, then each `BRAND_PATH` entry with `~` expanded, skipping blank
-entries, entries that are not directories, and directories already listed (compared after resolving symlinks). `find`
+`search_dirs` returns the bundled `brands/` directory, then each `brand.path` entry (`~` expanded by the schema),
+skipping entries that are not directories, and directories already listed (compared after resolving symlinks). `find`
 returns the first `<dir>/<name>/` holding a `brand.yaml`; `list_brands` keeps the first folder per name and skips a
 directory it cannot read. A name that is empty, `.`, `..` or contains a path separator is rejected. Every failure is a
 `BrandError`, printed to stderr with exit status 1 and the list of searched directories.
@@ -41,7 +40,7 @@ colours in `brand.yaml` does not reach it.
 ## Tests
 
 `tests/unit/brand/test_brand.py` runs every lookup in a child process with a written `config.yaml`. It checks the
-search order, `BRAND_PATH` parsing, the `copy` refusals and replacements, and the CLI output and exit codes. The
+search order, `brand.path`, the `copy` refusals and replacements, and the CLI output and exit codes. The
 conformance tests check each bundled brand and the test brand `tests/brands/acme` against the `brand.yaml` table of
 `SKILL.md`: allowed keys, existing files, colour and font formats, the palette keys, `caption` numbers, `pptx` entries
 and `styles` names. A test also checks that the key table of `SKILL.md` lists exactly the keys the conformance tests

@@ -32,7 +32,7 @@ def template_config(path: Path) -> Path:
     t = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
     weights = str(Plugin.of(SCRIPTS).data_dir() / "voiceover")
     return write_config(path, providers={k: {**t["providers"][k], "dir": weights} for k in ("kokoro", "torchaudio")},
-                        models={k: t["models"][k] for k in ("speech", "align")})
+                        tasks={k: t["tasks"][k] for k in ("speech", "align")})
 
 
 def synth(script: Path, out: Path, config: Path, *args: str) -> subprocess.CompletedProcess:
@@ -69,7 +69,7 @@ class TestSynth(unittest.TestCase):
 
     def test_wav_duration_matches_timing(self) -> None:
         """voiceover synth with Kokoro writes a 24 kHz mono WAV whose length equals timing.json's duration, with the
-        model of models.speech and its default voice af_heart.
+        model of tasks.speech and its default voice af_heart.
         Guards the default model and voice and the duration bookkeeping on real audio."""
         with wave.open(str(self.out / "narration.wav")) as w:
             self.assertEqual((w.getnchannels(), w.getsampwidth(), w.getframerate()), (1, 2, 24000))

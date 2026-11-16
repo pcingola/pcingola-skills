@@ -10,8 +10,8 @@ probabilities per class. `chat` asks a chat model through a Pydantic-AI agent wi
 provider's JSON schema mode, since small models fail tool calls) and gets a label without probabilities. The chat
 backend takes choice and noul questions only; a score question is refused before any request.
 
-Without `--backend` the backend is `system1` when `config.yaml` has `models.system1`, else `chat`
-(`backends.default_backend`). The model is `--model`, else `models.system1` or `models.chat`. The backend name goes
+Without `--backend` the backend is `system1` when `config.yaml` has `tasks.system1`, else `chat`
+(`backends.default_backend`). The model is `--model`, else `tasks.system1` or `tasks.chat`. The backend name goes
 into the records, so a rerun with the other backend is refused by the backend check of the resume. `--timeout`
 replaces the provider's `timeout` for each request.
 
@@ -80,7 +80,7 @@ from pydantic_ai.models.decision import ChoiceQuestion
 Plugin.of(__file__).load()   # settings of the plugin that holds this file
 questions = {"team": ChoiceQuestion(instructions="Which team should handle this ticket?",
                                     criteria={"billing": "invoices, refunds", "technical": None, "sales": None})}
-# model=None: models.system1 of config.yaml; or a "<provider>:<model>" id
+# model=None: tasks.system1 of config.yaml; or a "<provider>:<model>" id
 answer = system1.decide(ticket_text, questions).answers["team"]
 answer.choice, answer.probabilities[answer.choice]   # "billing", 0.997
 ```

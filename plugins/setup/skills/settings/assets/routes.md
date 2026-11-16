@@ -2,7 +2,7 @@
 
 The template of the user's `routes.md`, which `setup:settings` copies next to `config.yaml`. Each task has a
 `default` row, the recommended model, followed by rows that apply only when their `when` condition holds for the
-request. The model in use for a task is `models.<task>` of `config.yaml`. A row whose provider or local model is not
+request. The model in use for a task is `tasks.<task>` of `config.yaml`. A row whose provider or local model is not
 in `config.yaml` is left out. Times are wall time per output on an NVIDIA GB10 (128 GB unified memory).
 
 | task | model | when | why |
