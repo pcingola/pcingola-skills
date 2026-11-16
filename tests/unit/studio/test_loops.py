@@ -99,17 +99,20 @@ def studio_env(tmp_path: Path, studio_dir: str | None = None, **extra: str) -> d
 
 
 def test_projects_root_default_and_setting(tmp_path):
-    """`studio.dir` is read from config.yaml; unset, the root is ~/Documents/Studio. Guards the setting."""
-    assert DEFAULT_ROOT == "~/Documents/Studio"
-    assert py_value(IMPORT, "projects_root()", studio_env(tmp_path)) == DEFAULT_ROOT
-    for value, expected in (("/tmp/somewhere", "/tmp/somewhere"), ("~/Pictures/Studio", "~/Pictures/Studio")):
+    """`studio.dir` is read from config.yaml, `~` expanded; unset, the root is ~/Documents/Studio. Guards the
+    setting."""
+    home = tmp_path / "home"
+    assert DEFAULT_ROOT == Path.home() / "Documents/Studio"
+    assert py_value(IMPORT, "projects_root()", studio_env(tmp_path)) == str(home / "Documents/Studio")
+    for value, expected in (("/tmp/somewhere", "/tmp/somewhere"), ("~/Pictures/Studio", str(home / "Pictures/Studio"))):
         assert py_value(IMPORT, "projects_root()", studio_env(tmp_path, value)) == expected
 
 
 def test_projects_root_ignores_the_environment(tmp_path):
     """A process variable STUDIO_DIR is ignored, with and without `studio.dir` in config.yaml. Guards
     config.yaml as the only source of the setting."""
-    assert py_value(IMPORT, "projects_root()", studio_env(tmp_path, STUDIO_DIR="/from/process")) == DEFAULT_ROOT
+    assert py_value(IMPORT, "projects_root()", studio_env(tmp_path, STUDIO_DIR="/from/process")) == str(
+        tmp_path / "home" / "Documents/Studio")
     env = studio_env(tmp_path, "/from/file", STUDIO_DIR="/from/process")
     assert py_value(IMPORT, "projects_root()", env) == "/from/file"
 

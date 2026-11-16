@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import field_validator, model_validator
+from pydantic import model_validator
 
 from ..old_keys import old_key_errors
 from .base import Strict
@@ -13,11 +13,11 @@ from .diffusers_model import DiffusersModel
 from .huggingface import HuggingFace
 from .model_id import ModelId, split_id
 from .network import Network
-from .provider_kind import ProviderKind
-from .providers import Provider
-from .remote_model import RemoteModel
+from .provider_kind import LOCAL_KINDS
+from .providers import Provider, RemoteProvider
 from .studio import StudioSettings
 from .task import Task
+from .task_kinds import TASK_KINDS, TASK_ROLES
 from .voiceover import VoiceoverSettings
 
 
@@ -39,34 +39,44 @@ class Config(Strict):
             raise ValueError("\n".join(errors))
         return data
 
-    @field_validator("*", mode="before")
-    @classmethod
-    def _null_section(cls, v: Any) -> Any:
-        return {} if v is None else v
-
     @model_validator(mode="after")
     def _references(self) -> Config:
-        errors = []
-        for task, model_id in self.tasks.items():
-            name, model = split_id(model_id)
-            p = self.providers.get(name)
-            if p is None:
-                errors.append(f"tasks.{task}: provider {name!r} is not in providers")
-            elif p.kind == ProviderKind.DIFFUSERS and model not in p.models:
-                errors.append(f"tasks.{task}: model {model!r} is not in providers.{name}.models")
+        errors = [f"tasks.{task}: {e}" for task, model_id in self.tasks.items()
+                  if (e := self.task_error(task, model_id))]
         if errors:
             raise ValueError("\n".join(errors))
         return self
+
+    def task_error(self, task: Task, model_id: str) -> str | None:
+        """Why `model_id` cannot serve `task`, None when it can: its provider is missing, is of a kind the task does
+        not take (`TASK_KINDS`), is local and has no entry for the model, or the entry is a diffusers model of
+        another role (`TASK_ROLES`); a System-1 model needs a provider with a `base_url`."""
+        name, model = split_id(model_id)
+        p = self.providers.get(name)
+        if p is None:
+            return f"provider {name!r} is not in providers"
+        if p.kind not in TASK_KINDS[task]:
+            return (f"provider {name!r} is of kind {p.kind}; task {task} takes kinds "
+                    + ", ".join(sorted(TASK_KINDS[task])))
+        entry = p.models.get(model)
+        if entry is None and p.kind in LOCAL_KINDS:
+            return f"model {model!r} is not in providers.{name}.models"
+        if isinstance(entry, DiffusersModel) and (role := TASK_ROLES.get(task)) and entry.role != role:
+            return f"providers.{name}.models.{model} is {entry.role.noun()}; task {task} takes {role.noun()}"
+        if task == Task.SYSTEM1 and isinstance(p, RemoteProvider) and p.base_url is None:
+            return f"provider {name!r} has no base_url for System-1 models"
+        return None
 
     def provider(self, name: str) -> Provider | None:
         """`providers.<name>`, None when absent."""
         return self.providers.get(name)
 
-    def model_entry(self, model_id: str) -> RemoteModel | DiffusersModel | None:
-        """`providers.<p>.models.<m>` of `model_id`, None when the provider or the entry is absent."""
+    def model_entry(self, model_id: str) -> Any | None:
+        """`providers.<p>.models.<m>` of `model_id` (the model class of the provider's kind), None when the
+        provider or the entry is absent."""
         name, model = split_id(model_id)
         p = self.providers.get(name)
-        return None if p is None else p.models.get(model) if hasattr(p, "models") else None
+        return None if p is None else p.models.get(model)
 
     def task_model(self, task: str) -> str | None:
         """The model id of `tasks.<task>`, None when unset."""

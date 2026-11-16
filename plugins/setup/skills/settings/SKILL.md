@@ -80,7 +80,7 @@ Every skill reads its settings from one file: `<config dir>/plugins/data/config.
 
 | Section | Holds |
 |---|---|
-| `providers` | where models run: `kind`, `base_url`, the key as `api_key`, `timeout` and the keys of each kind (Models below); `models`, the attributes of each model of the provider |
+| `providers` | where models run: `kind`, `base_url`, the key as `api_key`, `timeout` and the keys of each kind (Models below); `models`, the attributes of each model of the provider (a model of a local kind must have one) |
 | `tasks` | the model of each task, as `<provider name>:<model>` |
 | `network` | `http_proxy`, `https_proxy`, `all_proxy`, `no_proxy` (a list), `extra_ca_cert` (a CA trusted on top of the public roots, for a TLS-intercepting proxy), `ca_bundle` (a trust store that replaces the default one) |
 | `huggingface` | `home` (the weights cache of the `diffusers` models, default `~/.cache/huggingface`), `token` (gated repositories only) |
@@ -92,10 +92,10 @@ Every skill reads its settings from one file: `<config dir>/plugins/data/config.
 
 Rules:
 
-- The whole file is validated when a skill starts. A misspelt section or key, a missing required key, a wrong type, a CA file that does not exist, a task whose provider is not in `providers`, or a task naming a `diffusers` model without an entry stops the skill with an error that names the YAML path of each problem.
-- A section that is empty or holds only comments takes its defaults. Every key is optional unless the template says "required".
+- The whole file is validated when a skill starts. A misspelt section or key, a missing required key, a wrong type, a URL without `http://` or `https://` (a proxy also takes `socks4`, `socks5`, `socks5h`), a CA file that does not exist, a task whose provider is not in `providers` or is of a kind the task does not take (Models below), a task naming a model of a local kind without an entry, or a task naming a `diffusers` model of another role stops the skill with an error that names the YAML path of each problem. A `--model` flag is checked the same way when the skill starts the call.
+- A section, `models:` map, model entry or list that is empty or holds only comments takes its defaults (empty). Every key is optional unless the template says "required".
 - A list is a YAML list: `brand.path: [/path/to/brands]`, `studio.author: [Alice Example]`, `network.no_proxy: [localhost, 127.0.0.1]`. Paths take `~`.
-- An empty `api_key` or `huggingface.token` is an error; leave the key out instead.
+- An empty `api_key`, `huggingface.token` or `tasks.<task>` is an error; leave the key out instead.
 - A value with `: ` or ` #` in it needs quotes.
 - A variable exported in the shell is not a setting: skills ignore it. `CLAUDE_CONFIG_DIR`, `CLAUDE_PLUGIN_DATA` and `SKILLS_CONFIG` come from the process environment only.
 - A skill sets these variables in its process environment from the file, where libraries and child processes read them, and removes each one the file does not set:
@@ -107,7 +107,7 @@ Rules:
   | `NODE_EXTRA_CA_CERTS` | `network.extra_ca_cert` |
   | `HF_HOME`, `HF_TOKEN` | `huggingface.home`, `huggingface.token` |
 
-- A skill removes the variables the model client libraries read for keys, endpoints and headers: every `OPENAI_*`, `AZURE_OPENAI_*`, `OPENROUTER_*`, `OLLAMA_*`, `GOOGLE_GENAI_*`, `GOOGLE_CLOUD_*` and `SYSTEM_ONE_*` variable, and `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`. A key or proxy exported in the shell (for example `OPENAI_API_KEY`, `https_proxy`) has no effect: a user who relied on one moves it into the file (keys as `api_key` of the provider, proxies under `network`).
+- A skill removes the variables that would replace a setting of the file: every `OPENAI_*`, `AZURE_OPENAI_*`, `AZURE_VOICELIVE_*`, `OPENROUTER_*`, `OLLAMA_*`, `GOOGLE_GENAI_*`, `GOOGLE_CLOUD_*` and `SYSTEM_ONE_*` variable (keys, endpoints and headers of the model client libraries), `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_VERTEX_BASE_URL` (Google clients), `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` (trust stores), and `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, `HF_HUB_OFFLINE`, `HUGGING_FACE_HUB_TOKEN` (Hugging Face cache, offline switch and token, which would replace `huggingface.*`). A key or proxy exported in the shell (for example `OPENAI_API_KEY`, `https_proxy`) has no effect: a user who relied on one moves it into the file (keys as `api_key` of the provider, proxies under `network`).
 - The file holds API keys; tell the user to run `chmod 600` on it.
 
 ## Create or change config.yaml
@@ -148,7 +148,7 @@ Error: ~/.claude/plugins/data/config.yaml is not valid:
 The setup:settings skill describes every key and creates the file.
 ```
 
-Fix each line in the file with Edit. The task references are checked once the rest is valid: `tasks.music: provider 'vertex' is not in providers`, `tasks.image: model 'qwen-image' is not in providers.local.models`.
+Fix each line in the file with Edit. The task references are checked once the rest is valid: `tasks.music: provider 'vertex' is not in providers`, `tasks.image: model 'qwen-image' is not in providers.local.models`, `tasks.align: provider 'ollama' is of kind ollama; task align takes kinds torchaudio`, `tasks.video: providers.local.models.flux2-klein-4b is an image model; task video takes a video model`.
 
 A key of an earlier layout of the file is an error that names its new place. Move each one there:
 
@@ -160,7 +160,7 @@ Error: ~/.claude/plugins/data/config.yaml is not valid:
 The setup:settings skill describes every key and creates the file.
 ```
 
-The earlier `diffusers:` section becomes the `models` of the provider of kind `diffusers`, with the same entries. `predict_models: [m]` of a provider becomes `models: {m: {predict: true}}`. Values change type: `BRAND_PATH: a:b` is `brand.path: [a, b]`, `AUTHOR_NAME: A, B` is `studio.author: [A, B]`, `NO_PROXY: a,b` is `network.no_proxy: [a, b]`; `IMAGE_GEN_SIZED_MODELS` becomes `always_sized: true` and `IMAGE_GEN_SIZED_QUALITY` `default_quality` in the `image` entry of each listed model. `EXTRA_CA_CERT` and `NODE_EXTRA_CA_CERTS` become one key, `network.extra_ca_cert`.
+The earlier `diffusers:` section becomes the `models` of the provider of kind `diffusers`, with the same entries. `predict_models: [m]` of a provider becomes `models: {m: {predict: true}}`. The model keys of a `kokoro`, `torchaudio`, `chatterbox` or `vllm-omni` provider (`model_url`, `voices_url`, `langs`, `url`, `files`, `repo`, `deploy`, `memory`, `overhead`, `style`) and the `voice` and `voices` of any provider move to `providers.<p>.models.<m>`, under the model name of `tasks.speech` or `tasks.align` (for example `kokoro-v1.0`, `MMS_FA`). Values change type: `BRAND_PATH: a:b` is `brand.path: [a, b]`, `AUTHOR_NAME: A, B` is `studio.author: [A, B]`, `NO_PROXY: a,b` is `network.no_proxy: [a, b]`; `IMAGE_GEN_SIZED_MODELS` becomes `always_sized: true` and `IMAGE_GEN_SIZED_QUALITY` `default_quality` in the `image` entry of each listed model. `EXTRA_CA_CERT` and `NODE_EXTRA_CA_CERTS` become one key, `network.extra_ca_cert`.
 
 A model call without the file exits with `no config at <file>; the setup:settings skill creates it`. A task without a model exits with `no model for task 'chat': add `tasks.chat: <provider>:<model>` to <file>`. A provider without `api_key` whose server refuses the request (401 or 403) exits naming `providers.<name>.api_key` and the file. A client library's own variables (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, `AZURE_OPENAI_ENDPOINT`, ...) are ignored.
 
@@ -169,10 +169,10 @@ Required settings, per skill:
 | Plugin | Skill and command | Required |
 |---|---|---|
 | ai, media | classify, second-opinion, image-gen, music, voiceover, short-video video and presenter scenes | a model for the task in `tasks`, and the `api_key` of its provider when the provider kind needs one |
-| media | image-gen with `--size`, or with a model whose `image` entry has `always_sized`, on a model of kind `openai`, `azure`, `openrouter` or `ollama` | `providers.<p>.models.<m>.image` with `max_edge`, `min_pixels`, `max_pixels` |
-| media | image-gen on a `diffusers` model, except an edit without `--size` and `--aspect` | `providers.<p>.models.<m>.image` with `max_edge` and `min_edge` |
+| media | image-gen with `--size` on a model of kind `openai`, `azure`, `openrouter` or `ollama` | `providers.<p>.models.<m>.image` with `max_edge`, `min_pixels`, `max_pixels` (an `image` entry always needs all three) |
+| media | image-gen on a `diffusers` model, except an edit without `--size` and `--aspect` | `providers.<p>.models.<m>.image` with `max_edge` and `min_edge` (an `image` entry always needs both) |
 
-A missing `image` entry exits with `<provider>:<model> has no image limits: add providers.<p>.models.<m>.image with max_edge (and ...) to <file>`. The values for the template's models are in `assets/config.example.yaml`.
+A missing `image` entry exits with `<provider>:<model> has no image limits: add providers.<p>.models.<m>.image with max_edge, min_pixels, max_pixels to <file>` (`max_edge, min_edge` for a `diffusers` model). The values for the template's models are in `assets/config.example.yaml`.
 
 ## Models
 
@@ -188,37 +188,37 @@ Provider kinds (`providers.<name>.kind`):
 | `azure` | Azure OpenAI: chat, images with masks, speech | `base_url` (the Azure endpoint), `api_version`, `api_key` |
 | `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint, which takes Google Cloud credentials in place of `api_key`: `credentials` (path to a service-account JSON file; its project unless `project` is set), else Application Default Credentials (`gcloud auth application-default login`), with `project` and `location` (default `us-central1`); the `:predict` models need `api_key`; `models.<m>.predict: true` for a music model served by the Vertex `:predict` endpoint (the others stream) |
 | `diffusers` | local images, image edits with masks, music, image to video, portrait and speech to video, in the skill's process on a CUDA or Apple MPS GPU | `models`: one entry per local model (below) |
-| `kokoro` | local speech (Kokoro 82M) on the CPU, in the skill's process | `model_url`, `voices_url` (the model files), `langs` (voice-name prefix to espeak language), `dir` (optional: weights directory; without it the voiceover skill keeps the weights in `voiceover/` of the media data directory) |
-| `chatterbox` | local speech with voice cloning (Chatterbox Turbo) on the CPU, in a worker process of its own Python environment | `python` (the environment's interpreter, which the voiceover skill's `setup --chatterbox` builds and prints), `url` and `files` (the model files under that URL), `dir`, `start_timeout` and `timeout` (optional, seconds for the load and for each sentence, default 600) (optional, as for `kokoro`) |
-| `torchaudio` | forced alignment (`align`) on the CPU, in the skill's process | `url` (the pipeline's weights file), `dir` (optional, as for `kokoro`) |
-| `vllm-omni` | local speech (Fish Audio Drama 3) on a CUDA GPU, served by vLLM-Omni from its own Python environment for the length of one command | `python` (the environment's interpreter), `repo`, `deploy` (vLLM-Omni deploy config name or path), `memory` (GB the server's stages take together; Drama 3: 70), `overhead` (optional: GB the server takes outside `memory`, default 22), `style` (optional: a format with `{instructions}` and `{text}`), `args` (optional: more server arguments), `env` (optional: server environment variables), `start_timeout` (optional, seconds, default 1800) |
+| `kokoro` | local speech (Kokoro 82M) on the CPU, in the skill's process | `dir` (optional: weights directory; without it the voiceover skill keeps the weights in `voiceover/` of the media data directory); each model: `model_url`, `voices_url` (the model files), `langs` (voice-name prefix to espeak language) |
+| `chatterbox` | local speech with voice cloning (Chatterbox Turbo) on the CPU, in a worker process of its own Python environment, one per model | `python` (the environment's interpreter, which the voiceover skill's `setup --chatterbox` builds and prints), `dir` (optional, as for `kokoro`), `start_timeout` and `timeout` (optional, seconds for the load and for each sentence, default 600); each model: `url` and `files` (the model files under that URL) |
+| `torchaudio` | forced alignment (`align`) on the CPU, in the skill's process | `dir` (optional, as for `kokoro`); each model, named by its `torchaudio.pipelines` name (`MMS_FA`): `url` (the pipeline's weights file) |
+| `vllm-omni` | local speech (Fish Audio Drama 3) on a CUDA GPU, served by vLLM-Omni from its own Python environment for the length of one command, one server per model | `python` (the environment's interpreter), `args` (optional: more server arguments), `env` (optional: server environment variables), `start_timeout` (optional, seconds, default 1800), `timeout`; each model: `repo`, `deploy` (vLLM-Omni deploy config name or path), `memory` (GB the server's stages take together; Drama 3: 70), `overhead` (optional: GB the server takes outside `memory`, default 22), `style` (optional: a format with `{instructions}` and `{text}`) |
 
-A provider that serves speech takes `voice` (optional: its default voice, else the kind's: `marin` for `openai`, `azure` and `openrouter`, `Kore` for `google`, `af_heart` for `kokoro`, and `default`, the model's own voice, for `ollama`, `vllm-omni` and `chatterbox`) and `voices` (optional: the list `voiceover voices` prints; without it a `kokoro` model lists its voices and the others their default voice).
+A speech model's entry (`providers.<p>.models.<m>`) takes `voice` (optional: its default voice, else the kind's: `marin` for `openai`, `azure` and `openrouter`, `Kore` for `google`, `af_heart` for `kokoro`, and `default`, the model's own voice, for `ollama`, `vllm-omni` and `chatterbox`) and `voices` (optional: the list `voiceover voices` prints; without it a `kokoro` model lists its voices and the others their default voice).
 
-Every provider except `diffusers` takes `timeout` (seconds per request, default 600). System-1 models go to the `base_url` of their provider, so any provider with a `base_url` can serve them; Ollama serves them at `/v1/systemone`.
+The remote kinds, `chatterbox` and `vllm-omni` take `timeout` (seconds per request, default 600). System-1 models go to the `base_url` of their provider (an `ollama` provider's default included), so a remote provider with a `base_url` can serve them; Ollama serves them at `/v1/systemone`.
 
 Tasks (`tasks.<task>`) and the skills that ask for them:
 
-| Task | Skill |
-|---|---|
-| `chat` | classify (`--backend chat`), second-opinion |
-| `vision` | second-opinion when an image is among the files |
-| `system1` | classify (`--backend system1`, System-1 models with class probabilities) |
-| `image`, `image_edit` | image-gen `--tier fast` (the default) without and with `--ref` |
-| `image_best` | image-gen `--tier best` (Studio "Best", video-effects keyframes), with and without `--ref` |
-| `image_multi_ref` | image-gen `--tier multi-ref` (Studio "Multi-reference"), with and without `--ref` |
-| `speech` | voiceover (`synth`, `voices`) |
-| `align` | voiceover word times (`synth` without `--no-align`) |
-| `music` | music `generate` |
-| `audio` | music `analyze` (a chat model that takes audio) |
-| `video` | short-video video scenes (`Engine: video`): an image animated into a clip |
-| `presenter` | short-video presenter scenes (`Engine: presenter`): a portrait and the scene's narration recording made into a clip of the person speaking it |
-| `film_critic` | short-video film critic, through second-opinion (a model that takes video with sound) |
-| `embed` | embeddings |
+| Task | Skill | Provider kinds |
+|---|---|---|
+| `chat` | classify (`--backend chat`), second-opinion | remote: `ollama`, `openrouter`, `openai`, `azure`, `google` |
+| `vision` | second-opinion when an image is among the files | remote |
+| `system1` | classify (`--backend system1`, System-1 models with class probabilities) | remote, with a `base_url` |
+| `image`, `image_edit` | image-gen `--tier fast` (the default) without and with `--ref` | `ollama`, `openrouter`, `openai`, `azure`, `google`, `diffusers` (an image model) |
+| `image_best` | image-gen `--tier best` (Studio "Best", video-effects keyframes), with and without `--ref` | as `image` |
+| `image_multi_ref` | image-gen `--tier multi-ref` (Studio "Multi-reference"), with and without `--ref` | as `image` |
+| `speech` | voiceover (`synth`, `voices`) | remote, `vllm-omni`, `kokoro`, `chatterbox` |
+| `align` | voiceover word times (`synth` without `--no-align`) | `torchaudio` |
+| `music` | music `generate` | `google`, `diffusers` (a music model) |
+| `audio` | music `analyze` (a chat model that takes audio) | remote |
+| `video` | short-video video scenes (`Engine: video`): an image animated into a clip | `diffusers` (a video model) |
+| `presenter` | short-video presenter scenes (`Engine: presenter`): a portrait and the scene's narration recording made into a clip of the person speaking it | `diffusers` (a presenter model) |
+| `film_critic` | short-video film critic, through second-opinion (a model that takes video with sound) | remote |
+| `embed` | embeddings | remote |
 
 The `audio` task is optional; without it `music analyze` skips the model section. `image_best` and `image_multi_ref` are optional; without them the image-gen tiers `best` and `multi-ref` fail with a message naming the task. `video` is optional; without it a short-video scene with `Engine: video` fails at `render` with a message naming the task.
 
-`providers.<p>.models.<m>` holds the attributes of one model, by the model name after the colon. For a remote provider it is optional and holds `image` (image-gen size limits: `max_edge`, `min_edge`, `min_pixels`, `max_pixels`, `always_sized`, `default_quality`) and, for `google`, `predict`; such a provider serves any model id. A provider of kind `diffusers` serves only the models it lists. Each entry has `repo` (required: a Hugging Face repository; weights go to the Hugging Face cache), `steps`, `guidance`, `inpaint` (the diffusers pipeline class for edits with a mask), `args`, `skip` and `image`. A model id `local:<name>` names the entry `<name>` of the provider `local`. A video model also has these keys, all required: `pipeline` (the diffusers class to load), `fps`, `size_multiple` (width and height are rounded to it), `frame_step` (frame counts are `frame_step * k + 1`), `width`, `height` (the default size) and `max_frames`. A presenter model has `pipeline`, `fps`, `buckets`, `audio_rate` and `output`. The template's comments give the meaning of each key.
+`providers.<p>.models.<m>` holds the attributes of one model, by the model name after the colon. For a remote provider it is optional; such a provider serves any model id. An entry of a model of kind `openai`, `azure`, `openrouter` or `ollama` holds `image` (image-gen size limits: `max_edge`, `min_pixels`, `max_pixels`, required, and `always_sized`, `default_quality`), `voice` and `voices`; one of kind `google` holds `predict`, `voice` and `voices`. A provider of a local kind (`diffusers`, `kokoro`, `torchaudio`, `chatterbox`, `vllm-omni`) serves only the models it lists. A `diffusers` entry has `repo` (required: a Hugging Face repository; weights go to the Hugging Face cache), `steps`, `guidance`, `args` and `skip`, and the keys of its role; the keys make the role, and a key of another role is an error. An image model (no key of another role) has `inpaint` (the diffusers pipeline class for edits with a mask) and `image` (`max_edge`, `min_edge`, both required). A music model has `duration_arg` (required), `lyrics_arg` and `min_crest_db`. A video model has these keys, all required: `pipeline` (the diffusers class to load), `fps`, `size_multiple` (width and height are rounded to it), `frame_step` (frame counts are `frame_step * k + 1`), `width`, `height` (the default size) and `max_frames`. A presenter model has `pipeline`, `fps`, `buckets`, `audio_rate` and `output`, all required. A model id `local:<name>` names the entry `<name>` of the provider `local`. The template's comments give the meaning of each key.
 
 ## Model routes: routes.md
 
@@ -236,7 +236,7 @@ The file holds one Markdown table; text outside the table is ignored:
 ```
 
 - `task`: a task of the `tasks` section (`image`, `video`, `speech`, ...).
-- `model`: `<provider name>:<model>` of `config.yaml`. A row whose provider is not in `providers`, or whose `diffusers` model is not in that provider's `models`, is left out.
+- `model`: `<provider name>:<model>` of `config.yaml`. A row whose model could not serve its task as `tasks.<task>` (provider missing or of another kind, a local model without an entry or of another role) is left out.
 - `when`: `default`, or a condition beginning with `only when`. A task has at most one `default` row. To change the model in use, change `tasks.<task>`. The agent uses the default row and takes an escalation row only when its condition holds for the request; the first such row wins.
 - `why`: strengths and limits (quality, wall time).
 

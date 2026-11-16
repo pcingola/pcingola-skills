@@ -20,7 +20,7 @@ def _config(write_config):
     write_config({"providers": {"local": {"kind": "diffusers", "models": {
         "inpainter": {"repo": NO_REPO, "steps": 2, "guidance": 1.0, "inpaint": "Flux2KleinInpaintPipeline"},
         "no-inpaint": {"repo": NO_REPO, "steps": 2},
-        "m": {"repo": NO_REPO, "steps": 1},
+        "m": {"repo": NO_REPO, "steps": 1, "duration_arg": "audio_duration"},
     }}}})
 
 
@@ -59,13 +59,13 @@ def test_pipe_kwargs_order_and_optional_guidance():
 
 
 def test_music_option_needs_its_argument_name():
-    """A local music model takes `seconds` and `lyrics` only when its entry names their pipeline arguments
-    (`duration_arg`, `lyrics_arg`); without one the option is a ConfigError before any pipeline loads. Guards a
-    diffusers music pipeline with other argument names."""
-    with pytest.raises(ConfigError, match="duration_arg"):
-        local.DiffusersMusicModel("local:m").compose("piano", seconds=10)
+    """A local music model takes `lyrics` only when its entry names the pipeline argument (`lyrics_arg`); without
+    it the option is a ConfigError before any pipeline loads; an entry of another role is not a music model.
+    Guards a diffusers music pipeline with other argument names."""
     with pytest.raises(ConfigError, match="lyrics_arg"):
         local.DiffusersMusicModel("local:m").compose("piano", lyrics="la")
+    with pytest.raises(ConfigError, match="is an image model, not a music model"):
+        local.DiffusersMusicModel("local:no-inpaint")
 
 
 def _wav(rate: int, channels: int, seconds: float) -> bytes:

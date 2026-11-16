@@ -42,23 +42,26 @@ The config is the settings file of `plugin_settings` (`docs/plugin_settings.md`)
 file, or the message of `ConfigFileError`, is a `ConfigError`. `config.use(path)` sets another file for the process
 (the tests use it). The template is `assets/config.example.yaml` of `setup:settings`, which creates the user's file.
 
-The schema checks every key at load: the required keys of each provider kind, a task naming a missing provider, a
-`diffusers` task model without an entry. The functions of `config` look entries up and raise `ConfigError` naming
-the YAML path to add:
+The schema checks every key at load: the required keys of each provider kind and model class, and every
+`tasks.<task>` against the kinds and diffusers role the task takes (`Config.task_error`, `TASK_KINDS`,
+`TASK_ROLES`; docs/plugin_settings.md). `config.resolve` applies the same check to a model a caller names, so the
+modules below do not check a provider's kind again. The functions of `config` look entries up and raise
+`ConfigError` naming the YAML path to add:
 
 | Function | Returns |
 |---|---|
 | `split_id(model_id)` | (provider name, model); the first colon splits, so `ollama:d3:4b` is the Ollama tag `d3:4b` |
-| `model_for(task)`, `resolve(model, task)` | `tasks.<task>`; `resolve` returns `model` when given |
+| `model_for(task)`, `resolve(model, task)` | `tasks.<task>`; `resolve` returns `model` when given, after `Config.task_error` |
 | `provider(name)` | the typed provider `providers.<name>` |
 | `model_entry(model_id)` | `providers.<p>.models.<m>`, None when the provider has no entry for the model |
-| `diffusers_model(model_id)` | the `DiffusersModel` entry of a local model |
-| `image_limits(model_id)` | `providers.<p>.models.<m>.image`, the `ImageLimits` of media:image-gen |
+| `local_entry(model_id)` | the entry of a model of a local kind; `ConfigError` naming the key when it has none |
+| `diffusers_model(model_id, role)` | the entry of a local diffusers model, of the class of `role` (`DiffusersRole`) |
+| `image_limits(model_id, required=)` | `providers.<p>.models.<m>.image` (`OpenAIImageLimits` or `DiffusersImageLimits`); None for a kind outside `IMAGE_LIMIT_KINDS` or, unless `required`, a model without limits |
 
 The package reads two sections, `providers` and `tasks`, and `network.extra_ca_cert` (TLS):
 
 - `providers`: name to provider. Every provider has `kind`. `timeout` (seconds, default 600) applies to every
-  request of a provider of any kind except `diffusers`.
+  request of a remote, `chatterbox` or `vllm-omni` provider.
 - Keys come only from `api_key` (`RemoteProvider.key()`). The schema requires it for `openrouter`, `azure` and
   `openai` without `base_url`, and for `google` unless `vertex: true` with `credentials`, `project` or `location`;
   `azure` also needs `base_url` and `api_version`. A Vertex provider takes `credentials` (a service-account JSON
@@ -67,15 +70,17 @@ The package reads two sections, `providers` and `tasks`, and `network.extra_ca_c
   reads its own environment variable. A 401 or 403 from a provider without `api_key` names
   `providers.<name>.api_key` and the config file.
 - `providers.<p>.models`: model name to its attributes. For a remote provider it is optional and holds `image` (the
-  limits of an image model) and, for `google`, `predict` (Music). A remote provider serves any model id. A provider
-  of kind `diffusers` serves only the models listed: each entry has `repo` (a Hugging Face repository), `steps`,
-  `guidance` (optional: without it no `guidance_scale` is passed), `inpaint` (the diffusers pipeline class for an
-  edit with a mask, built over the loaded modules with `from_pipe`), `args` (optional: more pipeline call
-  arguments, after steps and guidance and before the caller's) and `skip` (optional: pipeline components loaded as
-  None). A music model adds `duration_arg` and `lyrics_arg`, the pipeline call argument names for the length in
-  seconds and the lyrics; a model without one does not take that option. It may add `min_crest_db`
-  (`music.min_crest_db`), the crest factor in dB below which music `generate` sends the request again
-  (docs/music.md). A video or presenter model adds the keys of the Video section.
+  limits of an image model of an OpenAI kind), `voice` and `voices` (a speech model) and, for `google`, `predict`
+  (Music). A remote provider serves any model id. A provider of a local kind serves only the models listed; the
+  `kokoro`, `chatterbox`, `torchaudio` and `vllm-omni` entries are in Local speech and alignment and Speech models of
+  vLLM-Omni. A `diffusers` entry has `repo` (a Hugging Face repository), `steps`, `guidance` (optional: without it
+  no `guidance_scale` is passed), `args` (optional: more pipeline call arguments, after steps and guidance and
+  before the caller's) and `skip` (optional: pipeline components loaded as None), and the keys of its role, which
+  make the role. An image model adds `inpaint` (the diffusers pipeline class for an edit with a mask, built over
+  the loaded modules with `from_pipe`) and `image`. A music model adds `duration_arg` (required) and `lyrics_arg`,
+  the pipeline call argument names for the length in seconds and the lyrics; a model without `lyrics_arg` takes no
+  lyrics. It may add `min_crest_db` (`music.min_crest_db`), the crest factor in dB below which music `generate`
+  sends the request again (docs/music.md). A video or presenter model adds the keys of the Video section.
 - `tasks`: task to model id `<provider name>:<model>`. A caller passes its own id (a `--model` flag) or asks for a
   task and gets `tasks.<task>` (`config.resolve`). The tasks (`plugin_settings.Task`): `chat`, `vision`,
   `system1`, `embed`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`,
@@ -156,18 +161,18 @@ A diffusers model downloads 4 to 90 GB of weights to the Hugging Face cache (`hu
 | `azure` | `AzureProvider` | `base_url` (the Azure endpoint), `api_version`, `api_key` |
 | `google` | `GoogleProvider`, or `GoogleCloudProvider` (Vertex) with `vertex: true` | `api_key`, `base_url`; Vertex: `project`, `location`, `credentials` |
 | `diffusers` | none; `local` | none |
-| `kokoro` | none; `kokoro` | `model_url`, `voices_url`, `langs`, `dir` (Local speech and alignment) |
-| `chatterbox` | none; `chatterbox` | `python`, `url`, `files`, `dir`, `start_timeout` (Local speech and alignment) |
-| `torchaudio` | none; `align` | `url`, `dir` (Local speech and alignment) |
-| `vllm-omni` | none; `omni` | `python`, `repo`, `deploy`, `memory`, `overhead`, `style`, `args`, `env`, `start_timeout` (Speech models of vLLM-Omni) |
+| `kokoro` | none; `kokoro` | `dir`; per model `model_url`, `voices_url`, `langs` (Local speech and alignment) |
+| `chatterbox` | none; `chatterbox` | `python`, `dir`, `start_timeout`, `timeout`; per model `url`, `files` (Local speech and alignment) |
+| `torchaudio` | none; `align` | `dir`; per model `url` (Local speech and alignment) |
+| `vllm-omni` | none; `omni` | `python`, `args`, `env`, `start_timeout`, `timeout`; per model `repo`, `deploy`, `memory`, `overhead`, `style` (Speech models of vLLM-Omni) |
 
-What each kind serves:
+What each kind serves (the Kinds column is `TASK_KINDS`, checked at load and by `config.resolve`):
 
 | Task | Through | Kinds |
 |---|---|---|
-| chat, vision, audio | Pydantic-AI `Agent` | all but `diffusers` |
-| embed | Pydantic-AI `Embedder` | all but `diffusers` |
-| system1 | Pydantic-AI `SystemOneModel` on the provider's `base_url` (Ollama: `/v1/systemone`) | any with a `base_url` |
+| chat, vision, audio, film_critic | Pydantic-AI `Agent` | `API_KINDS`: `ollama`, `openrouter`, `openai`, `azure`, `google` |
+| embed | Pydantic-AI `Embedder` | `API_KINDS` |
+| system1 | Pydantic-AI `SystemOneModel` on the provider's `base_url` (Ollama: `/v1/systemone`) | `API_KINDS`, with a `base_url` (an `ollama` provider's default, `OLLAMA_URL`) |
 | image, image_edit | Pydantic-AI `OpenAIImageGenerationModel`, `GoogleImageGenerationModel`; `local.DiffusersImageModel` | `ollama`, `openrouter`, `openai`, `azure`, `google`, `diffusers` |
 | image mask | `images.MaskedOpenAIImageModel`; the `inpaint` pipeline of a `diffusers` model | OpenAI kinds, `diffusers` |
 | speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, Google `generate_content`, `omni.aspeak`, `kokoro.speak` or `chatterbox.speak` (the last two in a worker thread) | OpenAI kinds, `google`, `vllm-omni`, `kokoro`, `chatterbox` |
@@ -255,8 +260,10 @@ allocation succeeded.
 
 ## Local speech and alignment
 
-A provider that serves speech takes `voice` (its default voice; else the kind's, `speech.TRAITS`) and `voices` (the
-list `speech.voices` returns; without it a `kokoro` model lists its voices and the others their default voice).
+A speech model's entry (`providers.<p>.models.<m>`, any class deriving `Voices`) takes `voice` (its default voice;
+else the kind's, `speech.TRAITS`, whose keys are `SPEECH_KINDS`) and `voices` (the list `speech.voices` returns;
+without it a `kokoro` model lists its voices and the others their default voice). `speech.SpeechModel` carries the
+provider and the entry (None for a remote model without one).
 `speech.check` refuses a speed outside the kind's range, instructions a kind does not take, and `params` of a kind
 that takes none or that name a field the request is built with (`omni.BUILT_FIELDS`), before any request or model
 load; `speak` calls it. `speech.model_of_kind(kind)` is the configured speech model of a provider kind:
@@ -267,36 +274,36 @@ or a worker request.
 
 The `kokoro`, `chatterbox` and `torchaudio` kinds keep the files of model `<model>` in `<dir>/<model lowercased>/`
 (`weights.model_dir`): `dir` of the provider, else the `weights_dir` the caller passes to `speech.speak`,
-`speech.voices`, `speech.fetch`, `speech.model_of` or `align.aligner` (`weights.with_dir`; media:voiceover passes
+`speech.voices`, `speech.fetch`, `speech.model_of` or `align.aligner` (`WeightsDir.with_dir`; media:voiceover passes
 `voiceover/` of its plugin data directory); without either, a `ConfigError` asks for `dir`. Two
 providers with the same `dir` and model share the files. `weights.ensure_file` downloads a missing file to
 `<file>.part`, checks its length against Content-Length and renames it, so a failed download leaves no file under the
 final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files of a `kokoro` or `chatterbox` model.
 
-- `kokoro`: kokoro-onnx in the caller's process on the CPU (extra `ai-models[kokoro]`), no local-model lock. `model_url` and
-  `voices_url` are the ONNX model and the voices file (the kokoro-onnx GitHub release); `langs` maps a voice-name
+- `kokoro`: kokoro-onnx in the caller's process on the CPU (extra `ai-models[kokoro]`), no local-model lock. The
+  model entry's (`KokoroModel`) `model_url` and `voices_url` are the ONNX model and the voices file (the kokoro-onnx GitHub release); `langs` maps a voice-name
   prefix to the espeak-ng language it is phonemized with, and a voice of no listed prefix is refused. One model per
   model file stays loaded for the life of the process. The answer is a 24 kHz WAV file; speed 0.5 to 2 (kokoro-onnx's
   limit); no instructions. espeak-ng keeps its data path in a 160-byte buffer and fails on a longer one, so when the
   `espeak-ng-data` path bundled in `espeakng_loader` is 150 characters or longer, `espeak.data_path` passes a copy at
   `<dir>/espeak-ng-data`, else in the temporary directory.
 - `chatterbox`: Chatterbox Turbo, zero-shot voice cloning. chatterbox-tts 0.1.7 pins torch and torchaudio 2.6, so it
-  runs in its own environment (`python`; media:voiceover's `setup --chatterbox` builds one from its locked uv project
-  `scripts/chatterbox`), in one worker process per calling process (`chatterbox_worker.py`, run as
+  runs in its own environment (`python` of the provider; media:voiceover's `setup --chatterbox` builds one from its
+  locked uv project `scripts/chatterbox`), in one worker process per model and calling process (`chatterbox_worker.py`, run as
   `python -I chatterbox_worker.py <model dir>`; it imports nothing of `ai_models`). The worker loads the model on the
-  CPU, sets `HF_HUB_OFFLINE=1` unless set (the weights are local), and answers JSON request lines on stdin with JSON
+  CPU, sets `HF_HUB_OFFLINE=1` (the weights are local; `plugin_settings` removed any shell value), and answers JSON request lines on stdin with JSON
   lines on a copy of stdout; its own stdout goes to stderr, which goes to a log file an error quotes. It stops at exit
   (`atexit`, stdin closed, killed after 30 s; the log's directory is removed after a clean exit); when the caller
   dies, its stdin reaches its end and its request loop ends. A thread reads its answers, so a
-  wait has a limit: `start_timeout` for the load and `timeout` per answer (seconds, default 600 each). `url` and `files` name the
-  model files (the template: the ModelScope mirror of Resemble AI's repository). A voice is `default` (the built-in
+  wait has a limit: `start_timeout` for the load and `timeout` per answer (seconds, default 600 each, of the
+  provider). The model entry's (`ChatterboxModel`) `url` and `files` name the model files (the template: the ModelScope mirror of Resemble AI's repository). A voice is `default` (the built-in
   voice) or the path of a recording longer than 5 s. Under numpy 2, Chatterbox's `norm_loudness` multiplies the
   float32 reference by a float64 gain and returns float64 (NEP 50 promotion), which its mel filter matmul rejects; the
   worker casts the result to float32. The answer is a 24 kHz WAV file with Resemble's Perth watermark; no speed, no
   instructions.
 - `torchaudio`: a forced-alignment pipeline of `torchaudio.pipelines` by name (`torchaudio:MMS_FA`), task `align`, in
   the caller's process on the CPU (extra `ai-models[align]`, torchaudio 2.11, the last release with `forced_align`).
-  `url` is the pipeline's weights file: `weights.ensure_file` downloads it (TLS context of `tls`, so
+  The model entry's (`TorchaudioModel`) `url` is the pipeline's weights file: `weights.ensure_file` downloads it (TLS context of `tls`, so
   `network.extra_ca_cert` applies) into the model directory under its own file name, the name torch.hub looks for, and the
   pipeline loads it from there (`get_model(dl_kwargs={"model_dir": ...})`), so torch.hub downloads nothing. `Aligner.align(samples, rate, tokens)` resamples to the pipeline's
   rate and returns one (start, end) in seconds per token. One aligner per model id stays loaded for the life of the
@@ -306,8 +313,10 @@ final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files
 
 Fish Audio Drama 3 runs only through vLLM-Omni (or SGLang-Omni), which pins torch 2.14.0 and transformers below
 5.20; the skill environments have torch 2.14.1 and transformers 5.23. It therefore runs in its own environment,
-in a separate process. A provider of kind `vllm-omni` names that environment's interpreter (`python`) and the
-model (`repo`). `omni.aspeak`:
+in a separate process. A provider of kind `vllm-omni` names that environment's interpreter (`python`), the server's
+`args` and `env`, and the time limits; each model entry (`VllmOmniModel`) names the model (`repo`), its `deploy`
+config, `memory`, `overhead` and `style`. One server per model id serves for the life of the process.
+`omni.aspeak`:
 
 1. On the first call of the process, makes SIGTERM raise `SystemExit` (`exit_on_sigterm`, so step 5 runs after a
    SIGTERM), takes the local-model lock (`local.hold_lock`, Local model memory) and reads the free memory
@@ -316,8 +325,8 @@ model (`repo`). `omni.aspeak`:
    previous holder's memory comes back, and when that is short of the need, reads it again for up to
    `SETTLE_SECONDS` (`local.wait_for_memory`). vLLM 0.32 checks each stage's budget against the same figure: on an
    integrated GPU `MemAvailable` (`MemorySnapshot.measure`), elsewhere `mem_get_info()`. The start needs the
-   provider's `memory` (GB, the stages' budgets together) plus `overhead` (GB the server takes outside `memory`,
-   default `omni.OVERHEAD_GB`, 22). When less is free and local Ollama models hold the shortfall, it waits for
+   model's `memory` (GB, the stages' budgets together) plus `overhead` (GB the server takes outside `memory`,
+   default `DEFAULT_OVERHEAD_GB`, 22). When less is free and local Ollama models hold the shortfall, it waits for
    Ollama to unload them (`local.wait_for_ollama`, below). When the memory is still short, the start is refused
    before the server runs (`local.memory_error`), with both sizes and what holds the memory
    (`local.memory_holders`):
@@ -406,12 +415,12 @@ Voice: `default` (the model's own voice), or a path to a reference recording wit
 of the same stem, sent as `ref_audio` (a `data:` URI) and `ref_text`. Drama 3 picks a new speaker for each
 request without a reference. A fixed `seed` (the request field exists) does not keep it: on the GB10 three
 sentences with seed 7 had median F0 184, 146 and 135 Hz, with seed 11 203, 146 and 208 Hz, without a seed 110,
-184 and 191 Hz. With `default`, `omni.aspeak` therefore keeps the process's first answer (`first_take`: WAV and
+184 and 191 Hz. With `default`, `omni.aspeak` therefore keeps the model's first answer in the process (`first_take`, by model id: WAV and
 the text sent) and sends it as `ref_audio`/`ref_text` with every later `default` request; three sentences then
 had 138, 138 and 148 Hz and a mean log-mel profile within cosine 0.975 of the first. The first take is kept per
 `speaker` (a caller's name for who speaks; None for one voice), so each speaker of a dialogue keeps its own voice.
-Instructions go through the provider's `style`, a format string with `{instructions}` and `{text}` (Drama 3:
-`"[{instructions}] {text}"`, its inline tags); a provider without `style` refuses instructions. There is no speed.
+Instructions go through the model's `style`, a format string with `{instructions}` and `{text}` (Drama 3:
+`"[{instructions}] {text}"`, its inline tags); a model without `style` refuses instructions. There is no speed.
 
 The text goes to the server as given, with its inline tags (`Traits.tags`): point tags in square brackets anywhere
 and speaker tags `<|speaker:0|>` to `<|speaker:15|>`, which the Drama 3 prompt keeps (the reference is speaker 0).
@@ -426,8 +435,8 @@ takes one reference per request (`ref_audio` and `ref_text`, or `ref_audio_codes
 `video.animate(image, prompt, *, seconds, model=None, width=None, height=None, aspect=None, seed=None)` returns an MP4 of the
 image animated as the prompt says; `aanimate` runs it in a worker thread. The model is `model`, else `tasks.video`.
 Only the `diffusers` kind serves video. A video model is a `providers.<p>.models.<name>` entry of a `diffusers`
-provider with these keys besides `repo`, `steps` and `guidance`, all required (`DiffusersModel.missing_video`;
-`video.video_spec` raises a `ConfigError` that names each missing key):
+provider of the video role (`DiffusersVideoModel`) with these keys besides `repo`, `steps` and `guidance`, all
+required; the schema names each missing one at load, and `config.resolve` refuses a model of another kind or role:
 
 | Key | Meaning |
 |---|---|
@@ -454,7 +463,7 @@ need it to re-encode their conditioning image.
 the image speaking `speech` (an audio file), as long as the speech, with the speech muxed in as AAC at the file's
 sample rate; `apresent` runs it in a worker thread. The model is `model`, else `tasks.presenter`, a
 `providers.<p>.models.<name>` entry of a `diffusers` provider with optional `steps`, `guidance`, `args` and `skip`,
-and these keys, all required (`DiffusersModel.missing_presenter`, `video.presenter_spec`):
+and these keys, all required (`DiffusersPresenterModel`; checked at load as for video):
 
 | Key | Meaning |
 |---|---|

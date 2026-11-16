@@ -15,9 +15,12 @@ from voiceover_tool.timing import build_timing
 OAI = {"kind": "openai", "base_url": "http://127.0.0.1:1/v1"}
 GOOGLE = {"kind": "google", "api_key": "k"}
 # A vllm-omni provider whose python does not exist, so any server start fails.
-OMNI = {"kind": "vllm-omni", "python": "/nonexistent", "repo": "x/drama-3", "deploy": "fish_omni.yaml", "memory": 70}
-KOKORO = {"kind": "kokoro", "model_url": "http://127.0.0.1:1/m.onnx", "voices_url": "http://127.0.0.1:1/v.bin",
-          "langs": {"af_": "en-us"}}
+OMNI = {"kind": "vllm-omni", "python": "/nonexistent",
+        "models": {"drama-3": {"repo": "x/drama-3", "deploy": "fish_omni.yaml", "memory": 70}}}
+KOKORO = {"kind": "kokoro", "models": {"kokoro-v1.0": {"model_url": "http://127.0.0.1:1/m.onnx",
+                                                       "voices_url": "http://127.0.0.1:1/v.bin",
+                                                       "langs": {"af_": "en-us"}}}}
+OAI_VOICES = {**OAI, "models": {"tts-1": {"voice": "two", "voices": ["one", "two"]}}}
 
 
 def test_decode_wav_and_raw_pcm():
@@ -36,14 +39,13 @@ def test_decode_wav_and_raw_pcm():
 
 
 def test_voices_of_the_speech_model_and_of_another(tmp_path):
-    """`voices` lists the provider's `voices` with its `voice` marked default; `--model` lists that model's voices,
-    the kind's default voice without a `voice`; no `speech` task is an error naming it."""
-    config = write_config(tmp_path / "config.yaml", providers={"oai": {**OAI, "voice": "two", "voices": ["one", "two"]},
-                                                               "g": GOOGLE}, tasks={})
+    """`voices` lists the model entry's `voices` with its `voice` marked default; `--model` lists that model's
+    voices, the kind's default voice without a `voice`; no `speech` task is an error naming it."""
+    config = write_config(tmp_path / "config.yaml", providers={"oai": OAI_VOICES, "g": GOOGLE}, tasks={})
     p = voiceover("voices", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "no model for task 'speech'" in p.stderr
-    config = write_config(tmp_path / "config.yaml", providers={"oai": {**OAI, "voice": "two", "voices": ["one", "two"]},
-                                                               "g": GOOGLE}, tasks={"speech": "oai:tts-1"})
+    config = write_config(tmp_path / "config.yaml", providers={"oai": OAI_VOICES, "g": GOOGLE},
+                          tasks={"speech": "oai:tts-1"})
     p = voiceover("voices", SKILLS_CONFIG=str(config))
     assert p.returncode == 0 and p.stdout.splitlines() == ["one", "two  (default)"], p.stderr
     p = voiceover("voices", "--model", "g:gemini-tts", SKILLS_CONFIG=str(config))
@@ -56,10 +58,8 @@ def test_speed_and_style_refused_before_any_request(tmp_path):
     port, the Kokoro files at a closed port); a model of a provider kind
     without speech models is refused."""
     config = write_config(tmp_path / "config.yaml",
-                          providers={"oai": OAI, "g": GOOGLE,
-                                     "k": {"kind": "kokoro", "model_url": "http://127.0.0.1:1/m.onnx",
-                                           "voices_url": "http://127.0.0.1:1/v.bin", "langs": {"af_": "en-us"}},
-                                     "local": {"kind": "diffusers"}},
+                          providers={"oai": OAI, "g": GOOGLE, "k": KOKORO,
+                                     "local": {"kind": "diffusers", "models": {"flux": {"repo": "r"}}}},
                           tasks={"speech": "oai:tts-1"})
     script = tmp_path / "s.txt"
     script.write_text("Hello there.\n")
@@ -71,7 +71,7 @@ def test_speed_and_style_refused_before_any_request(tmp_path):
     p = voiceover(*synth, "--model", "k:kokoro-v1.0", "--style", "calm", SKILLS_CONFIG=str(config))
     assert p.returncode == 1 and "takes no instructions" in p.stderr, p.stderr
     p = voiceover(*synth, "--model", "local:flux", SKILLS_CONFIG=str(config))
-    assert p.returncode == 1 and "has no speech models" in p.stderr, p.stderr
+    assert p.returncode == 1 and "task speech takes kinds" in p.stderr, p.stderr
     assert not (tmp_path / "o").exists()
 
 
@@ -168,10 +168,10 @@ from voiceover_tool.speech import Narrator
 n = Narrator()
 lines = n.lines(["Hi.", "@guest Hello.", "@host Hey.", "@guest Again."])
 n.prepare(lines, "default")
-omni.keep_take("f", None, "default", b"N", "Hi.")
-omni.keep_take("f", "guest", "default", b"G", "Hello.")
-omni.keep_take("f", "guest", "default", b"G2", "Again.")
-omni.keep_take("f", "host", "/some/ref.wav", b"H", "Hey.")
+omni.keep_take("f:drama-3", None, "default", b"N", "Hi.")
+omni.keep_take("f:drama-3", "guest", "default", b"G", "Hello.")
+omni.keep_take("f:drama-3", "guest", "default", b"G2", "Again.")
+omni.keep_take("f:drama-3", "host", "/some/ref.wav", b"H", "Hey.")
 print(sorted(p.name for p in write_takes(__import__("pathlib").Path({str(tmp_path)!r}), n.first_takes())))
 """
     done = run_python(code, child_env(SKILLS_CONFIG=str(config)))

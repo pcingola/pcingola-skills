@@ -26,7 +26,9 @@ required:
     audio_rate      the sample rate (Hz) the model takes the speech at, mono
     output          the name of the pipeline output that holds the videos (a modular pipeline's `output`)
 
-A missing key is a `ConfigError` that names it; `buckets` is checked at load. Any other failure of the model call
+The schema checks these keys at load (a missing one, or a key of another role, names its YAML path), and that
+`tasks.video` and `tasks.presenter` name a model of that role; `config.resolve` checks a model the caller names.
+Any other failure of the model call
 (a pipeline error, out of memory, a failed download) is an `AIModelsError` with a one-line message.
 """
 
@@ -36,27 +38,10 @@ import asyncio
 import math
 from collections.abc import Sequence
 
-from plugin_settings import DiffusersModel, ProviderKind
+from plugin_settings import DiffusersVideoModel
 
 from . import config
-from .errors import AIModelsError, ConfigError
-
-def _spec(model_id: str, missing) -> DiffusersModel:
-    spec = config.diffusers_model(model_id)
-    if lacks := missing(spec):
-        name, model = config.split_id(model_id)
-        raise ConfigError(f"providers.{name}.models.{model} lacks {', '.join(lacks)} in {config.path()}")
-    return spec
-
-
-def video_spec(model_id: str) -> DiffusersModel:
-    """The entry of video model `model_id`; `ConfigError` naming each missing key of `VIDEO_FIELDS`."""
-    return _spec(model_id, DiffusersModel.missing_video)
-
-
-def presenter_spec(model_id: str) -> DiffusersModel:
-    """The entry of presenter model `model_id`; `ConfigError` naming each missing key of `PRESENTER_FIELDS`."""
-    return _spec(model_id, DiffusersModel.missing_presenter)
+from .errors import AIModelsError
 
 
 def bucket(buckets: Sequence[tuple[int, int]], aspect: float) -> tuple[int, int]:
@@ -78,7 +63,7 @@ def frame_size(width: float, height: float, multiple: int) -> tuple[int, int]:
     return (max(multiple, round(width / multiple) * multiple), max(multiple, round(height / multiple) * multiple))
 
 
-def clip_size(spec: DiffusersModel, width: int | None = None, height: int | None = None,
+def clip_size(spec: DiffusersVideoModel, width: int | None = None, height: int | None = None,
               aspect: float | None = None) -> tuple[int, int]:
     """The frame size of a clip of model `spec`: `width` and `height`, else the model's; `aspect` (width / height)
     reshapes it to that ratio at the same pixel count; then rounded by `frame_size` to `size_multiple`."""
@@ -94,9 +79,6 @@ def animate(image: bytes, prompt: str, *, seconds: float, model: str | None = No
     the model's `max_frames` is shorter. The size is `width` and `height`, else the model's; `aspect`
     (width / height) reshapes it to that ratio at the same pixel count."""
     model_id = config.resolve(model, "video")
-    name, _ = config.split_id(model_id)
-    if (kind := config.provider(name).kind) != ProviderKind.DIFFUSERS:
-        raise ConfigError(f"provider {name!r} of kind {kind!r} has no video models")
     from . import local
 
     return _call(model_id, local.animate, model_id, image, prompt, seconds=seconds, width=width, height=height,
@@ -110,9 +92,6 @@ def present(image: bytes, speech: bytes, *, model: str | None = None, aspect: fl
     nearest `aspect` (width / height), default the image's. `prompt` replaces the model's default prompt. The
     model is `model`, else the model of task `presenter`."""
     model_id = config.resolve(model, "presenter")
-    name, _ = config.split_id(model_id)
-    if (kind := config.provider(name).kind) != ProviderKind.DIFFUSERS:
-        raise ConfigError(f"provider {name!r} of kind {kind!r} has no presenter models")
     from . import local
 
     return _call(model_id, local.present, model_id, image, speech, aspect=aspect, prompt=prompt, seed=seed)

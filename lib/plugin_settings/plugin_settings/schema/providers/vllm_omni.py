@@ -1,7 +1,6 @@
-"""A provider of kind vllm-omni: one speech model (`repo`) served by vLLM-Omni from its own environment (`python`).
-`deploy`: the deploy config; `memory`: GB the server's stages take together; `overhead`: GB it takes outside them;
-`style`: format string with {instructions} and {text}; `args`: more server arguments; `env`: server environment
-variables; `start_timeout`: seconds the start may take."""
+"""A provider of kind vllm-omni: speech models served by a vLLM-Omni server from its own environment (`python`),
+one server per model; each model needs an entry in `models`. `args`: more server arguments; `env`: server
+environment variables; `start_timeout`: seconds the start may take."""
 
 from __future__ import annotations
 
@@ -9,24 +8,16 @@ from typing import Literal
 
 from pydantic import PositiveFloat
 
-from ..fields import UserPath
-from .base import TimedProvider
+from ..fields import Catalogue
+from ..vllm_omni_model import VllmOmniModel
+from .own_environment import OwnEnvironment
 
-# GB the server takes outside `memory` when the provider has no `overhead` (docs/ai_models.md).
-DEFAULT_OVERHEAD_GB = 22.0
 DEFAULT_START_TIMEOUT = 1800.0
 
 
-class VllmOmniProvider(TimedProvider):
+class VllmOmniProvider(OwnEnvironment):
     kind: Literal["vllm-omni"]
-    python: UserPath
-    repo: str
-    deploy: str
-    memory: PositiveFloat
-    overhead: PositiveFloat = DEFAULT_OVERHEAD_GB
-    style: str | None = None
+    start_timeout: PositiveFloat = DEFAULT_START_TIMEOUT
     args: list[str | int | float] = []
     env: dict[str, str | int | float] = {}
-    start_timeout: PositiveFloat = DEFAULT_START_TIMEOUT
-    voice: str | None = None
-    voices: list[str] | None = None
+    models: Catalogue[VllmOmniModel] = {}

@@ -47,7 +47,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from plugin_settings import DiffusersModel, ProviderKind
+from plugin_settings import DiffusersModel, DiffusersRole, ProviderKind
 from pydantic import BaseModel
 from pydantic_ai.exceptions import UserError
 from pydantic_ai.images import GeneratedImage, ImageGenerationModel, ImageGenerationResult
@@ -405,7 +405,6 @@ def loopback(url: str) -> bool:
 def resident_ollama_models() -> list[OllamaModel]:
     """Each model loaded in an `ollama` provider of the config whose server runs on this machine (`loopback`;
     `GET /api/ps`); a missing config or a server that does not answer contributes nothing."""
-    from .models import base_url
     from .tls import ssl_verify
 
     try:
@@ -416,7 +415,7 @@ def resident_ollama_models() -> list[OllamaModel]:
     for name, spec in providers.items():
         if spec.kind != ProviderKind.OLLAMA:
             continue
-        url = base_url(spec).rstrip("/").removesuffix("/v1") + "/api/ps"
+        url = spec.base_url.rstrip("/").removesuffix("/v1") + "/api/ps"
         if not loopback(url):
             continue
         req = urllib.request.Request(url)
@@ -538,7 +537,7 @@ class DiffusersImageModel(ImageGenerationModel):
         super().__init__(settings=settings)
         self.model_id = model_id
         self._name = config.split_id(model_id)[1]
-        self.spec = config.diffusers_model(model_id)
+        self.spec = config.diffusers_model(model_id, DiffusersRole.IMAGE)
         self.mask = mask
 
     @property
@@ -589,7 +588,7 @@ class DiffusersMusicModel:
 
     def __init__(self, model_id: str) -> None:
         self.name = model_id
-        self.spec = config.diffusers_model(model_id)
+        self.spec = config.diffusers_model(model_id, DiffusersRole.MUSIC)
 
     def compose(self, prompt: str, *, seconds: float | None = None, lyrics: str | None = None,
                 seed: int | None = None) -> bytes:
@@ -597,12 +596,12 @@ class DiffusersMusicModel:
         import torch
 
         extra: dict[str, Any] = {"seed": seed}
-        for key, value in (("duration_arg", None if seconds is None else float(seconds)), ("lyrics_arg", lyrics)):
-            if value is None:
-                continue
-            if not (arg := getattr(self.spec, key)):
-                raise ConfigError(f"diffusers model {self.name!r} has no `{key}` for {key.removesuffix('_arg')}")
-            extra[arg] = value
+        if seconds is not None:
+            extra[self.spec.duration_arg] = float(seconds)
+        if lyrics is not None:
+            if not self.spec.lyrics_arg:
+                raise ConfigError(f"diffusers model {self.name!r} has no `lyrics_arg` for lyrics")
+            extra[self.spec.lyrics_arg] = lyrics
         pipe = pipeline(self.spec.repo, skip=self.spec.skip)
         with out_of_memory(self.spec.repo):
             audio = pipe(prompt=prompt, output_type="pt", **pipe_kwargs(self.spec, extra)).audios[0]  # (channels, samples)
@@ -637,9 +636,9 @@ def animate(model_id: str, image: bytes, prompt: str, *, seconds: float, width: 
     from diffusers.utils import encode_video
     from PIL import Image, ImageOps
 
-    from .video import clip_size, frame_count, video_spec
+    from .video import clip_size, frame_count
 
-    spec = video_spec(model_id)
+    spec = config.diffusers_model(model_id, DiffusersRole.VIDEO)
     w, h = clip_size(spec, width, height, aspect)
     frames_n = frame_count(seconds, spec.fps, spec.frame_step, spec.max_frames)
     extra: dict[str, Any] = {"width": w, "height": h, "num_frames": frames_n, "seed": seed}
@@ -706,9 +705,7 @@ def present(model_id: str, image: bytes, speech: bytes, *, aspect: float | None 
     `prompt` replaces the model's default prompt when given. Encoded with diffusers' `encode_video`."""
     from diffusers.utils import encode_video
 
-    from .video import presenter_spec
-
-    spec = presenter_spec(model_id)
+    spec = config.diffusers_model(model_id, DiffusersRole.PRESENTER)
     still = presenter_still(spec.buckets, image, aspect)
     w, h = still.size
     drive, _ = read_audio(speech, spec.audio_rate, "mono")

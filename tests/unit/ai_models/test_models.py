@@ -13,6 +13,7 @@ from pydantic_ai.models.system_one import SystemOneModel
 
 from ai_models import ConfigError, images, models, system1
 from ai_models.local import DiffusersImageModel
+from plugin_settings import OLLAMA_URL
 
 # Any value serves as a key: these tests build objects and send nothing.
 KEY = "test-key"
@@ -49,7 +50,7 @@ def test_chat_model_of_a_task_and_its_base_url():
     """chat_model without an id takes `tasks.chat`; an ollama provider without base_url gets Ollama's default URL."""
     m = models.chat_model()
     assert m.model_name == "gemma4:31b"
-    assert m.base_url.startswith(models.OLLAMA_URL)
+    assert m.base_url.startswith(OLLAMA_URL)
     assert type(models.agent(task="vision").model) is GoogleModel
 
 
@@ -86,7 +87,7 @@ def test_mask_model_per_kind():
 
 
 def test_diffusers_provider_has_no_chat_model():
-    """A diffusers provider serves no chat model: ConfigError naming the kind."""
+    """A diffusers provider serves no chat model: ConfigError naming the kind (`config.resolve`, `TASK_KINDS`)."""
     with pytest.raises(ConfigError, match="diffusers"):
         models.chat_model("local:zi")
 
@@ -95,4 +96,4 @@ def test_system1_model_on_ollama():
     """The System-1 model of an ollama provider talks to Ollama's default URL."""
     m = system1.system1_model("ollama:d3:4b")
     assert type(m) is SystemOneModel
-    assert m.base_url == models.OLLAMA_URL
+    assert m.base_url == OLLAMA_URL

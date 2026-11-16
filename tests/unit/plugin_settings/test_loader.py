@@ -2,6 +2,7 @@
 the cache per file version, and the exit of `config()`."""
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -47,10 +48,10 @@ def test_cache_follows_the_file_version(cfg_path):
     write_config(cfg_path, studio={"dir": "/b"})  # same size
     os.utime(cfg_path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
     second = load_config()
-    assert second is not first and second.studio.dir == "/b"
+    assert second is not first and second.studio.dir == Path("/b")
     write_config(cfg_path, studio={"dir": "/longer"})
     os.utime(cfg_path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))  # same mtime, other size
-    assert load_config().studio.dir == "/longer"
+    assert load_config().studio.dir == Path("/longer")
 
 
 def test_extra_ca_cert_reaches_the_model_layer(cfg_path, tmp_path):

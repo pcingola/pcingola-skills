@@ -195,7 +195,7 @@
     const brief = form.brief.trim();
     if (!brief) { ui.bar.error(kind.empty); Studio.reveal(ui.brief, { focus: true }); return; }
     const { refs, brand, shape, model, count, style } = form;
-    if (!tierModel(model, refs.length > 0)) { ui.bar.error(`config.yaml names no model for ${modelLabel(model)}.`); return; }
+    if (!tierModel(model, refs.length > 0)) { ui.bar.error(Studio.models().error || `config.yaml names no model for ${modelLabel(model)}.`); return; }
     if (kind.deck && slides().length && !confirm("Rewrite the whole deck from this brief? The slides are written again, with a new version of every slide; every version made so far is kept.")) return;
     const fields = { action: "generate", brief, refs: [...refs], brand, shape, model, count, style };
     if (kind.deck) fields.slide = null;

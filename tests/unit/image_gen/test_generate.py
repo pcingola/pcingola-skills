@@ -9,17 +9,17 @@ from pathlib import Path
 import pytest
 
 from image_gen_tool import cli
-from image_gen_tool.generate import ImageError, media_type, settings
+from image_gen_tool.generate import ImageError, media_type, needs_size, settings
 from image_gen_tool.models import task_for
-from plugin_settings import ImageLimits
+from plugin_settings import DiffusersImageLimits, OpenAIImageLimits
 from tests.settings_env import write_config
 from tests.subproc import child_env, run_python
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 24
 # Image limits of an OpenAI-kind and a local model as config.example.yaml gives them, and of a sized model.
-OPENAI_LIMITS = ImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8_294_400)
-LOCAL_LIMITS = ImageLimits(max_edge=2048, min_edge=256)
-SIZED_LIMITS = ImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8_294_400, always_sized=True,
+OPENAI_LIMITS = OpenAIImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8_294_400)
+LOCAL_LIMITS = DiffusersImageLimits(max_edge=2048, min_edge=256)
+SIZED_LIMITS = OpenAIImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8_294_400, always_sized=True,
                            default_quality="high")
 
 
@@ -60,23 +60,37 @@ def test_openai_kind_without_limits_sends_no_size():
 
 
 def test_size_without_limits_names_config_entry(tmp_path):
-    """--size for a model without image limits fails with the config entry to add, for an OpenAI kind and a
-    diffusers model. Runs in a child with its own config.yaml (ai_models.config.image_limits)."""
+    """--size for a model without image limits fails with the config entry to add and its required fields, for an
+    OpenAI kind and a diffusers model; without a size, an OpenAI-kind model needs none. Runs in a child with its
+    own config.yaml (ai_models.config.image_limits)."""
     cfg = write_config(tmp_path / "config.yaml", providers={"o": {"kind": "ollama"},
                                                             "local": {"kind": "diffusers",
                                                                       "models": {"m": {"repo": "x/m"}}}})
-    code = ("from image_gen_tool.generate import settings, ImageError\n"
+    code = ("from image_gen_tool.generate import request_limits, ImageError\n"
+            "print(request_limits('ollama', 'o:img', aspect_ratio='3:2', image_size=None, edit=False))\n"
             "for kind, mid in (('ollama', 'o:img'), ('diffusers', 'local:m')):\n"
             "    try:\n"
-            "        settings(kind, mid, aspect_ratio=None, image_size='2K', n=1, quality=None, background=None,\n"
-            "                 output_format='png', edit=False, limits=None)\n"
+            "        request_limits(kind, mid, aspect_ratio=None, image_size='2K', edit=False)\n"
             "    except ImageError as e:\n"
             "        print(e.message)\n")
     done = run_python(code, child_env(SKILLS_CONFIG=str(cfg)))
     assert done.returncode == 0, done.stderr
     lines = done.stdout.splitlines()
-    assert "add providers.o.models.img.image with max_edge" in lines[0], lines
-    assert "add providers.local.models.m.image with max_edge (and min_edge)" in lines[1], lines
+    assert lines[0] == "None", lines
+    assert "add providers.o.models.img.image with max_edge, min_pixels, max_pixels" in lines[1], lines
+    assert "add providers.local.models.m.image with max_edge, min_edge" in lines[2], lines
+
+
+def test_needs_size_per_kind():
+    """An OpenAI kind needs a size only with --size; a diffusers model always, except an edit without --aspect
+    and --size (the pipeline keeps the reference's size); google never."""
+    def need(kind, **kw):
+        return needs_size(kind, **{"aspect_ratio": None, "image_size": None, "edit": False, **kw})
+
+    assert [need("azure"), need("azure", image_size="2K")] == [False, True]
+    assert [need("diffusers"), need("diffusers", edit=True), need("diffusers", edit=True, aspect_ratio="1:1")] == \
+        [True, False, True]
+    assert need("google", image_size="2K") is False
 
 
 def test_google_one_request_per_image():

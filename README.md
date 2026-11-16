@@ -86,6 +86,7 @@ With an OpenRouter key only:
 1. Ask Claude to set up the skills; the `setup:settings` skill asks for the level and the keys and writes `~/.claude/plugins/data/config.yaml`.
 2. By hand, a minimal file for this level (`chmod 600` it):
 
+<!-- minimal-config -->
 ```yaml
 providers:
   openrouter:
@@ -94,8 +95,18 @@ providers:
     models:
       google/gemini-3-pro-image:
         image: {max_edge: 3840, min_pixels: 655360, max_pixels: 8294400}
-  kokoro:     {kind: kokoro, model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx, voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin, langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}, voice: af_heart}
-  torchaudio: {kind: torchaudio, url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt}
+  kokoro:
+    kind: kokoro
+    models:
+      kokoro-v1.0:
+        model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+        voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+        langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}
+        voice: af_heart
+  torchaudio:
+    kind: torchaudio
+    models:
+      MMS_FA: {url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt}
 tasks:
   chat: openrouter:google/gemini-3.1-pro-preview
   vision: openrouter:google/gemini-3.1-pro-preview

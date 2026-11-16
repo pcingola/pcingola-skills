@@ -10,8 +10,9 @@ UNREACHABLE = "http://127.0.0.1:1/model.bin"
 def test_setup_failure_is_one_error_line(tmp_path):
     """The Kokoro model's files are at a closed local port, so the download fails without reaching the network."""
     config = write_config(tmp_path / "config.yaml",
-                          providers={"k": {"kind": "kokoro", "model_url": UNREACHABLE, "voices_url": UNREACHABLE,
-                                           "langs": {"af_": "en-us"}, "dir": str(tmp_path / "w")}},
+                          providers={"k": {"kind": "kokoro", "dir": str(tmp_path / "w"), "models": {
+                              "kokoro-v1.0": {"model_url": UNREACHABLE, "voices_url": UNREACHABLE,
+                                              "langs": {"af_": "en-us"}}}}},
                           tasks={"speech": "k:kokoro-v1.0"})
     p = voiceover("setup", SKILLS_CONFIG=str(config))
     assert p.returncode == 1, p.stderr

@@ -41,11 +41,14 @@ ENV_EXPORTS: tuple[EnvVar, ...] = (
     EnvVar("HF_TOKEN", lambda c: c.huggingface.token.get_secret_value() if c.huggingface.token else None),
 )
 # Variables that `export` removes: the OpenAI, Azure OpenAI, google-genai, google-auth and Pydantic-AI clients of
-# ai_models read keys, endpoints, API versions, projects, credentials and extra headers from them.
+# ai_models read keys, endpoints, API versions, projects, credentials and extra headers from them; TLS libraries
+# read trust stores; huggingface_hub reads a cache, an offline switch and a token that would replace
+# `huggingface.home` and `huggingface.token`. setup:settings SKILL.md lists them for the user.
 CLEARED_PREFIXES = ("OPENAI_", "AZURE_OPENAI_", "AZURE_VOICELIVE_", "OPENROUTER_", "OLLAMA_", "GOOGLE_GENAI_",
                     "GOOGLE_CLOUD_", "SYSTEM_ONE_")
 CLEARED_KEYS = ("GOOGLE_API_KEY", "GEMINI_API_KEY", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GEMINI_BASE_URL",
-                "GOOGLE_VERTEX_BASE_URL", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+                "GOOGLE_VERTEX_BASE_URL", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "HF_HUB_CACHE",
+                "HUGGINGFACE_HUB_CACHE", "HF_HUB_OFFLINE", "HUGGING_FACE_HUB_TOKEN")
 
 
 def export(cfg: Config | None = None) -> None:

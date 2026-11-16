@@ -1,11 +1,15 @@
-"""A provider of kind ollama: an Ollama server (`base_url`, default http://localhost:11434/v1)."""
+"""A provider of kind ollama: an Ollama server at `base_url`."""
 
 from __future__ import annotations
 
 from typing import Literal
 
-from .base import RemoteProvider
+from ..fields import HttpUrl
+from .openai_kind import OpenAIKindProvider
+
+OLLAMA_URL = "http://localhost:11434/v1"
 
 
-class OllamaProvider(RemoteProvider):
+class OllamaProvider(OpenAIKindProvider):
     kind: Literal["ollama"]
+    base_url: HttpUrl = OLLAMA_URL

@@ -181,7 +181,7 @@ a short-video body its `scene` where the endpoint acts on one. Errors answer `{"
 |---|---|---|
 | `GET /`, `GET /static/<file>` | | the page; nothing outside `page/` |
 | `GET /api/config` | | `{"root", "kinds": [{"id", "label", "directory", "skill", "ready"}], "film": <defaults of a new film>}` |
-| `GET /api/models` | | `{"tasks": {<task>: <provider>:<model> or null}, "tiers": [{"id", "model", "ref_model"}]}`, read from `config.yaml` on each call (below) |
+| `GET /api/models` | | `{"tasks": {<task>: <provider>:<model> or null}, "tiers": [{"id", "model", "ref_model"}], "error": <message> or null}`, read from `config.yaml` on each call (below); `error` is the loader's message when the file is missing or invalid, also written to the server log |
 | `GET /api/projects?kind=` | | `[{"dir", "name", "brief", "updated", "versions"}]`, newest first; a deck adds `slides` |
 | `GET /api/project?dir=` | | `{"dir", "project": <project.json>, "versions", "refs"}`; a deck adds `deck` (slides, chosen versions, assembled decks), a short video `video` (storyboard, scene states, pictures, recordings, clips, pages, music, films, HTML films, samples) |
 | `GET /api/catalogue` | | `{"styles": [{"name", "description", "tags", "suits", "sample"}], "brands"}`; `loading` true until loaded, `error` when the brand plugin or its catalogue is missing |

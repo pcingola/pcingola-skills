@@ -31,14 +31,19 @@
 # endpoint), diffusers (local models in process, GPU), vllm-omni (a local
 # speech model served by vLLM-Omni), kokoro and chatterbox (local speech on the
 # CPU), torchaudio (the word aligner of media:voiceover).
-# Every kind except diffusers takes timeout (seconds per request, default 600).
+# timeout (seconds per request, default 600): the remote kinds, chatterbox and
+# vllm-omni.
 # Required keys: openrouter and azure need api_key; azure also base_url and
 # api_version; openai needs api_key without base_url (the OpenAI API); google
 # needs api_key, except a Vertex provider with Google Cloud credentials.
 #
 # models: the attributes of each model of the provider, by the model name after
-# the colon. It is not an allow list: a remote provider serves any model id. A
-# diffusers model must have an entry (its repo).
+# the colon. A remote provider serves any model id, and its entries only add
+# attributes; a model of a local kind (diffusers, kokoro, torchaudio,
+# chatterbox, vllm-omni) must have an entry. A speech model's entry takes voice
+# (the default voice) and voices (the list `voiceover voices` shows).
+# A task's model must be of a kind that serves the task (an image task takes
+# an image model; tasks below).
 #
 # Delete the providers you do not use; replace each replace-me with a key.
 # Without a GPU, also delete the local provider and the tasks that name local:
@@ -63,10 +68,11 @@ providers:
     api_key: replace-me
     models:
       gpt-image-2:
-        # media:image-gen request limits of this model. Required for an image
-        # model of an OpenAI kind (openai, azure, openrouter, ollama): edges are
-        # multiples of 16; max_edge is the longest edge (px), min_pixels and
-        # max_pixels the total pixel range (these are gpt-image-2's).
+        # media:image-gen request limits of this model, needed for a request
+        # with a size, for an image model of an OpenAI kind (openai, azure,
+        # openrouter, ollama): edges are multiples of 16; max_edge is the
+        # longest edge (px), min_pixels and max_pixels the total pixel range
+        # (all three required; these are gpt-image-2's).
         image:
           max_edge: 3840
           min_pixels: 655360
@@ -82,6 +88,7 @@ providers:
       # predict: served by the Vertex predict endpoint (needs api_key); the
       # other music models stream.
       lyria-002: {predict: true}
+      #gemini-2.5-pro-tts: {voice: Kore}
   # A Vertex provider takes Google Cloud credentials in place of api_key:
   # credentials (a service-account JSON file, must exist), else Application
   # Default Credentials, with project and location (default us-central1).
@@ -93,16 +100,19 @@ providers:
 
   # Local models (kind diffusers). Each entry: repo (required, a Hugging Face
   # repository), steps, guidance (without it no guidance_scale is passed, for a
-  # pipeline that has no such argument), inpaint (the diffusers pipeline class
-  # for edits with a mask), args (a mapping of more pipeline call arguments,
-  # after steps and guidance and before the caller's) and skip (a list of
-  # pipeline components loaded as None, such as a text encoder the model does
-  # not use).
-  # An image model needs image: max_edge and min_edge (longest and shortest
-  # edge, px), the media:image-gen request limits.
-  # A music model also has duration_arg and lyrics_arg: the names of the
-  # pipeline call arguments for the length in seconds and the lyrics (a model
-  # without one does not take that option), and optionally min_crest_db: a
+  # pipeline that has no such argument), args (a mapping of more pipeline call
+  # arguments, after steps and guidance and before the caller's) and skip (a
+  # list of pipeline components loaded as None, such as a text encoder the
+  # model does not use). The keys of each role below make the entry a model of
+  # that role; a key of another role is an error, and a task takes only a
+  # model of its role (video, presenter, music; the image tasks an image model).
+  # An image model (an entry with no key of another role) also has inpaint
+  # (the diffusers pipeline class for edits with a mask) and image: max_edge
+  # and min_edge (longest and shortest edge, px, both required), the
+  # media:image-gen request limits.
+  # A music model also has duration_arg (required) and lyrics_arg: the names
+  # of the pipeline call arguments for the length in seconds and the lyrics (a
+  # model without lyrics_arg takes no lyrics), and optionally min_crest_db: a
   # track whose crest factor (peak minus RMS where the music is loud, dB) is
   # below it is loud and compressed, and music generate sends the request again
   # with the next seed (--min-crest-db overrides it per call, 0 turns it off);
@@ -241,67 +251,81 @@ providers:
         max_frames: 121
 
   # Kokoro 82M, local speech on the CPU in the skill's process (English US and
-  # UK voices, no style): model_url and voices_url (required) are its files;
-  # langs (required) maps a voice-name prefix to its espeak language (voices of
-  # other prefixes are refused); voice is the default voice. The files go to
-  # <dir>/<model>/; without dir, media:voiceover keeps them in
-  # <media data dir>/voiceover.
+  # UK voices, no style). The provider's dir: where the model files go
+  # (<dir>/<model>/); without it, media:voiceover keeps them in
+  # <media data dir>/voiceover. Each model: model_url and voices_url
+  # (required) are its files; langs (required) maps a voice-name prefix to its
+  # espeak language (voices of other prefixes are refused); voice is the
+  # default voice.
   kokoro:
     kind: kokoro
-    model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
-    voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
-    langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}
-    voice: af_heart
+    models:
+      kokoro-v1.0:
+        model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+        voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+        langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}
+        voice: af_heart
   # torchaudio forced-alignment pipelines (tasks.align): word times of
-  # media:voiceover on the CPU. url (required): the pipeline's weights file,
-  # downloaded to <dir>/<model lowercased>/ (dir as for kokoro).
+  # media:voiceover on the CPU. The model name is the pipeline's name in
+  # torchaudio.pipelines; url (required): its weights file, downloaded to
+  # <dir>/<model lowercased>/ (dir as for kokoro).
   torchaudio:
     kind: torchaudio
-    url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt
+    models:
+      MMS_FA:
+        url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt
   # Chatterbox Turbo, local speech with voice cloning from one recording, on
   # the CPU, in a worker process of its own environment (chatterbox-tts pins
-  # torch 2.6). media:voiceover's `setup --chatterbox` builds that environment
-  # under the media data directory and prints its python, the value of python
-  # (required). url and files (required): the model files, downloaded to
-  # <dir>/<model>/ (dir as for kokoro); start_timeout: seconds the load may
-  # take (default 600). The voice default is the model's built-in voice.
+  # torch 2.6). The provider: python (required), the environment's
+  # interpreter: media:voiceover's `setup --chatterbox` builds it under the
+  # media data directory and prints it; dir as for kokoro; start_timeout:
+  # seconds the load may take (default 600). Each model: url and files
+  # (required), its files, downloaded to <dir>/<model>/. The voice default is
+  # the model's built-in voice.
   #chatterbox:
   #  kind: chatterbox
   #  python: /path/to/env/bin/python
-  #  url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master
-  #  files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]
+  #  models:
+  #    chatterbox-turbo:
+  #      url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master
+  #      files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]
   # Fish Audio Drama 3, local speech, served by vLLM-Omni from its own
   # environment (vllm-omni pins torch and transformers):
   #   uv venv <env dir> --python 3.12
   #   uv pip install --python <env dir>/bin/python "vllm==0.32.*" vllm-omni==0.32.0 --torch-backend=cu130
-  # python, repo, deploy and memory are required. The server's stages take
-  # memory GB together (Drama 3: over 56; 70 leaves a 13 GB KV cache), and the
-  # server overhead GB more (default 22). With less free, a start waits for
-  # local Ollama models that unload within 15 min, else is refused and names
-  # what holds the memory. The server stops after the command. style puts
-  # voiceover --style into the text as inline tags. args: more server
-  # arguments (eager loading: the default memory-mapped load is too slow on a
-  # unified-memory GPU); env: server environment variables (FlashInfer's
-  # sampler needs nvcc to JIT-compile on GPUs without prebuilt kernels);
-  # start_timeout: seconds the start may take (default 1800).
+  # The provider: python (required); args: more server arguments (eager
+  # loading: the default memory-mapped load is too slow on a unified-memory
+  # GPU); env: server environment variables (FlashInfer's sampler needs nvcc
+  # to JIT-compile on GPUs without prebuilt kernels); start_timeout: seconds
+  # the start may take (default 1800). Each model: repo, deploy and memory
+  # are required. The server's stages take memory GB together (Drama 3: over
+  # 56; 70 leaves a 13 GB KV cache), and the server overhead GB more (default
+  # 22). With less free, a start waits for local Ollama models that unload
+  # within 15 min, else is refused and names what holds the memory. The
+  # server stops after the command. style puts voiceover --style into the
+  # text as inline tags.
   #fish:
   #  kind: vllm-omni
   #  python: /path/to/env/bin/python
-  #  repo: fishaudio/drama-3
-  #  deploy: fish_omni.yaml
-  #  memory: 70
-  #  style: "[{instructions}] {text}"
   #  args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager]
   #  env: {VLLM_USE_FLASHINFER_SAMPLER: 0}
+  #  models:
+  #    drama-3:
+  #      repo: fishaudio/drama-3
+  #      deploy: fish_omni.yaml
+  #      memory: 70
+  #      style: "[{instructions}] {text}"
 
 
 # === tasks ===================================================================
 # The model of each task, <provider name>:<model>; its provider must be in
-# providers, and a diffusers model in that provider's models. The skills ask
-# for these tasks:
+# providers, of a kind the task takes, and a model of a local kind in that
+# provider's models. A key with no model is an error (remove it instead). The
+# skills ask for these tasks, with the kinds each takes:
 #   chat        ai:classify (chat backend), ai:second-opinion
 #   vision      ai:second-opinion when an image is among the files
-#   system1     ai:classify (system1 backend, System-1 models)
+#   system1     ai:classify (system1 backend, System-1 models; the provider
+#               needs base_url, default for ollama)
 #   embed       embeddings (ai_models.models.embedder)
 #   image       media:image-gen --tier fast (the default) without --ref:
 #               quick drafts, bulk variations
@@ -324,7 +348,13 @@ providers:
 #   film_critic media:short-video film critic, through ai:second-opinion (a
 #               model that takes video with sound: a Gemini model of a
 #               provider of kind google)
-# A `--model <provider>:<model>` flag of a skill replaces the task's model.
+# Kinds: chat, vision, system1, embed, audio and film_critic take the remote
+# kinds (ollama, openrouter, openai, azure, google); the image tasks those of
+# OpenAI, google and diffusers; speech those and vllm-omni, kokoro,
+# chatterbox; align torchaudio; music google and diffusers; video and
+# presenter diffusers.
+# A `--model <provider>:<model>` flag of a skill replaces the task's model; it
+# is checked the same way.
 tasks:
   chat: openrouter:google/gemini-3.1-pro-preview
   vision: ollama:gemma4:31b
@@ -344,6 +374,7 @@ tasks:
   # Local models on a GPU (Ollama and the local provider above), in place of
   # the cloud lines above:
   #speech: fish:drama-3
+  #speech: chatterbox:chatterbox-turbo
   #image_best: local:qwen-image
   #image_edit: local:qwen-image
   #image_multi_ref: local:qwen-image

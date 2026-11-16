@@ -9,7 +9,7 @@ model's provider kind:
 
 - OpenAI kinds (`openai`, `azure`, `openrouter`, `ollama`): one request with
   `openai_n`; `--size` gives `dimensions` within the model's image limits
-  (`providers.<p>.models.<m>.image`, `ImageLimits`), else `--aspect` goes as
+  (`providers.<p>.models.<m>.image`, `OpenAIImageLimits`), else `--aspect` goes as
   `aspect_ratio`; `--quality`, `--background` and a non-PNG format go when
   given. A model with `always_sized` always gets `dimensions` (default 1:1,
   1K); a model with `default_quality` gets it unless `--quality` is given. A
@@ -18,11 +18,13 @@ model's provider kind:
   else the model's default (an edit keeps the reference's aspect); one
   request per image; PNG only, no transparent background.
 - `diffusers` (local): `dimensions` from `models.local_size` within the
-  model's image limits; for an edit only
+  model's image limits (`DiffusersImageLimits`); for an edit only
   when `--aspect` or `--size` is given, else the pipeline keeps the first
   reference image's size. One request per image; PNG only.
 
-Every failure is an `ImageError` with a message for the CLI.
+`request_limits` reads the model's limits once per request (`ai_models.config.image_limits`): required when the
+request needs a size, so a missing entry fails before any model call with the key to add. Every failure is an
+`ImageError` with a message for the CLI.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ from ai_models import config as ai_config
 from ai_models import images
 from ai_models.errors import AIModelsError, explained
 from ai_models.models import kind as provider_kind
-from plugin_settings import OPENAI_KINDS, ImageLimits, ProviderKind
+from plugin_settings import OPENAI_KINDS, DiffusersImageLimits, OpenAIImageLimits, ProviderKind
 from pydantic_ai.exceptions import AgentRunError, ContentFilterError, ModelRateLimitError, UserError
 from pydantic_ai.messages import BinaryImage
 
@@ -71,12 +73,13 @@ def media_type(data: bytes) -> str:
 
 
 def _model_id(model: str | None, tier: str, task: str) -> str:
-    """`model`, else the model of `task`; `ImageError` naming `tasks.<task>` when the config has none."""
-    if model:
-        return model
+    """`model`, else the model of `task` (`ai_config.resolve`); `ImageError` naming `tasks.<task>` when the config
+    has none, or why `model` cannot serve the task."""
     try:
-        return ai_config.model_for(task)
+        return ai_config.resolve(model, task)
     except AIModelsError as e:
+        if model:
+            raise ImageError(str(e)) from None
         raise ImageError(f"--tier {tier} needs a model for the task {task}: add `tasks.{task}: "
                          f"<provider>:<model>` to the config, or pass --model ({e})") from None
 
@@ -88,33 +91,32 @@ def _png_only(model_id: str, background: str | None, output_format: str) -> None
         raise ImageError(f"{model_id} returns PNG only; use a .png output path")
 
 
-def needs_limits(kind: str) -> bool:
-    """Whether `settings` reads the image limits for a model of provider `kind`."""
-    return kind in OPENAI_KINDS or kind == ProviderKind.DIFFUSERS
+def needs_size(kind: str, *, aspect_ratio: str | None, image_size: str | None, edit: bool) -> bool:
+    """Whether a request to a model of provider `kind` must carry a size, so needs the model's image limits: an
+    OpenAI kind with `--size`, a diffusers model unless it is an edit without `--aspect` and `--size`."""
+    if kind in OPENAI_KINDS:
+        return image_size is not None
+    return kind == ProviderKind.DIFFUSERS and not (edit and aspect_ratio is None and image_size is None)
 
 
-def model_limits(model_id: str) -> ImageLimits | None:
-    """The image limits of `model_id` (`providers.<p>.models.<m>.image`), None when it has none."""
-    return getattr(ai_config.model_entry(model_id), "image", None)
-
-
-def _sized(model_id: str, limits: ImageLimits | None) -> ImageLimits:
-    """`limits`, needed for a size; `ImageError` naming the missing config entry when None."""
-    if limits is not None:
-        return limits
+def request_limits(kind: str, model_id: str, *, aspect_ratio: str | None, image_size: str | None,
+                   edit: bool) -> OpenAIImageLimits | DiffusersImageLimits | None:
+    """The image limits of `model_id` for one request: None for a kind without limits or a model without them
+    whose request needs no size (`needs_size`); `ImageError` naming the config key to add when it needs one."""
     try:
-        return ai_config.image_limits(model_id)
+        return ai_config.image_limits(model_id, required=needs_size(kind, aspect_ratio=aspect_ratio,
+                                                                    image_size=image_size, edit=edit))
     except AIModelsError as e:
         raise ImageError(str(e)) from None
 
 
 def settings(kind: str, model_id: str, *, aspect_ratio: str | None, image_size: str | None, n: int,
              quality: str | None, background: str | None, output_format: str,
-             edit: bool, limits: ImageLimits | None) -> tuple[dict[str, Any], int]:
+             edit: bool, limits: OpenAIImageLimits | DiffusersImageLimits | None) -> tuple[dict[str, Any], int]:
     """(Pydantic-AI image settings, number of requests) for a model of provider `kind`; `ImageError` for an
     option the kind does not take. `aspect_ratio`, `image_size`, `quality` and `background` are None when
-    not given. `limits` are the model's image limits (`model_limits`), None when it has none; a request that
-    needs a size without limits is an `ImageError` naming the config entry to add."""
+    not given. `limits` are the model's image limits from `request_limits`: present whenever the request needs a
+    size."""
     aspect = aspect_ratio or models.DEFAULT_ASPECT
     size = image_size or models.DEFAULT_SIZE
     if kind in OPENAI_KINDS:
@@ -125,7 +127,7 @@ def settings(kind: str, model_id: str, *, aspect_ratio: str | None, image_size: 
             if quality is None and limits.default_quality is not None:
                 quality = limits.default_quality.value
         if image_size:
-            s["dimensions"] = models.openai_size(aspect, image_size, _sized(model_id, limits))
+            s["dimensions"] = models.openai_size(aspect, image_size, limits)
         elif aspect_ratio:
             s["aspect_ratio"] = aspect_ratio
         if quality:
@@ -142,7 +144,7 @@ def settings(kind: str, model_id: str, *, aspect_ratio: str | None, image_size: 
     if kind == ProviderKind.DIFFUSERS:
         if edit and aspect_ratio is None and image_size is None:
             return {}, n
-        return {"dimensions": models.local_size(aspect, size, _sized(model_id, limits))}, n
+        return {"dimensions": models.local_size(aspect, size, limits)}, n
     return {}, n
 
 
@@ -174,7 +176,8 @@ def generate(
         opts, calls = settings(kind, model_id, aspect_ratio=aspect_ratio, image_size=image_size, n=num_images,
                                quality=quality, background=background, output_format=output_format,
                                edit=bool(refs),
-                               limits=model_limits(model_id) if needs_limits(kind) else None)
+                               limits=request_limits(kind, model_id, aspect_ratio=aspect_ratio, image_size=image_size,
+                                                     edit=bool(refs)))
         generator = images.image_generator(model_id, task=task, mask=mask)
     except AIModelsError as e:
         raise ImageError(str(e)) from None

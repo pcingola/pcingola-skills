@@ -8,7 +8,7 @@ end of every sentence and word. Every model it uses is a model of `config.yaml`,
 
 `speech.Narrator` in `plugins/media/skills/voiceover/scripts/voiceover_tool/speech.py` calls `ai_models.speech.speak`
 once per sentence. `ai_models.speech.check` refuses a speed or a style the model does not take when the narrator is
-made, before any request or model load. The default voice is the provider's `voice`, else the kind's
+made, before any request or model load. The default voice is the model entry's `voice` (`providers.<p>.models.<m>.voice`), else the kind's
 (`ai_models.speech.TRAITS`). `voices` prints `ai_models.speech.voices` and, for a model whose kind clones a voice
 (`chatterbox`, `vllm-omni`), the reference recordings of `add-voice` after them.
 
@@ -16,12 +16,12 @@ made, before any request or model load. The default voice is the provider's `voi
 |---|---|---|---|---|
 | `kokoro` | `af_heart` | the voices of the prefixes in `langs` | refused | 0.5 to 2 |
 | `chatterbox` | `default` | `default` and the recordings | refused | refused |
-| `vllm-omni` | `default` | `default` and the recordings | through the provider's `style` | refused |
+| `vllm-omni` | `default` | `default` and the recordings | through the model's `style` | refused |
 | `google` (Gemini TTS) | `Kore` | the default voice | text prefix | refused |
 | `ollama` | `default` | the default voice | refused by the server | refused by the server |
 | `openai`, `azure`, `openrouter` | `marin` | the default voice | `instructions` | 0.25 to 4 |
 
-A provider's `voices` replaces the list. The voice of an API model is checked by the provider, not by the skill.
+A model entry's `voices` replaces the list. The voice of an API model is checked by the provider, not by the skill.
 The answer is a WAV file, or raw 16-bit PCM taken as 24 kHz. Whether OpenRouter passes `instructions` on to Gemini TTS
 is not verified.
 

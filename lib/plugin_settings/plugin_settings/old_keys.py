@@ -1,7 +1,9 @@
 """Keys of the earlier config.yaml layout: each fails at load with its new place.
 
 The layout had the sections `models` (now `tasks`), `diffusers` (now the `models` of the diffusers provider) and
-`settings` (upper-case keys, now sections), and the provider keys `predict_models` and `memory_share`."""
+`settings` (upper-case keys, now sections), and the provider keys `predict_models` and `memory_share`. A provider
+of kind kokoro, torchaudio, chatterbox or vllm-omni held its one model's keys, and every provider the speech
+voices; these are now keys of `providers.<p>.models.<m>` (`MODEL_KEYS`)."""
 
 from __future__ import annotations
 
@@ -51,6 +53,12 @@ OLD_PROVIDER_KEYS: dict[str, str] = {
     "memory_share": ("replaced by memory, the GB the server's stages take together "
                      f"(Fish Audio Drama 3: {DRAMA3_MEMORY_GB})"),
 }
+
+
+# Keys of a model that a provider held in the earlier layout.
+MODEL_KEYS = ("model_url", "voices_url", "langs", "url", "files", "repo", "deploy", "memory", "overhead", "style",
+              "voice", "voices")
+OLD_PROVIDER_KEYS.update({k: f"moved to providers.{{p}}.models.<m>.{k}" for k in MODEL_KEYS})
 
 
 def _setting_error(key: str, value: Any) -> str:

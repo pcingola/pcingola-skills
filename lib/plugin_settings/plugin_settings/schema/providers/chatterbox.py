@@ -1,22 +1,16 @@
-"""A provider of kind chatterbox: Chatterbox Turbo in a worker of its own environment (`python`). `url` and
-`files`: the model files, downloaded to `<dir>/<model>/`; `start_timeout`: seconds the load may take."""
+"""A provider of kind chatterbox: Chatterbox Turbo in a worker process of its own environment (`python`), one per
+model; each model needs an entry in `models`."""
 
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, PositiveFloat
+from ..chatterbox_model import ChatterboxModel
+from ..fields import Catalogue
+from .own_environment import OwnEnvironment
+from .weights_dir import WeightsDir
 
-from ..fields import HttpUrl, UserPath
-from .base import DEFAULT_TIMEOUT, TimedProvider
 
-
-class ChatterboxProvider(TimedProvider):
+class ChatterboxProvider(OwnEnvironment, WeightsDir):
     kind: Literal["chatterbox"]
-    python: UserPath
-    url: HttpUrl
-    files: list[str] = Field(min_length=1)
-    dir: UserPath | None = None
-    voice: str | None = None
-    voices: list[str] | None = None
-    start_timeout: PositiveFloat = DEFAULT_TIMEOUT
+    models: Catalogue[ChatterboxModel] = {}

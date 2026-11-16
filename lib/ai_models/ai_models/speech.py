@@ -13,10 +13,11 @@
     chatterbox                          Chatterbox Turbo in a worker of its own environment (`chatterbox`);
                                         24 kHz WAV; voice cloning; no speed, no instructions
 
-`TRAITS` gives what each kind takes (`Traits`): its default voice, speed range, instructions, whether a voice
-may be a reference recording, whether the text may carry inline tags, and whether more request fields (`params`)
-pass through to the server (the OpenAI kinds as `extra_body`, vllm-omni in the request body). A provider's `voice` replaces the kind's default voice and its `voices` (a list)
-are what `voices` lists; without it `voices` lists the Kokoro voices of a `kokoro` model, else the default voice.
+`TRAITS` gives what each kind of `SPEECH_KINDS` takes (`Traits`): its default voice, speed range, instructions,
+whether a voice may be a reference recording, whether the text may carry inline tags, and whether more request
+fields (`params`) pass through to the server (the OpenAI kinds as `extra_body`, vllm-omni in the request body). A
+model entry's `voice` (`providers.<p>.models.<m>`) replaces the kind's default voice and its `voices` (a list) are
+what `voices` lists; without it `voices` lists the Kokoro voices of a `kokoro` model, else the default voice.
 `check` refuses a speed, instructions or `params` the model does not take, before any request or model load.
 """
 
@@ -30,10 +31,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from plugin_settings import OPENAI_KINDS, Provider, ProviderKind
+from plugin_settings import OPENAI_KINDS, Provider, ProviderKind, Voices, WeightsDir
 
-from . import chatterbox, config, kokoro, omni, weights
-from .errors import AIModelsError, ConfigError, explained
+from . import chatterbox, config, kokoro, omni
+from .errors import AIModelsError, explained
 from .models import provider
 
 DEFAULT_PCM_RATE = 24_000
@@ -67,12 +68,14 @@ TRAITS: dict[str, Traits] = {
 
 @dataclass(frozen=True)
 class SpeechModel:
-    """A speech model of the config: its id, provider name, provider settings and bare model name."""
+    """A speech model of the config: its id, provider name, provider settings, bare model name and entry
+    (`providers.<p>.models.<m>`; None for a remote model without one)."""
 
     id: str
     provider: str
     spec: Provider
     bare: str
+    entry: Voices | None
 
     @property
     def kind(self) -> str:
@@ -80,36 +83,31 @@ class SpeechModel:
 
     @property
     def traits(self) -> Traits:
-        try:
-            return TRAITS[self.kind]
-        except KeyError:
-            raise ConfigError(f"provider {self.provider!r} of kind {self.kind!r} has no speech models") from None
+        return TRAITS[self.kind]
 
     @property
     def default_voice(self) -> str:
-        return getattr(self.spec, "voice", None) or self.traits.voice
+        return (self.entry and self.entry.voice) or self.traits.voice
 
     @property
     def voices(self) -> list[str] | None:
-        """The provider's `voices`, None when it lists none."""
-        return getattr(self.spec, "voices", None)
+        """The entry's `voices`, None when it lists none."""
+        return None if self.entry is None else self.entry.voices
 
     @property
     def instructions(self) -> bool:
-        return bool(self.spec.style) if self.kind == omni.KIND else self.traits.instructions
+        return bool(self.entry.style) if self.kind == omni.KIND else self.traits.instructions
 
 
 def model_of(model: str | None = None, weights_dir: str | Path | None = None) -> SpeechModel:
     """`model` (else `tasks.speech`) as a `SpeechModel`, its provider's `dir` defaulting to `weights_dir`
-    (`weights.with_dir`); `ConfigError` for a kind without speech models."""
+    (`WeightsDir.with_dir`); `ConfigError` for a model that cannot serve task speech (`config.resolve`)."""
     model_id = config.resolve(model, "speech")
     name, bare = config.split_id(model_id)
     spec = config.provider(name)
-    m = SpeechModel(model_id, name, spec, bare)
-    m.traits  # noqa: B018 - refuses a kind without speech models
-    if spec.kind in (kokoro.KIND, chatterbox.KIND):
-        m = SpeechModel(model_id, name, weights.with_dir(spec, weights_dir), bare)
-    return m
+    if isinstance(spec, WeightsDir):
+        spec = spec.with_dir(weights_dir)
+    return SpeechModel(model_id, name, spec, bare, config.model_entry(model_id))
 
 
 def model_of_kind(kind: str) -> str | None:
@@ -154,7 +152,7 @@ def voices(model: str | None = None, weights_dir: str | Path | None = None) -> l
     if m.voices:
         return list(m.voices)
     if m.kind == kokoro.KIND:
-        return kokoro.voices(m.spec, m.provider, m.bare)
+        return kokoro.voices(m.spec, m.entry, m.provider, m.bare)
     return [m.default_voice]
 
 
@@ -163,9 +161,9 @@ def fetch(model: str | None = None, weights_dir: str | Path | None = None) -> No
     `dir`, else `weights_dir`; other kinds have none."""
     m = model_of(model, weights_dir)
     if m.kind == kokoro.KIND:
-        kokoro.files(m.spec, m.bare)
+        kokoro.files(m.spec, m.entry, m.bare)
     elif m.kind == chatterbox.KIND:
-        chatterbox.fetch(m.spec, m.bare)
+        chatterbox.fetch(m.spec, m.entry, m.bare)
 
 
 def wav(pcm: bytes, rate: int) -> bytes:
@@ -220,14 +218,14 @@ async def aspeak(text: str, *, voice: str | None = None, model: str | None = Non
     Kokoro and Chatterbox run in a worker thread (`asyncio.to_thread`), so they do not block the event loop.
     Google, vLLM-Omni, Kokoro and Chatterbox return WAV whatever `response_format` says."""
     m = check(model, speed=speed, instructions=instructions, params=params, weights_dir=weights_dir)
-    model_id, name, bare, kind, spec = m.id, m.provider, m.bare, m.kind, m.spec
+    model_id, name, bare, kind, spec, entry = m.id, m.provider, m.bare, m.kind, m.spec, m.entry
     voice = voice or m.default_voice
     if kind == omni.KIND:
-        return await omni.aspeak(name, spec, bare, text, voice, instructions, speed, speaker, params)
+        return await omni.aspeak(name, spec, entry, bare, text, voice, instructions, speed, speaker, params)
     if kind == kokoro.KIND:
-        return await asyncio.to_thread(kokoro.speak, spec, name, bare, text, voice, speed)
+        return await asyncio.to_thread(kokoro.speak, spec, entry, name, bare, text, voice, speed)
     if kind == chatterbox.KIND:
-        return await asyncio.to_thread(chatterbox.speak, spec, name, bare, text, voice)
+        return await asyncio.to_thread(chatterbox.speak, spec, entry, name, bare, text, voice)
     p = provider(name)
     with explained(model_id):
         if kind in OPENAI_KINDS:

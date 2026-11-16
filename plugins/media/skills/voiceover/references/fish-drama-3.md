@@ -9,7 +9,7 @@ Fish Audio Drama 3 (`fishaudio/drama-3`) is a local speech model served by vLLM-
   stops when the command ends. A command per sentence loads the model per sentence.
 - The server takes the local-model lock, so a short-video render or another local model waits for it, and it
   waits for them.
-- The server takes `memory` GB of the provider (Drama 3: 70) plus `overhead` GB outside it (default 22). When less
+- The server takes `memory` GB of the model entry, `providers.<p>.models.<m>.memory` (Drama 3: 70), plus `overhead` GB outside it (default 22). When less
   memory is free and local Ollama models that Ollama unloads within 15 minutes hold the shortfall, `synth` prints
   the time it waits until and starts after they unload. Otherwise it fails in about a second, before the load,
   with an error that names what holds the memory: Ollama models with the time Ollama unloads each, and the largest
@@ -37,7 +37,7 @@ where the event should land: `Fine. [laughs] Well, maybe that's fair.` Tags of t
 aligns the line without them (`timing.json` keeps the text without tags as `text` and the line as sent as
 `said`). The model card reports that a tag at the start of a line more often gives a silence after the first word.
 
-`--style TAG` sends `[TAG] <sentence>` for every sentence (the provider's `style` format in `config.yaml`). A
+`--style TAG` sends `[TAG] <sentence>` for every sentence (the model's `style` format in `config.yaml`, `providers.<p>.models.<m>.style`). A
 plain-word style ("calm documentary narrator") becomes one bracketed tag; how the model reads such a tag is not
 measured.
 

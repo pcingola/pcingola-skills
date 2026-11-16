@@ -1,13 +1,13 @@
-"""Image sizes within a model's image limits (`ImageLimits`, `providers.<p>.models.<m>.image`) for OpenAI-kind
+"""Image sizes within a model's image limits (`OpenAIImageLimits`, `DiffusersImageLimits`, `providers.<p>.models.<m>.image`) for OpenAI-kind
 and local models."""
 
 import pytest
 
 from image_gen_tool import models
-from plugin_settings import ImageLimits
+from plugin_settings import DiffusersImageLimits, OpenAIImageLimits
 
-OPENAI = ImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8_294_400)
-LOCAL = ImageLimits(max_edge=2048, min_edge=256)
+OPENAI = OpenAIImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8_294_400)
+LOCAL = DiffusersImageLimits(max_edge=2048, min_edge=256)
 
 
 @pytest.mark.parametrize("aspect", models.ASPECT_RATIOS)
@@ -38,6 +38,7 @@ def test_reference_sizes():
     assert models.local_size("1:1", "4K", LOCAL) == (2048, 2048)
 
 
-def test_openai_size_without_pixel_cap():
-    """`max_pixels` None leaves the pixel count uncapped; `max_edge` still bounds the long edge."""
-    assert models.openai_size("16:9", "4K", ImageLimits(max_edge=3840)) == (3840, 2160)
+def test_openai_size_long_edge_bound():
+    """`max_edge` bounds the long edge when `max_pixels` allows more pixels."""
+    limits = OpenAIImageLimits(max_edge=3840, min_pixels=0, max_pixels=10**9)
+    assert models.openai_size("16:9", "4K", limits) == (3840, 2160)

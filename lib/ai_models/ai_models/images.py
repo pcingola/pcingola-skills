@@ -56,7 +56,9 @@ class MaskedOpenAIImageModel(OpenAIImageGenerationModel):
 
 
 def image_model(model: str | None = None, *, task: str = "image", mask: bytes | None = None):
-    """The Pydantic-AI image generation model of `model` (a model id), else of `task`."""
+    """The Pydantic-AI image generation model of `model` (a model id), else of `task`; `config.resolve` refuses a
+    kind without image models (`TASK_KINDS`), so a model that is neither diffusers nor of an OpenAI kind is
+    google's."""
     model_id = config.resolve(model, task)
     name, bare = config.split_id(model_id)
     kind = config.provider(name).kind
@@ -70,11 +72,9 @@ def image_model(model: str | None = None, *, task: str = "image", mask: bytes | 
         return OpenAIImageGenerationModel(bare, provider=provider(name))
     if mask is not None:
         raise ConfigError(f"provider {name!r} of kind {kind!r} takes no mask")
-    if kind == ProviderKind.GOOGLE:
-        from pydantic_ai.images.google import GoogleImageGenerationModel
+    from pydantic_ai.images.google import GoogleImageGenerationModel
 
-        return GoogleImageGenerationModel(bare, provider=provider(name))
-    raise ConfigError(f"provider {name!r} of kind {kind!r} has no image models")
+    return GoogleImageGenerationModel(bare, provider=provider(name))
 
 
 def image_generator(model: str | None = None, *, task: str = "image", mask: bytes | None = None, **kwargs: Any):

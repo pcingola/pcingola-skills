@@ -2,18 +2,20 @@
 (`providers.<p>.models`), read as the typed `Config` of `plugin_settings`.
 
 The file is the settings file of `plugin_settings` (`config_file`): `$SKILLS_CONFIG`, else
-`<config dir>/plugins/data/config.yaml`. The schema checks every key at load (required keys per provider kind, a task
-naming a missing provider, a diffusers task model without an entry), so the functions here only look entries up. A
-model id is `<provider name>:<model>`; the first colon splits it.
+`<config dir>/plugins/data/config.yaml`. The schema checks every key at load, and every `tasks.<task>` against the
+provider kinds and diffusers role the task takes (`Config.task_error`); `resolve` applies the same check to a model
+a caller names for a task. A model id is `<provider name>:<model>`; the first colon splits it.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import plugin_settings
-from plugin_settings import (Config, ConfigFileError, DiffusersModel, ImageLimits, Provider, ProviderKind,
-                             RemoteModel)
+from plugin_settings import (IMAGE_LIMIT_KINDS, Config, ConfigFileError, DiffusersImageLimits, DiffusersImageModel,
+                             DiffusersModel, DiffusersRole, OpenAIImageLimits, OpenAIModel, Provider, ProviderKind,
+                             Task)
 from plugin_settings import split_id as _split_id
 
 from .errors import ConfigError
@@ -58,8 +60,15 @@ def model_for(task: str) -> str:
 
 
 def resolve(model: str | None, task: str) -> str:
-    """`model` when given, else the model id of `task`."""
-    return model or model_for(task)
+    """`model` when given, else the model id of `task`; `ConfigError` when the model cannot serve the task
+    (`Config.task_error`: its provider is missing or of a kind the task does not take, or a local model has no
+    entry or one of another role)."""
+    if not model:
+        return model_for(task)
+    split_id(model)
+    if error := load().task_error(Task(task), model):
+        raise ConfigError(f"{model} for task {task}: {error}")
+    return model
 
 
 def provider(name: str) -> Provider:
@@ -70,35 +79,52 @@ def provider(name: str) -> Provider:
     return spec
 
 
-def model_entry(model_id: str) -> RemoteModel | DiffusersModel | None:
-    """The attributes of `model_id` (`providers.<p>.models.<m>`), None when the provider has no entry for it;
-    `ConfigError` when the provider is missing."""
-    name, _ = split_id(model_id)
-    provider(name)
-    return load().model_entry(model_id)
-
-
-def diffusers_model(model_id: str) -> DiffusersModel:
-    """The entry of the local model `model_id` (`providers.<p>.models.<m>` of a diffusers provider)."""
+def model_entry(model_id: str) -> Any | None:
+    """The attributes of `model_id` (`providers.<p>.models.<m>`, the model class of the provider's kind), None
+    when the provider has no entry for it; `ConfigError` when the provider is missing."""
     name, model = split_id(model_id)
-    spec = provider(name)
-    if spec.kind != ProviderKind.DIFFUSERS:
-        raise ConfigError(f"provider {name!r} of kind {spec.kind!r} has no diffusers models")
-    entry = spec.models.get(model)
+    return provider(name).models.get(model)
+
+
+def local_entry(model_id: str) -> Any:
+    """The entry of the local model `model_id` (a provider of a kind in `LOCAL_KINDS`); `ConfigError` naming the
+    key to add when it has none."""
+    entry = model_entry(model_id)
     if entry is None:
-        raise ConfigError(f"no diffusers model {model!r}: add `providers.{name}.models.{model}` with a `repo` "
-                          f"to {path()}")
+        name, model = split_id(model_id)
+        raise ConfigError(f"no model {model!r}: add `providers.{name}.models.{model}` to {path()}")
     return entry
 
 
-def image_limits(model_id: str) -> ImageLimits:
-    """The image request limits of `model_id` (`providers.<p>.models.<m>.image`); `ConfigError` with the fix when
-    the model has none."""
+def diffusers_model(model_id: str, role: DiffusersRole) -> DiffusersModel:
+    """The entry of the local model `model_id` (`providers.<p>.models.<m>` of a diffusers provider), an instance of
+    the class of `role` (`ROLE_CLASSES`); `ConfigError` for another kind or role."""
     name, model = split_id(model_id)
-    entry = model_entry(model_id)
-    limits = getattr(entry, "image", None)
-    if limits is None:
-        more = "min_edge" if provider(name).kind == ProviderKind.DIFFUSERS else "min_pixels, max_pixels"
-        raise ConfigError(f"{model_id} has no image limits: add providers.{name}.models.{model}.image with max_edge "
-                          f"(and {more}) to {plugin_settings.display(path())}")
+    if (kind := provider(name).kind) != ProviderKind.DIFFUSERS:
+        raise ConfigError(f"provider {name!r} of kind {kind!r} has no diffusers models")
+    entry = local_entry(model_id)
+    if entry.role != role:
+        raise ConfigError(f"providers.{name}.models.{model} is {entry.role.noun()}, not {role.noun()}")
+    return entry
+
+
+def _limits_class(kind: str) -> type[OpenAIImageLimits | DiffusersImageLimits]:
+    """The limits class of a kind of `IMAGE_LIMIT_KINDS`: diffusers, else the OpenAI kinds."""
+    return DiffusersImageLimits if kind == ProviderKind.DIFFUSERS else OpenAIImageLimits
+
+
+def image_limits(model_id: str, *, required: bool) -> OpenAIImageLimits | DiffusersImageLimits | None:
+    """The image request limits of `model_id` (`providers.<p>.models.<m>.image`), None for a model of a kind that
+    takes none (`IMAGE_LIMIT_KINDS`) or that has none. When `required`, a model of such a kind without limits is a
+    `ConfigError` naming the key and its required fields."""
+    name, model = split_id(model_id)
+    spec = provider(name)
+    if spec.kind not in IMAGE_LIMIT_KINDS:
+        return None
+    entry = spec.models.get(model)
+    limits = entry.image if isinstance(entry, (OpenAIModel, DiffusersImageModel)) else None
+    if limits is None and required:
+        fields = [f for f, info in _limits_class(spec.kind).model_fields.items() if info.is_required()]
+        raise ConfigError(f"{model_id} has no image limits: add providers.{name}.models.{model}.image with "
+                          f"{', '.join(fields)} to {plugin_settings.display(path())}")
     return limits

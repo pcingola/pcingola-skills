@@ -7,7 +7,8 @@ takes no GPU lock. Requests and answers are JSON lines over the worker's stdin a
 a wait has a limit: `start_timeout` (seconds, default 600) for the load, `timeout` (default 600) per answer. Its
 stderr goes to a log file whose tail an error quotes; the log's directory is removed when the worker ends cleanly.
 
-The model files are `files` under the repository URL `url`, downloaded by this process to `weights.model_dir`.
+A model entry (`providers.<p>.models.<m>`, `ChatterboxModel`) names its files, `files` under the repository URL
+`url`, downloaded by this process to `weights.model_dir`; each model has its own worker.
 A voice is `default` (the model's built-in voice) or the path of a reference recording longer than 5 s; the model
 uses its first 10 to 15 s and copies the speaker and also the delivery, microphone and room. The output is a
 24 kHz WAV file with Resemble's Perth watermark (inaudible). There is no speed or style control.
@@ -26,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from plugin_settings import ChatterboxProvider, ProviderKind
+from plugin_settings import ChatterboxModel, ChatterboxProvider, ProviderKind
 
 from . import omni, weights
 from .errors import AIModelsError, ConfigError
@@ -88,22 +89,23 @@ class Worker:
             shutil.rmtree(self.log.parent, ignore_errors=True)
 
 
-def fetch(spec: ChatterboxProvider, model: str) -> Path:
+def fetch(spec: ChatterboxProvider, entry: ChatterboxModel, model: str) -> Path:
     """The directory of the model files, each downloaded when missing."""
-    base = spec.url.rstrip("/")
+    base = entry.url.rstrip("/")
     d = weights.model_dir(spec, model)
-    for f in spec.files:
+    for f in entry.files:
         weights.ensure_file(f"{base}/{f}", d / f)
     return d
 
 
-def worker(spec: ChatterboxProvider, name: str, model: str) -> Worker:
-    """The worker of provider `name`, started on the first call of the process. Callers in several threads
-    (`asyncio.to_thread`) share it, one request at a time (`_lock`)."""
-    if name in _workers and _workers[name].proc.poll() is None:
-        return _workers[name]
+def worker(spec: ChatterboxProvider, entry: ChatterboxModel, name: str, model: str) -> Worker:
+    """The worker of provider `name`'s `model`, started on the first call of the process. Callers in several
+    threads (`asyncio.to_thread`) share it, one request at a time (`_lock`)."""
+    key = f"{name}:{model}"
+    if key in _workers and _workers[key].proc.poll() is None:
+        return _workers[key]
     python = str(spec.python)
-    d = fetch(spec, model)
+    d = fetch(spec, entry, model)
     log = Path(tempfile.mkdtemp(prefix="ai-models-chatterbox-")) / "worker.log"
     with log.open("wb") as err:
         try:
@@ -114,7 +116,7 @@ def worker(spec: ChatterboxProvider, name: str, model: str) -> Worker:
     w = Worker(proc, log)
     atexit.register(w.stop)
     w.ask({}, spec.start_timeout)  # the ready line
-    _workers[name] = w
+    _workers[key] = w
     return w
 
 
@@ -128,12 +130,12 @@ def reference(voice: str) -> str | None:
     return str(p.resolve())
 
 
-def speak(spec: ChatterboxProvider, name: str, model: str, text: str, voice: str) -> bytes:
+def speak(spec: ChatterboxProvider, entry: ChatterboxModel, name: str, model: str, text: str, voice: str) -> bytes:
     """A 24 kHz WAV file of `text` in `voice`."""
     ref = reference(voice)
     with _lock, tempfile.TemporaryDirectory(prefix="ai-models-chatterbox-") as tmp:
         out = Path(tmp) / "speech.wav"
-        answer = worker(spec, name, model).ask({"text": text, "reference": ref, "out": str(out)},
+        answer = worker(spec, entry, name, model).ask({"text": text, "reference": ref, "out": str(out)},
                                                spec.timeout)
         if "error" in answer:
             raise AIModelsError(f"{name}:{model}: {answer['error']}")

@@ -132,8 +132,9 @@ class TestVideoRender(unittest.TestCase):
         at the project size."""
         from ai_models import config as ai_config
         from ai_models import video
+        from plugin_settings import DiffusersRole
 
-        spec = video.video_spec(ai_config.split_id(state.read_meta(self.scene_mp4.parent)["model"])[1])
+        spec = ai_config.diffusers_model(state.read_meta(self.scene_mp4.parent)["model"], DiffusersRole.VIDEO)
         s = _video(self.scene_mp4.parent / video_scene.MODEL_MP4)
         self.assertEqual((int(s["width"]), int(s["height"])), video.clip_size(spec, aspect=640 / 360))
 

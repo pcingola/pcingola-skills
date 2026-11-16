@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Literal
 
 from ..fields import HttpUrl, Secret
-from .base import RemoteProvider
+from .openai_kind import OpenAIKindProvider
 
 
-class AzureProvider(RemoteProvider):
+class AzureProvider(OpenAIKindProvider):
     kind: Literal["azure"]
     base_url: HttpUrl
     api_version: str

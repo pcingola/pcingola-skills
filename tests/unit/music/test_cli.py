@@ -81,7 +81,7 @@ def test_options_the_model_does_not_take(music, tmp_path):
     PNG, JPEG or WebP) and by `ai_models.music` for the model's kind (images for lyria-002, a negative
     prompt for Lyria 3, samples for a local model)."""
     (tmp_path / "config.yaml").write_text("providers:\n  g: {kind: google, api_key: k, models: {lyria-002: {predict: true}}}\n"
-                                          "  local: {kind: diffusers, models: {ace-step: {repo: x/ace-step}}}\n"
+                                          "  local: {kind: diffusers, models: {ace-step: {repo: x/ace-step, duration_arg: d}}}\n"
                                           "tasks: {}\n")
     gif = tmp_path / "a.gif"
     gif.write_bytes(b"GIF8")

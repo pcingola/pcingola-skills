@@ -1,11 +1,13 @@
 """Speech models of vLLM-Omni (provider kind `vllm-omni`), served by a vLLM-Omni server in its own environment.
 
 vLLM-Omni pins its own torch and transformers, so it runs in a separate Python environment (`python` of the
-provider) and the skill process talks to it over HTTP. The server serves one model (`repo`) for the life of the
-calling process: the first `aspeak` takes the local-model lock (`local.hold_lock`), reads the free memory
-(`local.free_memory`, the figure vLLM checks its budget against; after waiting for the lock, once it settles,
-`local.wait_for_settled_memory`), refuses the start with `local.memory_error` when the provider's `memory` (GB) exceeds
-it, writes a deploy overlay and starts `vllm serve <repo> --omni` on a free loopback port. `atexit` stops the
+provider) and the skill process talks to it over HTTP. A model entry (`providers.<p>.models.<m>`, `VllmOmniModel`)
+names the model (`repo`), its deploy config (`deploy`), its memory (`memory`, `overhead`) and its `style`; the
+provider names the environment, the server's `args` and `env`, and the time limits. A server serves one model for
+the life of the calling process: the first `aspeak` of a model takes the local-model lock (`local.hold_lock`), reads
+the free memory (`local.free_memory`, the figure vLLM checks its budget against; after waiting for the lock, once it
+settles, `local.wait_for_settled_memory`), refuses the start with `local.memory_error` when the model's `memory` (GB)
+exceeds it, writes a deploy overlay and starts `vllm serve <repo> --omni` on a free loopback port. `atexit` stops the
 server's process group, also after a SIGTERM (`exit_on_sigterm`), and the kernel stops its main process when the
 caller dies (`PR_SET_PDEATHSIG`). `args` (optional) lists more server arguments, `env` (optional) environment
 variables of the server. So no memory stays held after the command.
@@ -19,8 +21,8 @@ other allocations, and fails when that is not positive. Without MPS the stages s
 A request is `POST /v1/audio/speech`. The voice is `default` (the model's own voice) or a reference recording
 (`reference`): an audio file with its transcript in a `.txt` file of the same stem, sent as `ref_audio` (a
 `data:` URI) and `ref_text`. Drama 3 picks a new speaker for each request without a reference, and a fixed `seed`
-does not keep it (the speaker still changes with the text), so with `default` the first answer of the process
-(`first_take`) is the reference of every later request: one process, one speaker. `style` (optional) is a format string with `{instructions}` and `{text}` that puts
+does not keep it (the speaker still changes with the text), so with `default` the first answer of the model in the
+process (`first_take`) is the reference of every later request: one process, one speaker. `style` (optional) is a format string with `{instructions}` and `{text}` that puts
 the caller's instructions into the text, for a model whose direction is inline tags.
 """
 
@@ -46,7 +48,7 @@ from typing import Any
 
 import yaml
 
-from plugin_settings import ProviderKind, VllmOmniProvider
+from plugin_settings import ProviderKind, VllmOmniModel, VllmOmniProvider
 
 from . import local
 from .errors import AIModelsError, ConfigError
@@ -58,8 +60,8 @@ STOP_SECONDS = 30.0  # seconds `stop` waits for the main process, then again for
 STOP_POLL_SECONDS = 0.2
 LOG_TAIL = 4000  # characters of the server log an error quotes
 
-_servers: dict[str, "Server"] = {}
-# (provider, speaker) -> (WAV, text) of the first `DEFAULT_VOICE` answer for that speaker (None: the narrator)
+_servers: dict[str, "Server"] = {}  # by model id
+# (model id, speaker) -> (WAV, text) of the first `DEFAULT_VOICE` answer for that speaker (None: the narrator)
 _takes: dict[tuple[str, str | None], tuple[bytes, str]] = {}
 
 
@@ -153,27 +155,28 @@ def overlay(base: Path, share: float) -> dict[str, Any]:
             "platforms": {"cuda": {"cuda_mps": False}}}
 
 
-# The default `overhead` of a provider (`VllmOmniProvider.overhead`, 22 GB): the GB the server takes outside
+# The default `overhead` of a model (`VllmOmniModel.overhead`, 22 GB): the GB the server takes outside
 # `memory`, the host memory of the API server and the stage processes, and device memory past the stages' budgets
 # (CUDA contexts and, with the estimate off, `INTEGRATED_ENV`, the CUDA graph pool). On the GB10, Drama 3 with
 # `memory: 70` took 18.7 to 19.9 GB more than `memory` at its peak over a start and two requests
 # (docs/ai_models.md); the default adds 2 GB to the largest.
 
 
-def memory_bytes(spec: VllmOmniProvider) -> int:
-    """The bytes the server's stages take together: the provider's `memory` in GB."""
-    return int(spec.memory * local.GB)
+def memory_bytes(entry: VllmOmniModel) -> int:
+    """The bytes the server's stages take together: the model's `memory` in GB."""
+    return int(entry.memory * local.GB)
 
 
-def overhead_bytes(spec: VllmOmniProvider) -> int:
-    """The bytes the server takes outside `memory`: the provider's `overhead` in GB."""
-    return int(spec.overhead * local.GB)
+def overhead_bytes(entry: VllmOmniModel) -> int:
+    """The bytes the server takes outside `memory`: the model's `overhead` in GB."""
+    return int(entry.overhead * local.GB)
 
 
-def device_share(need: int, total: int, name: str) -> float:
-    """`need` bytes as a share of the device's `total`; a `ConfigError` above the whole device."""
+def device_share(need: int, total: int, where: str) -> float:
+    """`need` bytes as a share of the device's `total`; a `ConfigError` above the whole device. `where` is the
+    model's YAML path."""
     if need > total:
-        raise ConfigError(f"provider {name!r}: memory {need / local.GB:.1f} GB exceeds the device's "
+        raise ConfigError(f"{where}: memory {need / local.GB:.1f} GB exceeds the device's "
                           f"{total / local.GB:.1f} GB")
     return need / total
 
@@ -236,11 +239,11 @@ def start_failure(text: str) -> StartFailure | None:
     return next((f for f, lines in FAILURE_LINES.items() if any(line in text for line in lines)), None)
 
 
-def failure_advice(failure: StartFailure, name: str) -> str:
-    """What to do after `failure` of provider `name`'s server."""
+def failure_advice(failure: StartFailure, where: str) -> str:
+    """What to do after `failure` of the server of the model at YAML path `where`."""
     if failure is StartFailure.KV_CACHE:
-        return f"raise `memory` of provider {name!r} (the budget left no KV cache) and retry"
-    return f"free memory, or lower `memory` of provider {name!r}, and retry"
+        return f"raise `memory` of {where} (the budget left no KV cache) and retry"
+    return f"free memory, or lower `memory` of {where}, and retry"
 
 
 def read_log(log: Path) -> str:
@@ -263,34 +266,35 @@ def context_out_of_memory(repo: str) -> Iterator[None]:
         raise local.memory_error(repo, f"CUDA ran out of memory as this process started ({e})") from e
 
 
-def server(name: str, spec: VllmOmniProvider, model: str) -> Server:
-    """The server of provider `name`, started on the first call of the process."""
-    if name in _servers and _servers[name].proc.poll() is None:
-        return _servers[name]
+def server(name: str, spec: VllmOmniProvider, entry: VllmOmniModel, model: str) -> Server:
+    """The server of provider `name`'s `model`, started on the first call of the process."""
+    key, where = f"{name}:{model}", f"providers.{name}.models.{model}"
+    if key in _servers and _servers[key].proc.poll() is None:
+        return _servers[key]
     import httpx
     import torch
 
-    python, repo = str(spec.python), spec.repo
-    base = deploy_path(python, spec.deploy)
+    python, repo = str(spec.python), entry.repo
+    base = deploy_path(python, entry.deploy)
     exit_on_sigterm()
-    need = memory_bytes(spec)
-    overhead = overhead_bytes(spec)
-    waited = local.hold_lock() or name in _servers
+    need = memory_bytes(entry)
+    overhead = overhead_bytes(entry)
+    waited = local.hold_lock() or key in _servers
     started = time.monotonic()
     with context_out_of_memory(repo):
         dev = local.device()
         free = local.wait_for_settled_memory(dev) if waited else local.free_memory(dev)
-        share = device_share(need, torch.cuda.mem_get_info()[1] if dev == "cuda" else free, name)
+        share = device_share(need, torch.cuda.mem_get_info()[1] if dev == "cuda" else free, where)
         if need + overhead > free and waited:
             free = local.wait_for_memory(dev, need + overhead)
         if need + overhead > free:
             free = local.wait_for_ollama(dev, need + overhead)
     if need + overhead > free:
-        raise local.memory_error(repo, f"the vLLM-Omni server needs {need / local.GB:.1f} GB (`memory` of provider "
-                                 f"{name!r}) plus {overhead / local.GB:.1f} GB outside it (`overhead`) and the "
-                                 f"device has {free / local.GB:.1f} GB free",
-                                 f"free memory, or lower `memory` of provider {name!r} (vLLM sizes the KV cache from "
-                                 "it), and retry")
+        raise local.memory_error(repo, f"the vLLM-Omni server needs {need / local.GB:.1f} GB (`memory` of {where}) "
+                                 f"plus {overhead / local.GB:.1f} GB outside it (`overhead`) and the device has "
+                                 f"{free / local.GB:.1f} GB free",
+                                 f"free memory, or lower `memory` of {where} (vLLM sizes the KV cache from it), and "
+                                 "retry")
     shared = local.integrated(dev)
     work = Path(tempfile.mkdtemp(prefix="ai-models-omni-"))
     deploy = work / "deploy.yaml"
@@ -313,7 +317,7 @@ def server(name: str, spec: VllmOmniProvider, model: str) -> Server:
             if failure := start_failure(read_log(log)):
                 raise local.memory_error(repo, f"a stage of the vLLM-Omni server ran out of memory during the start "
                                          f"({failure.value}), with a budget of {need / local.GB:.1f} GB (`memory` "
-                                         f"of provider {name!r}); log {log}", failure_advice(failure, name))
+                                         f"of {where}); log {log}", failure_advice(failure, where))
             raise AIModelsError(f"vLLM-Omni server of {repo} exited with code {proc.returncode}:\n{tail(log)}")
         try:
             if httpx.get(f"{srv.url}/health", timeout=5, trust_env=False).status_code == 200:
@@ -326,7 +330,7 @@ def server(name: str, spec: VllmOmniProvider, model: str) -> Server:
         time.sleep(POLL_SECONDS)
     srv.load_seconds = time.monotonic() - started
     print(f"ai_models: {repo} ready in {srv.load_seconds:.0f} s", file=sys.stderr, flush=True)
-    _servers[name] = srv
+    _servers[key] = srv
     return srv
 
 
@@ -345,13 +349,13 @@ def reference(voice: str) -> tuple[str, str] | None:
     return f"data:{mime};base64,{base64.b64encode(audio.read_bytes()).decode()}", text.read_text().strip()
 
 
-def styled(spec: VllmOmniProvider, name: str, text: str, instructions: str | None) -> str:
-    """`text` with `instructions` put in by the provider's `style` format; `text` alone without instructions."""
+def styled(entry: VllmOmniModel, model_id: str, text: str, instructions: str | None) -> str:
+    """`text` with `instructions` put in by the model's `style` format; `text` alone without instructions."""
     if not instructions:
         return text
-    fmt = spec.style
+    fmt = entry.style
     if not fmt:
-        raise AIModelsError(f"provider {name!r} has no `style` format, so it takes no instructions")
+        raise AIModelsError(f"{model_id} has no `style` format, so it takes no instructions")
     return fmt.format(instructions=instructions.strip(), text=text)
 
 
@@ -377,21 +381,22 @@ def request_body(model: str, text: str, voice: str, take: tuple[bytes, str] | No
     return {**body, **(params or {})}
 
 
-def first_take(name: str, speaker: str | None = None) -> tuple[bytes, str] | None:
-    """(WAV, text) of provider `name`'s first answer with `DEFAULT_VOICE` for `speaker` in this process, None
+def first_take(model_id: str, speaker: str | None = None) -> tuple[bytes, str] | None:
+    """(WAV, text) of model `model_id`'s first answer with `DEFAULT_VOICE` for `speaker` in this process, None
     before it."""
-    return _takes.get((name, speaker))
+    return _takes.get((model_id, speaker))
 
 
-def keep_take(name: str, speaker: str | None, voice: str, wav: bytes, said: str) -> None:
+def keep_take(model_id: str, speaker: str | None, voice: str, wav: bytes, said: str) -> None:
     """Keep `wav` (the answer to `said`) as `speaker`'s first take when the voice is `DEFAULT_VOICE` and it has
     none yet."""
     if voice == DEFAULT_VOICE:
-        _takes.setdefault((name, speaker), (wav, said))
+        _takes.setdefault((model_id, speaker), (wav, said))
 
 
-async def aspeak(name: str, spec: VllmOmniProvider, model: str, text: str, voice: str, instructions: str | None,
-                 speed: float, speaker: str | None = None, params: dict[str, Any] | None = None) -> bytes:
+async def aspeak(name: str, spec: VllmOmniProvider, entry: VllmOmniModel, model: str, text: str, voice: str,
+                 instructions: str | None, speed: float, speaker: str | None = None,
+                 params: dict[str, Any] | None = None) -> bytes:
     """A WAV file of `text` at the model's own rate from the provider's server (Drama 3 refuses `sample_rate`).
     With `DEFAULT_VOICE`, `speaker`'s first take is the reference of its later requests, so each speaker keeps one
     voice. `params` are more request fields (`request_body`; Drama 3: `seed`, `max_new_tokens`, `extra_params` with
@@ -401,14 +406,15 @@ async def aspeak(name: str, spec: VllmOmniProvider, model: str, text: str, voice
     itself is asynchronous."""
     import httpx
 
+    model_id = f"{name}:{model}"
     if speed != 1.0:
-        raise AIModelsError(f"{name}:{model} has no speed setting")
-    said = styled(spec, name, text, instructions)
-    body = request_body(model, said, voice, first_take(name, speaker) if voice == DEFAULT_VOICE else None, params)
-    srv = server(name, spec, model)
+        raise AIModelsError(f"{model_id} has no speed setting")
+    said = styled(entry, model_id, text, instructions)
+    body = request_body(model, said, voice, first_take(model_id, speaker) if voice == DEFAULT_VOICE else None, params)
+    srv = server(name, spec, entry, model)
     async with httpx.AsyncClient(trust_env=False, timeout=spec.timeout) as client:
         r = await client.post(f"{srv.url}/v1/audio/speech", json=body)
     if r.status_code != 200:
-        raise AIModelsError(f"{name}:{model} answered {r.status_code}: {r.text[:500]}")
-    keep_take(name, speaker, voice, r.content, said)
+        raise AIModelsError(f"{model_id} answered {r.status_code}: {r.text[:500]}")
+    keep_take(model_id, speaker, voice, r.content, said)
     return r.content

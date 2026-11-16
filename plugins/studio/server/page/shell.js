@@ -32,7 +32,8 @@
  * and while enable(false) holds; a second call replaces the bar.
  *
  * Helpers shared by the modules, besides the small ones (h, seg, plural, when, api, fileUrl, ...):
- *   models() the answer of /api/models (each config task's model id, each image-gen tier), withModel(label, id)
+ *   models() the answer of /api/models (each config task's model id, each image-gen tier, `error` when config.yaml
+ *   was not read), withModel(label, id)
  *   stylePicker({cards, value, onPick}) the style picker on the catalogue; brandSelect(value, onPick); nice(name)
  *   dropZone(text, accept, onFiles), upload(endpoint, files), copyToRefs(path), refThumb(path, onRemove),
  *   readDataUrl(file), IMAGE_TYPES the picture types accepted from the user

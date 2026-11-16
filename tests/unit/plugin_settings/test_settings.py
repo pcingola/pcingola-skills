@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import plugin_settings
 from plugin_settings import Plugin
 from tests.subproc import child_env, run_python
 
@@ -168,7 +169,7 @@ def test_no_file_no_settings(home, plugin):
     ENV_EXPORTS or client-library variables, and creates no file. Guards a first run before setup:settings."""
     before = value(run(home, plugin, "out(dict(os.environ))"))
     assert value(run(home, plugin, "P.load(); out(dict(os.environ))")) == before
-    assert value(run(home, plugin, "out(P.load().studio.dir)")) == "~/Documents/Studio"
+    assert value(run(home, plugin, "out(str(P.load().studio.dir))")) == str(home / "Documents/Studio")
     assert not config_path(home).exists()
 
 
@@ -213,6 +214,22 @@ def test_every_env_export_row_is_set_and_removed(home, plugin):
     write(config_path(home), "network:\nhuggingface:\n")
     shell = {n: "shell" for n in got}
     assert set(value(run(home, plugin, body, **shell)).values()) == {None}
+
+
+def test_cleared_keys_removed_and_listed_for_the_user(home, plugin):
+    """Plugin.load removes each variable of CLEARED_KEYS, the Hugging Face cache, offline and token variables
+    included, so a shell value never replaces `huggingface.*`; setup:settings SKILL.md, the one place the user reads
+    them, names every cleared variable and prefix and every ENV_EXPORTS variable."""
+    write(config_path(home), "huggingface: {home: /hf}\n")
+    names = list(plugin_settings.CLEARED_KEYS)
+    got = value(run(home, plugin, f"P.load(); out({{k: os.environ.get(k) for k in {names!r}}})",
+                    **{n: "shell" for n in names}))
+    assert set(got.values()) == {None}
+    skill = (Path(__file__).resolve().parents[3] / "plugins/setup/skills/settings/SKILL.md").read_text()
+    exported = [v.name for v in plugin_settings.ENV_EXPORTS]
+    missing = [n for n in (*plugin_settings.CLEARED_KEYS, *plugin_settings.CLEARED_PREFIXES, *exported)
+               if f"`{n}" not in skill]
+    assert not missing, missing
 
 
 def test_invalid_file_exits_with_every_problem(home, plugin):

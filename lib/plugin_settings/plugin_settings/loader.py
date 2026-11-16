@@ -11,10 +11,11 @@ import yaml
 from pydantic import ValidationError
 
 from .paths import config_file, display
-from .schema import Config, ProviderKind
+from .schema import Config, DiffusersRole, ProviderKind
 
 SETUP_LINE = "The setup:settings skill describes every key and creates the file."
 _KINDS = {k.value for k in ProviderKind}
+_ROLES = {r.value for r in DiffusersRole}
 _FIELD_PREFIX = re.compile(r"^([a-z_]+): (.*)$")
 
 # (path, st_mtime_ns, st_size) -> Config; the long-running Studio server sees edits.
@@ -77,26 +78,30 @@ def config() -> Config:
 
 
 def _path(loc: tuple) -> tuple[str, str | None]:
-    """(YAML path of a Pydantic `loc`, the provider kind tag it held). The discriminated union's tag after
-    `providers.<name>` and the `[key]` marker of a mapping key are dropped; list indexes are `[i]`."""
+    """(YAML path of a Pydantic `loc`, what the entry it points into is). The discriminated unions' tags are
+    dropped: the provider kind after `providers.<name>` and the diffusers role after `models.<m>`; so is the `[key]`
+    marker of a mapping key. List indexes are `[i]`."""
     parts = list(loc)
-    tag = None
+    what = None
     if len(parts) > 2 and parts[0] == "providers" and parts[2] in _KINDS:
-        tag = parts.pop(2)
+        kind = parts.pop(2)
+        what = f"kind {kind}"
+        if kind == ProviderKind.DIFFUSERS and len(parts) > 4 and parts[2] == "models" and parts[4] in _ROLES:
+            what = f"{DiffusersRole(parts.pop(4)).noun()} ({what})"
     out = ""
     for part in parts:
         if part == "[key]":
             continue
         out += f"[{part}]" if isinstance(part, int) else (f".{part}" if out else str(part))
-    return out, tag
+    return out, what
 
 
-def _message(err: dict, tag: str | None) -> str:
+def _message(err: dict, what: str | None) -> str:
     kind = err["type"]
     if kind == "missing":
-        return "required" + (f" for kind {tag}" if tag else "")
+        return "required" + (f" for {what}" if what else "")
     if kind == "extra_forbidden":
-        return "not a setting" + (f" of kind {tag}" if tag else "")
+        return "not a setting" + (f" of {what}" if what else "")
     if kind == "union_tag_not_found":
         return "kind is required (" + ", ".join(sorted(_KINDS)) + ")"
     if kind == "union_tag_invalid":
@@ -109,8 +114,8 @@ def format_errors(p: Path, e: ValidationError) -> str:
     """The message of a validation error of file `p`: a line per problem, `<YAML path>: <reason>`."""
     lines = []
     for err in e.errors():
-        path, tag = _path(err["loc"])
-        for m in _message(err, tag).splitlines():
+        path, what = _path(err["loc"])
+        for m in _message(err, what).splitlines():
             if path and (field := _FIELD_PREFIX.match(m)):  # a model validator's message about one field
                 lines.append(f"  {path}.{field[1]}: {field[2]}")
             else:

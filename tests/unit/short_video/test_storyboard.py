@@ -260,8 +260,9 @@ class TestSpeakers(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             cfg = Path(tmp) / "config.yaml"
-            cfg.write_text("providers: {k: {kind: kokoro, model_url: 'http://127.0.0.1:1/m', voices_url: 'http://127.0.0.1:1/v', "
-                           "langs: {af_: en-us}}}\ntasks: {speech: 'k:kokoro-v1.0'}\n")
+            cfg.write_text("providers: {k: {kind: kokoro, models: {kokoro-v1.0: {model_url: 'http://127.0.0.1:1/m', "
+                           "voices_url: 'http://127.0.0.1:1/v', langs: {af_: en-us}}}}}\n"
+                           "tasks: {speech: 'k:kokoro-v1.0'}\n")
             ai_config.use(cfg)
             try:
                 self.assertEqual([storyboard.backend_model(b) for b in ("kokoro", "chatterbox", "speech")],

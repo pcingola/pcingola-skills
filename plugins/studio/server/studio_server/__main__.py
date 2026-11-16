@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from plugin_settings import Plugin, StudioSettings
 
@@ -13,9 +14,9 @@ from .server import Studio, start_loops
 DEFAULT_ROOT = StudioSettings().dir
 
 
-def projects_root() -> str:
-    """`studio.dir` from the settings (default DEFAULT_ROOT); `~` is expanded by the server. A relative path
-    fails at load (the schema), and the process exits with the message."""
+def projects_root() -> Path:
+    """`studio.dir` from the settings (default DEFAULT_ROOT), `~` expanded. A relative path fails at load (the
+    schema), and the process exits with the message."""
     return Plugin.of(__file__).load().studio.dir
 
 

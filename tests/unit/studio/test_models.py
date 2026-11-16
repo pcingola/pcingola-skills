@@ -13,7 +13,7 @@ from studio_server.models import TASKS
 from studio_server.video import check_storyboard
 
 from tests.settings_env import write_config
-from tests.subproc import child_env
+from tests.subproc import child_env, run_python
 
 from .test_server import gen
 
@@ -21,8 +21,9 @@ SERVER_DIR = Path(studio_server.__file__).resolve().parents[1]
 MODELS = {"image": "local:z-image-turbo", "image_edit": "local:flux2-klein-4b", "image_best": "local:z-image-turbo",
           "speech": "azure:gpt-4o-mini-tts", "music": "local:ace-step"}
 # The providers of MODELS: each task names a configured provider, and a diffusers model has an entry.
-PROVIDERS = {"local": {"kind": "diffusers", "models": {m: {"repo": f"x/{m}"}
-                                                       for m in ("z-image-turbo", "flux2-klein-4b", "ace-step")}},
+PROVIDERS = {"local": {"kind": "diffusers", "models": {
+                 **{m: {"repo": f"x/{m}"} for m in ("z-image-turbo", "flux2-klein-4b")},
+                 "ace-step": {"repo": "x/ace-step", "duration_arg": "audio_duration"}}},
              "azure": {"kind": "azure", "base_url": "https://gateway.example.com", "api_version": "2025-04-01-preview",
                        "api_key": "k"}}
 
@@ -69,11 +70,13 @@ def test_speech_models_from_the_routes(tmp_path):
     each with what the model takes; a row of a provider without speech models, or not in config.yaml, is left out;
     a malformed routes.md gives no models and its error. Guards the voice picker's choices."""
     cfg = write_config(tmp_path / "config.yaml",
-                       providers={"k": {"kind": "kokoro", "model_url": "http://127.0.0.1:1/m.onnx",
-                                        "voices_url": "http://127.0.0.1:1/v.bin", "langs": {"af_": "en-us"}},
-                                  "cb": {"kind": "chatterbox", "python": "/nonexistent", "url": "http://127.0.0.1:1",
-                                         "files": ["a"]},
-                                  "oai": {"kind": "openai", "api_key": "k"}, "local": {"kind": "diffusers"}},
+                       providers={"k": {"kind": "kokoro", "models": {"kokoro-v1.0": {
+                                      "model_url": "http://127.0.0.1:1/m.onnx", "voices_url": "http://127.0.0.1:1/v.bin",
+                                      "langs": {"af_": "en-us"}}}},
+                                  "cb": {"kind": "chatterbox", "python": "/nonexistent", "models": {
+                                      "chatterbox-turbo": {"url": "http://127.0.0.1:1", "files": ["a"]}}},
+                                  "oai": {"kind": "openai", "api_key": "k"},
+                                  "local": {"kind": "diffusers", "models": {"x": {"repo": "x/x"}}}},
                        tasks={"speech": "k:kokoro-v1.0"})
     (tmp_path / "routes.md").write_text(
         "| task | model | when | why |\n|---|---|---|---|\n| speech | k:kokoro-v1.0 | default | calm |\n"
@@ -111,6 +114,35 @@ def test_endpoint_without_or_broken_config(tmp_path):
         cfg.write_text("models: [", encoding="utf-8")
         got = get_models(url)
     assert set(got["tasks"].values()) == {None}
+
+
+def test_invalid_config_logged_and_reported(tmp_path):
+    """read_models with an invalid config.yaml logs the validation error to stderr and answers it in `error`,
+    which the page shows when a tier has no model. Guards against an empty model list with no reason."""
+    cfg = write_config(tmp_path / "config.yaml", not_a_section={"x": 1})
+    done = run_python("""
+        import json
+        from studio_server.models import read_models
+        print(json.dumps(read_models()))
+    """, child_env(SKILLS_CONFIG=str(cfg)))
+    assert done.returncode == 0, done.stderr
+    got = json.loads(done.stdout.strip().splitlines()[-1])
+    assert set(got["tasks"].values()) == {None}
+    assert "not_a_section" in got["error"]
+    assert f"tasks not read: {got['error']}" in done.stderr
+
+
+def test_valid_config_has_no_error(tmp_path):
+    """read_models with a valid config.yaml answers `error` None and logs nothing."""
+    cfg = write_config(tmp_path / "config.yaml", providers=PROVIDERS, tasks=MODELS)
+    done = run_python("""
+        import json
+        from studio_server.models import read_models
+        print(json.dumps(read_models()))
+    """, child_env(SKILLS_CONFIG=str(cfg)))
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout.strip().splitlines()[-1])["error"] is None
+    assert "tasks not read" not in done.stderr
 
 
 def test_request_carries_models(client, emitted):

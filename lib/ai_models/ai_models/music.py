@@ -20,7 +20,7 @@ import base64
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from plugin_settings import GoogleProvider, ProviderKind
+from plugin_settings import DiffusersRole, GoogleProvider, ProviderKind
 
 from . import config
 from .errors import AIModelsError, ConfigError, explained
@@ -62,14 +62,11 @@ def check_options(api: str, model_id: str, **options) -> None:
 
 
 def model_api(model_id: str) -> str:
-    """The API of the music model `model_id` (`<provider>:<model>`): a key of TAKES. `ConfigError` for a provider
-    kind without music models."""
-    name, _ = config.split_id(model_id)
-    kind = config.provider(name).kind
-    if kind == ProviderKind.DIFFUSERS:
+    """The API of the music model `model_id` (`<provider>:<model>`): a key of TAKES. `ConfigError` for a model that
+    cannot serve task music (`config.resolve`)."""
+    name, _ = config.split_id(config.resolve(model_id, "music"))
+    if config.provider(name).kind == ProviderKind.DIFFUSERS:
         return "diffusers"
-    if kind != ProviderKind.GOOGLE:
-        raise ConfigError(f"provider {name!r} of kind {kind!r} has no music models")
     entry = config.model_entry(model_id)
     return "predict" if entry is not None and entry.predict else "stream"
 
@@ -80,7 +77,7 @@ def min_crest_db(model_id: str) -> float | None:
     the model is not a diffusers model (remote kinds)."""
     if model_api(model_id) != "diffusers":
         return None
-    return config.diffusers_model(model_id).min_crest_db
+    return config.diffusers_model(model_id, DiffusersRole.MUSIC).min_crest_db
 
 
 def takes(model_id: str) -> frozenset[str]:

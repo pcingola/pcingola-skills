@@ -11,7 +11,8 @@ from tests.settings_env import write_config
 from tests.unit.voiceover.cli_run import voiceover
 from voiceover_tool.voices import reference_path
 
-CHATTERBOX = {"kind": "chatterbox", "python": "/nonexistent/python", "url": "http://127.0.0.1:1", "files": ["a"]}
+CHATTERBOX = {"kind": "chatterbox", "python": "/nonexistent/python",
+              "models": {"chatterbox-turbo": {"url": "http://127.0.0.1:1", "files": ["a"]}}}
 
 
 def write_wav(path: Path, seconds: float, sr: int = 16_000) -> Path:

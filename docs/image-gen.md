@@ -29,10 +29,14 @@ has a provider of kind `diffusers`.
 | `google` | `google_image_config` with `--aspect` and `--size` when given | PNG only, no transparent background | one request per image | no |
 | `diffusers` | `dimensions` from `models.local_size` (edges of 16 px from the model's `min_edge` to `max_edge`) | PNG only, no transparent background | one request per image | yes, with an `inpaint` pipeline |
 
-The size limits are the model's `image` entry in `config.yaml`, `providers.<p>.models.<m>.image` (`ImageLimits`,
-read with `ai_models.config.image_limits`); the example config holds those of gpt-image-2 and of the local image
-models. A request that needs a size for a model without the entry fails with an `ImageError` naming the entry to
-add. A model with `always_sized: true` always gets `dimensions` (default 1:1, 1K), and a model with
+The size limits are the model's `image` entry in `config.yaml`, `providers.<p>.models.<m>.image`
+(`OpenAIImageLimits`: `max_edge`, `min_pixels`, `max_pixels`; `DiffusersImageLimits`: `max_edge`, `min_edge`; all
+required in an entry). `generate.request_limits` reads them once per request with `ai_models.config.image_limits`,
+required when the request needs a size (`generate.needs_size`: an OpenAI kind with `--size`, a `diffusers` model
+except an edit without `--aspect` and `--size`); the example config holds those of gpt-image-2 and of the local
+image models. A request that needs a size for a model without the entry fails with an `ImageError` naming the entry
+to add and its required keys. `--model` is checked against the tier's task (`ai_models.config.resolve`) before
+that. A model with `always_sized: true` always gets `dimensions` (default 1:1, 1K), and a model with
 `default_quality` gets that quality unless `--quality` is given. Another model of an OpenAI kind gets no size or
 quality unless the user gives one, so the model default applies. A `google` model without `--aspect` and `--size` gets the model's default, and an edit keeps
 the reference's aspect.

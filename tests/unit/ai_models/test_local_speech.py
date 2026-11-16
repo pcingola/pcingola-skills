@@ -7,14 +7,16 @@ import sys
 import pytest
 
 from ai_models import AIModelsError, ConfigError, align, chatterbox, kokoro, speech
-from plugin_settings import ChatterboxProvider, KokoroProvider
+from plugin_settings import SPEECH_KINDS
+from plugin_settings import ChatterboxModel, ChatterboxProvider, KokoroModel
 
-KOKORO = {"kind": "kokoro", "model_url": "http://127.0.0.1:1/m.onnx", "voices_url": "http://127.0.0.1:1/v.bin",
-          "langs": {"af_": "en-us", "bm_": "en-gb"}}
-
-
-CHATTERBOX = {"kind": "chatterbox", "python": "/nonexistent/python", "url": "http://127.0.0.1:1", "files": ["a.pt"]}
-OMNI = {"kind": "vllm-omni", "python": "/nonexistent/python", "repo": "org/tts", "deploy": "tts.yaml", "memory": 70}
+KOKORO_MODEL = {"model_url": "http://127.0.0.1:1/m.onnx", "voices_url": "http://127.0.0.1:1/v.bin",
+                "langs": {"af_": "en-us", "bm_": "en-gb"}}
+KOKORO = {"kind": "kokoro", "models": {"kokoro-v1.0": KOKORO_MODEL}}
+CHATTERBOX_MODEL = {"url": "http://127.0.0.1:1", "files": ["a.pt"]}
+CHATTERBOX = {"kind": "chatterbox", "python": "/nonexistent/python", "models": {"chatterbox-turbo": CHATTERBOX_MODEL}}
+OMNI_MODEL = {"repo": "org/tts", "deploy": "tts.yaml", "memory": 70}
+OMNI = {"kind": "vllm-omni", "python": "/nonexistent/python", "models": {"drama-3": OMNI_MODEL}}
 
 
 def chatterbox_spec(tmp_path, python: str, **kw) -> ChatterboxProvider:
@@ -25,20 +27,29 @@ def chatterbox_spec(tmp_path, python: str, **kw) -> ChatterboxProvider:
     return ChatterboxProvider(**{**CHATTERBOX, "python": python, "dir": str(tmp_path / "w"), **kw})
 
 
+CB_ENTRY = ChatterboxModel(**CHATTERBOX_MODEL)
+
+
 def test_default_voices_and_checks(write_config):
-    """A provider's `voice` replaces its kind's default voice and its `voices` are the list; `check` refuses a
-    speed outside the kind's range or with a kind without speed, and instructions with a kind that takes none; a
-    vllm-omni provider takes instructions only with `style`."""
-    write_config({"providers": {"k": KOKORO, "k2": {**KOKORO, "voice": "bm_george", "voices": ["bm_george"]},
-                                "o": {"kind": "openai", "base_url": "http://127.0.0.1:9/v1"},
+    """A model entry's `voice` replaces its kind's default voice and its `voices` are the list, for a local and a
+    remote model; `check` refuses a speed outside the kind's range or with a kind without speed, and instructions
+    with a kind that takes none; a vllm-omni model takes instructions only with `style`; a model of a kind without
+    speech models is refused (`TASK_KINDS`)."""
+    george = {"voice": "bm_george", "voices": ["bm_george"]}
+    write_config({"providers": {"k": KOKORO, "k2": {"kind": "kokoro", "models": {
+                                    "kokoro-v1.0": {**KOKORO_MODEL, **george}}},
+                                "o": {"kind": "openai", "base_url": "http://127.0.0.1:9/v1",
+                                      "models": {"tts2": {"voice": "ash"}}},
                                 "g": {"kind": "google", "api_key": "k"},
-                                "f": OMNI, "fs": {**OMNI, "style": "[{instructions}] {text}"},
-                                "cb": CHATTERBOX, "local": {"kind": "diffusers"}},
+                                "f": OMNI, "fs": {**OMNI, "models": {"drama-3": {**OMNI_MODEL,
+                                                                                 "style": "[{instructions}] {text}"}}},
+                                "cb": CHATTERBOX, "local": {"kind": "diffusers", "models": {"flux": {"repo": "r"}}}},
                   "tasks": {"speech": "k:kokoro-v1.0"}})
     assert speech.model_of().default_voice == "af_heart"
     assert speech.model_of("k2:kokoro-v1.0").default_voice == "bm_george"
     assert speech.voices("k2:kokoro-v1.0") == ["bm_george"]
     assert speech.voices("o:tts") == ["marin"] and speech.voices("g:tts") == ["Kore"]
+    assert speech.voices("o:tts2") == ["ash"]
     assert speech.voices("cb:chatterbox-turbo") == ["default"]
     assert speech.check(speed=1.5).id == "k:kokoro-v1.0"
     assert speech.check("o:tts", speed=3.0, instructions="calm").kind == "openai"
@@ -52,26 +63,27 @@ def test_default_voices_and_checks(write_config):
             speech.check(model, **kw)
     assert speech.check("fs:drama-3", instructions="whisper").instructions
     assert speech.model_of("cb:chatterbox-turbo").traits.clones and not speech.model_of().traits.clones
-    with pytest.raises(ConfigError, match="has no speech models"):
+    with pytest.raises(ConfigError, match="task speech takes kinds"):
         speech.model_of("local:flux")
 
 
 def test_kokoro_language_of_a_voice():
     """A Kokoro voice's espeak language comes from the prefixes of `langs`; a voice of no listed prefix is
     refused."""
-    spec = KokoroProvider(**KOKORO)
-    assert [kokoro.lang(spec, "k", v) for v in ("af_heart", "bm_george")] == ["en-us", "en-gb"]
+    entry = KokoroModel(**KOKORO_MODEL)
+    assert [kokoro.lang(entry, "k:m", v) for v in ("af_heart", "bm_george")] == ["en-us", "en-gb"]
     with pytest.raises(AIModelsError, match="no language"):
-        kokoro.lang(spec, "k", "ff_siwis")
+        kokoro.lang(entry, "k:m", "ff_siwis")
 
 
 def test_chatterbox_worker_errors(tmp_path):
     """An interpreter that cannot run is a `ConfigError` naming the provider; a worker that exits before its ready
     line is an `AIModelsError` with its exit code; a voice that is neither `default` nor a file is refused."""
     with pytest.raises(ConfigError, match="cannot run"):
-        chatterbox.worker(chatterbox_spec(tmp_path / "a", str(tmp_path / "no-python")), "cb", "chatterbox-turbo")
+        chatterbox.worker(chatterbox_spec(tmp_path / "a", str(tmp_path / "no-python")), CB_ENTRY, "cb",
+                          "chatterbox-turbo")
     with pytest.raises(AIModelsError, match="exited with code 1"):
-        chatterbox.worker(chatterbox_spec(tmp_path / "b", "/bin/false"), "cb2", "chatterbox-turbo")
+        chatterbox.worker(chatterbox_spec(tmp_path / "b", "/bin/false"), CB_ENTRY, "cb2", "chatterbox-turbo")
     with pytest.raises(AIModelsError, match="neither 'default' nor a reference recording"):
         chatterbox.reference("bob")
     assert chatterbox.reference("default") is None
@@ -82,7 +94,7 @@ def test_chatterbox_load_timeout_and_log_cleanup(tmp_path):
     that exits with code 0 when stopped takes its log directory with it."""
     spec = chatterbox_spec(tmp_path, sys.executable, start_timeout=0.01)
     with pytest.raises(AIModelsError, match="no answer in 0 s"):
-        chatterbox.worker(spec, "cb3", "chatterbox-turbo")
+        chatterbox.worker(spec, CB_ENTRY, "cb3", "chatterbox-turbo")
     log = tmp_path / "logdir" / "worker.log"
     log.parent.mkdir()
     log.write_text("")
@@ -93,14 +105,17 @@ def test_chatterbox_load_timeout_and_log_cleanup(tmp_path):
 
 
 def test_align_model_of_another_kind_refused(write_config):
-    """The align task takes only a `torchaudio` provider; without `tasks.align`, or without its provider, the error
-    names the task or provider."""
-    write_config({"providers": {"o": {"kind": "openai", "base_url": "http://127.0.0.1:9/v1"}}, "tasks": {}})
+    """The align task takes only a `torchaudio` model with an entry; without `tasks.align`, its provider or the
+    entry, the error names the task, provider or key."""
+    write_config({"providers": {"o": {"kind": "openai", "base_url": "http://127.0.0.1:9/v1"},
+                                "t": {"kind": "torchaudio"}}, "tasks": {}})
     with pytest.raises(ConfigError, match="no model for task 'align'"):
         align.aligner()
-    with pytest.raises(ConfigError, match="no provider 'torchaudio'"):
+    with pytest.raises(ConfigError, match="provider 'torchaudio' is not in providers"):
         align.aligner("torchaudio:MMS_FA")
-    with pytest.raises(ConfigError, match="has no align models"):
+    with pytest.raises(ConfigError, match="model 'MMS_FA' is not in providers.t.models"):
+        align.aligner("t:MMS_FA")
+    with pytest.raises(ConfigError, match="task align takes kinds torchaudio"):
         align.aligner("o:mms")
 
 
@@ -123,4 +138,11 @@ def test_weights_dir_from_the_caller(write_config):
     assert str(speech.model_of("k:kokoro-v1.0", "/caller").spec.dir) == "/caller"
     assert str(speech.model_of("kd:kokoro-v1.0", "/caller").spec.dir) == "/own"
     with pytest.raises(ConfigError, match="set `dir`"):
-        kokoro.files(speech.model_of("k:kokoro-v1.0").spec, "kokoro-v1.0")
+        m = speech.model_of("k:kokoro-v1.0")
+        kokoro.files(m.spec, m.entry, "kokoro-v1.0")
+
+
+def test_traits_cover_the_speech_kinds():
+    """`speech.TRAITS` has an entry for each kind of `SPEECH_KINDS`, the kinds task speech takes, and no other.
+    Guards the kind grouping of the schema and the traits table going apart."""
+    assert set(speech.TRAITS) == set(SPEECH_KINDS)

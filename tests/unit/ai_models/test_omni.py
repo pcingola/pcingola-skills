@@ -12,16 +12,22 @@ import pytest
 import yaml
 
 from ai_models import AIModelsError, ConfigError, omni
-from plugin_settings import VllmOmniProvider
+from plugin_settings import VllmOmniModel, VllmOmniProvider
 
-RAW = {"kind": "vllm-omni", "python": "/env/bin/python", "repo": "org/tts", "deploy": "tts.yaml", "memory": 70,
-       "style": "[{instructions}] {text}"}
+RAW = {"kind": "vllm-omni", "python": "/env/bin/python"}
 SPEC = VllmOmniProvider(**RAW)
+MODEL = {"repo": "org/tts", "deploy": "tts.yaml", "memory": 70, "style": "[{instructions}] {text}"}
+ENTRY = VllmOmniModel(**MODEL)
 
 
 def spec(**kw) -> VllmOmniProvider:
     """SPEC with the keys `kw` replaced."""
     return VllmOmniProvider(**{**RAW, **kw})
+
+
+def entry(**kw) -> VllmOmniModel:
+    """ENTRY with the keys `kw` replaced."""
+    return VllmOmniModel(**{**MODEL, **kw})
 
 
 def test_overlay_scales_stage_fractions_and_turns_mps_off(tmp_path):
@@ -48,17 +54,17 @@ def test_overlay_without_fractions_is_a_config_error(tmp_path):
 def test_memory_bytes_and_device_share():
     """`memory` is GB of the stages together; one above the device is a ConfigError (a missing, non-numeric or
     non-positive one fails at load, tests/unit/plugin_settings/test_schema.py)."""
-    assert omni.memory_bytes(SPEC) == 70 * 10**9
+    assert omni.memory_bytes(ENTRY) == 70 * 10**9
     assert omni.device_share(70 * 10**9, 140 * 10**9, "fish") == pytest.approx(0.5)
     with pytest.raises(ConfigError, match="exceeds the device"):
         omni.device_share(150 * 10**9, 140 * 10**9, "fish")
 
 
 def test_overhead_defaults_to_the_measured_value():
-    """Without `overhead` the server's memory outside `memory` is 22 GB (docs/ai_models.md); the provider's key
+    """Without `overhead` the server's memory outside `memory` is 22 GB (docs/ai_models.md); the model's key
     replaces it."""
-    assert omni.overhead_bytes(SPEC) == 22 * 10**9
-    assert omni.overhead_bytes(spec(overhead=3)) == 3 * 10**9
+    assert omni.overhead_bytes(ENTRY) == 22 * 10**9
+    assert omni.overhead_bytes(entry(overhead=3)) == 3 * 10**9
 
 
 def test_deploy_path_takes_an_existing_file(tmp_path):
@@ -79,10 +85,10 @@ def test_command_serves_the_repo_on_loopback(tmp_path):
 
 def test_styled_puts_instructions_into_the_text():
     """`style` formats the instructions into the text; no instructions leave it alone; no `style` refuses them."""
-    assert omni.styled(SPEC, "fish", "Hello.", "whisper") == "[whisper] Hello."
-    assert omni.styled(SPEC, "fish", "Hello.", None) == "Hello."
+    assert omni.styled(ENTRY, "fish:tts", "Hello.", "whisper") == "[whisper] Hello."
+    assert omni.styled(ENTRY, "fish:tts", "Hello.", None) == "Hello."
     with pytest.raises(AIModelsError, match="no `style`"):
-        omni.styled(spec(style=None), "fish", "Hello.", "whisper")
+        omni.styled(entry(style=None), "fish:tts", "Hello.", "whisper")
 
 
 def _wav(path):
@@ -140,7 +146,7 @@ def test_reference_needs_a_file_and_a_transcript(tmp_path):
 def test_speed_is_refused_before_any_server_starts():
     """A speed other than 1 fails before a server starts (the kind has no speed)."""
     with pytest.raises(AIModelsError, match="no speed"):
-        asyncio.run(omni.aspeak("fish", SPEC, "tts", "Hi.", "default", None, 1.5))
+        asyncio.run(omni.aspeak("fish", SPEC, ENTRY, "tts", "Hi.", "default", None, 1.5))
 
 
 def test_server_env_adds_the_provider_env():

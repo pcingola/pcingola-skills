@@ -17,7 +17,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from plugin_settings import Config, ProviderKind
+from plugin_settings import Config, Task
 
 from . import config
 from .errors import AIModelsError, ConfigError
@@ -102,13 +102,10 @@ def parse(path: Path) -> list[Route]:
     return rows
 
 
-def configured(model_id: str, cfg: Config) -> bool:
-    """Whether config `cfg` has the provider of `model_id`, and for a `diffusers` provider the model's entry."""
-    name, model = config.split_id(model_id)
-    spec = cfg.provider(name)
-    if spec is None:
-        return False
-    return spec.kind != ProviderKind.DIFFUSERS or model in spec.models
+def configured(task: str, model_id: str, cfg: Config) -> bool:
+    """Whether `model_id` can serve `task` in config `cfg` (`Config.task_error`: its provider is there, of a kind
+    the task takes, and a local model has its entry, of the task's role)."""
+    return cfg.task_error(Task(task), model_id) is None
 
 
 def _default(task: str, recommended: Route | None, cfg: Config) -> Route | None:
@@ -136,7 +133,7 @@ def table(tasks: Iterable[str]) -> list[Route]:
         default = _default(task, next((r for r in mine if r.is_default), None), cfg)
         if default:
             out.append(default)
-        out += [r for r in mine if not r.is_default and configured(r.model, cfg)]
+        out += [r for r in mine if not r.is_default and configured(task, r.model, cfg)]
     return out
 
 

@@ -26,7 +26,7 @@ What the speech model takes depends on the kind of its provider:
 | `ollama` | Ollama `audio/speech` | `default` | refused by the server | refused by the server |
 | `google` | API, Gemini TTS | `Kore` | no | yes |
 
-A provider's `voice` in `config.yaml` replaces the default voice. `synth`
+A model's `voice` in `config.yaml` (`providers.<p>.models.<m>.voice`) replaces the default voice. `synth`
 refuses a speed or a style the model does not take before any request.
 
 Use the `speech` model unless the routes or the user say otherwise. A Kokoro
@@ -65,7 +65,7 @@ voice yet, see "Cloned voices" below.
 
 `--style` is a delivery instruction in plain words ("calm documentary
 narrator, unhurried pace"); it is not spoken. Kokoro voices: those whose
-name prefix the provider's `langs` maps to an espeak language (`af_`/`am_`
+name prefix the model's `langs` maps to an espeak language (`af_`/`am_`
 American, `bf_`/`bm_` British English in the example config).
 
 ## Model routes
@@ -183,7 +183,7 @@ It runs in its own Python environment, the provider's `python`. When
 `${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup --chatterbox`: it builds the
 environment under the plugin's data directory and prints its python; the
 user adds the template's `chatterbox` provider entry with that `python`
-(setup:settings). The weights (3 GB) come from the URL of the provider on
+(setup:settings). The weights (3 GB) come from the `url` of the model entry on
 first use, or with `setup --model <model>`. One sentence takes about 3 s per second of audio on
 CPU. Output carries Resemble's inaudible Perth watermark. Clone only a voice
 whose owner has agreed.

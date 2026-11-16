@@ -2,7 +2,8 @@
 `ai-models[align]`).
 
 A model of provider kind `torchaudio` is a forced-alignment pipeline of `torchaudio.pipelines` by name
-(`torchaudio:MMS_FA`). The provider's `url` is that pipeline's weights file. `weights.ensure_file` downloads it (with
+(`torchaudio:MMS_FA`). The `url` of its entry (`providers.<p>.models.<m>`, `TorchaudioModel`) is that pipeline's
+weights file. `weights.ensure_file` downloads it (with
 the TLS context of `tls`) to `weights.model_dir` under its own file name, the name torch.hub looks for, and the
 pipeline loads it from there (`model_dir`), so torch.hub downloads nothing. torchaudio 2.11, its last release,
 keeps `forced_align` and flags it deprecated. A model stays loaded for the life of the process; it needs no GPU
@@ -14,7 +15,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from plugin_settings import ProviderKind, TorchaudioProvider
+from plugin_settings import ProviderKind, TorchaudioModel, TorchaudioProvider
 
 from . import config, weights
 from .errors import AIModelsError, ConfigError
@@ -61,28 +62,20 @@ class Aligner:
         return [(sp[0].start * ratio, sp[-1].end * ratio) for sp in spans]
 
 
-def spec_of(model_id: str) -> tuple[str, TorchaudioProvider, str]:
-    """(provider name, its settings, the pipeline name) of an align model id."""
-    name, bare = config.split_id(model_id)
-    spec = config.provider(name)
-    if spec.kind != KIND:
-        raise ConfigError(f"provider {name!r} of kind {spec.kind!r} has no align models; kind: {KIND}")
-    return name, spec, bare
-
-
-def fetch(spec: TorchaudioProvider, model: str):
+def fetch(spec: TorchaudioProvider, entry: TorchaudioModel, model: str):
     """The weights file of the pipeline, downloaded when missing."""
-    return weights.ensure_file(spec.url, weights.model_dir(spec, model) / weights.basename(spec.url))
+    return weights.ensure_file(entry.url, weights.model_dir(spec, model) / weights.basename(entry.url))
 
 
 def aligner(model: str | None = None, weights_dir: str | Path | None = None) -> Aligner:
     """The aligner of `model` (else `tasks.align`), loaded once per process, its weights in the provider's `dir`,
-    else `weights_dir` (`weights.with_dir`)."""
+    else `weights_dir` (`WeightsDir.with_dir`); `config.resolve` refuses a model that is not of kind torchaudio or
+    has no entry."""
     model_id = config.resolve(model, TASK)
     if model_id not in _aligners:
-        name, spec, bare = spec_of(model_id)
-        spec = weights.with_dir(spec, weights_dir)
-        fetch(spec, bare)
+        name, bare = config.split_id(model_id)
+        spec = config.provider(name).with_dir(weights_dir)
+        fetch(spec, config.local_entry(model_id), bare)
         try:
             _aligners[model_id] = Aligner(bare, str(weights.model_dir(spec, bare)))
         except (OSError, RuntimeError) as e:

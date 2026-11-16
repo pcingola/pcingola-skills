@@ -8,8 +8,8 @@ from typing import Literal
 
 from pydantic import model_validator
 
-from ..fields import ExistingFile
-from ..remote_model import GoogleModel
+from ..fields import Catalogue, ExistingFile
+from ..google_model import GoogleModel
 from .base import RemoteProvider
 
 
@@ -19,7 +19,7 @@ class GoogleProvider(RemoteProvider):
     credentials: ExistingFile | None = None
     project: str | None = None
     location: str | None = None
-    models: dict[str, GoogleModel] = {}
+    models: Catalogue[GoogleModel] = {}
 
     def uses_cloud_credentials(self) -> bool:
         """A Vertex provider without `api_key` that names `project`, `location` or `credentials`."""

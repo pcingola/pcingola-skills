@@ -27,8 +27,7 @@ def test_existing_file_is_not_downloaded(tmp_path):
 
 
 def kokoro(**kw) -> KokoroProvider:
-    return KokoroProvider(kind="kokoro", model_url="http://127.0.0.1:1/m", voices_url="http://127.0.0.1:1/v",
-                          langs={"af_": "en-us"}, **kw)
+    return KokoroProvider(kind="kokoro", **kw)
 
 
 def test_model_dir_from_the_provider_dir():
@@ -37,10 +36,10 @@ def test_model_dir_from_the_provider_dir():
 
 
 def test_with_dir_defaults_dir():
-    """`with_dir` sets `dir` to the caller's default only when the provider has none, on a copy; without either,
-    `root` asks for `dir`."""
+    """`WeightsDir.with_dir` sets `dir` to the caller's default only when the provider has none, on a copy; without
+    either, `weights.root` asks for `dir`."""
     spec = kokoro()
-    assert weights.with_dir(spec, "/d") == kokoro(dir="/d") and spec.dir is None
-    assert weights.with_dir(kokoro(dir="/own"), "/d").dir == Path("/own")
+    assert spec.with_dir("/d") == kokoro(dir="/d") and spec.dir is None
+    assert kokoro(dir="/own").with_dir("/d").dir == Path("/own")
     with pytest.raises(ConfigError, match="set `dir`"):
-        weights.root(weights.with_dir(spec, None))
+        weights.root(spec.with_dir(None))

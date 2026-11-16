@@ -133,8 +133,7 @@ class Narrator:
 
         if self.kind != omni.KIND:
             return {}
-        name = self.model.partition(":")[0]
-        return {s: t for s in (None, *self.made_up) if (t := omni.first_take(name, s))}
+        return {s: t for s in (None, *self.made_up) if (t := omni.first_take(self.model, s))}
 
     def synthesize(self, line: Line) -> np.ndarray:
         """Mono float32 samples of `line` at `sample_rate`, in its speaker's resolved voice (`prepare`), with its own

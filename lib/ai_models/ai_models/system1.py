@@ -11,24 +11,20 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 
-from plugin_settings import RemoteProvider
-
 from . import config
-from .errors import ConfigError, explained
-from .models import base_url, http_client, provider_key
+from .errors import explained
+from .models import http_client, provider_key
 
 
 def system1_model(model: str | None = None, *, task: str = "system1"):
-    """The `SystemOneModel` of `model` (a model id), else of `task`."""
+    """The `SystemOneModel` of `model` (a model id), else of `task`; `config.resolve` refuses a provider without
+    `base_url`."""
     from pydantic_ai.models.system_one import SystemOneModel
     from pydantic_ai.providers.system_one import SystemOneProvider
 
     name, bare = config.split_id(config.resolve(model, task))
     spec = config.provider(name)
-    url = base_url(spec)
-    if not url or not isinstance(spec, RemoteProvider):
-        raise ConfigError(f"provider {name!r} has no base_url for System-1 models")
-    return SystemOneModel(bare, provider=SystemOneProvider(base_url=url, api_key=provider_key(spec),
+    return SystemOneModel(bare, provider=SystemOneProvider(base_url=spec.base_url, api_key=provider_key(spec),
                                                            http_client=http_client(spec)))
 
 

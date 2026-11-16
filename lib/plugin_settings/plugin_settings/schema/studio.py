@@ -4,31 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from .base import Strict
+from .fields import AbsolutePath
 
-DEFAULT_DIR = "~/Documents/Studio"
+DEFAULT_DIR = Path("~/Documents/Studio")
 
 
 class StudioSettings(Strict):
-    """`dir`: absolute or starting with `~`; `author`: names, whitespace collapsed, empty ones dropped."""
+    """`dir`: absolute or starting with `~` (expanded); `author`: names, whitespace collapsed, empty ones dropped."""
 
-    dir: str = DEFAULT_DIR
+    dir: AbsolutePath = Field(default_factory=DEFAULT_DIR.expanduser)
     author: list[str] = []
-
-    @field_validator("dir")
-    @classmethod
-    def _absolute(cls, v: str) -> str:
-        if not Path(v).expanduser().is_absolute():
-            raise ValueError(f"{v!r} is not an absolute path or a path starting with ~")
-        return v
 
     @field_validator("author")
     @classmethod
     def _names(cls, v: list[str]) -> list[str]:
         return [n for n in (" ".join(s.split()) for s in v) if n]
-
-    def path(self) -> Path:
-        """`dir` with `~` expanded."""
-        return Path(self.dir).expanduser()

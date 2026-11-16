@@ -35,26 +35,57 @@ The sections, each a class in `schema/`:
 | `voiceover` | `VoiceoverSettings` | `voices_dir` |
 
 Every class derives from `Strict` (`extra="forbid"`, frozen), so an unknown section or key fails with its path. A
-section that is empty or holds only comments parses as null and takes its defaults. Paths have `~` expanded;
-`network.extra_ca_cert` and `network.ca_bundle` must name existing files. `api_key` and `huggingface.token` are
+key that is empty or holds only comments parses as null; `Strict` gives it its default when that default is a
+section, mapping or list (an emptied section, `models:` map or list), and a null model entry is an empty one
+(`Catalogue`). A null `tasks.<task>` is an error (`ModelId`). Field types are in `schema/fields.py`: paths have `~`
+expanded (`UserPath`, `AbsolutePath` for `studio.dir`); `network.extra_ca_cert` and `network.ca_bundle` must name
+existing files (`ExistingFile`); URLs are validated by pydantic's URL types and kept as written (`HttpUrl` for
+endpoints and weight files, `ProxyUrl` with `PROXY_SCHEMES` for proxies); `api_key` and `huggingface.token` are
 `SecretStr`, and an empty one is an error.
 
-`providers.<p>.models` maps a bare model name (the part after the first colon) to its attributes:
+`providers.<p>.models` maps a bare model name (the part after the first colon) to its attributes. A provider holds
+what is about where and how its models run; each model's own attributes are on its entry:
 
-| Provider kind | Class of `models.<m>` | Fields |
-|---|---|---|
-| `ollama`, `openrouter`, `openai`, `azure` | `RemoteModel` | `image` |
-| `google` | `GoogleModel` | `image`, `predict` (served by the Vertex `:predict` endpoint) |
-| `diffusers` | `DiffusersModel` | `repo` (required) and the pipeline fields |
-| `vllm-omni`, `kokoro`, `chatterbox`, `torchaudio` | none | one model per provider, its fields on the provider |
+| Provider kind | Provider fields | Class of `models.<m>` | Model fields |
+|---|---|---|---|
+| `ollama`, `openrouter`, `openai`, `azure` | `api_key`, `base_url`, `timeout`; azure `api_version` | `OpenAIModel` | `image` (`OpenAIImageLimits`), `voice`, `voices` |
+| `google` | `api_key`, `base_url`, `timeout`, `vertex`, `credentials`, `project`, `location` | `GoogleModel` | `predict` (served by the Vertex `:predict` endpoint), `voice`, `voices` |
+| `diffusers` | none | `DiffusersEntry`: the class of the entry's role | `repo` (required), the pipeline fields of the role |
+| `kokoro` | `dir` | `KokoroModel` | `model_url`, `voices_url`, `langs`, `voice`, `voices` |
+| `torchaudio` | `dir` | `TorchaudioModel` | `url` |
+| `chatterbox` | `python`, `dir`, `start_timeout`, `timeout` | `ChatterboxModel` | `url`, `files`, `voice`, `voices` |
+| `vllm-omni` | `python`, `args`, `env`, `start_timeout`, `timeout` | `VllmOmniModel` | `repo`, `deploy`, `memory`, `overhead`, `style`, `voice`, `voices` |
 
-A remote provider serves any model id; its `models` holds attributes only. A `diffusers` model needs an entry,
-since the entry holds its `repo`. `image` is `ImageLimits`: `max_edge` (required), `min_edge`, `min_pixels`,
-`max_pixels`, `always_sized`, `default_quality` (`Quality`: low, medium, high, auto).
+The provider fields shared by several kinds are declared once, in classes the provider classes derive from:
+`TimedProvider` (`timeout`), `RemoteProvider` (`api_key`, `base_url`), `OpenAIKindProvider` (`models` of
+`OpenAIModel`), `WeightsDir` (`dir`, `with_dir`), `OwnEnvironment` (`python`, `start_timeout`). `Voices` holds
+`voice` and `voices` for every model class that may be a speech model. Every provider class has `models`, so
+`provider.models.get(model)` needs no check of the kind.
 
-`Config` checks cross references after every section validates: each `tasks.<task>` names a provider in `providers`,
-and a task on a `diffusers` provider names a model in its `models`. Each provider class checks its own required
-keys (`setup:settings` lists them).
+A remote provider serves any model id; its `models` holds attributes only. A model of a kind in `LOCAL_KINDS`
+(`diffusers`, `kokoro`, `torchaudio`, `chatterbox`, `vllm-omni`) needs an entry.
+
+A `diffusers` entry is one of four classes, one per `DiffusersRole`: `DiffusersImageModel` (`inpaint`, `image`),
+`DiffusersMusicModel` (`duration_arg` required, `lyrics_arg`, `min_crest_db`), `DiffusersVideoModel` (`pipeline`,
+`fps`, `size_multiple`, `frame_step`, `width`, `height`, `max_frames`, all required) and `DiffusersPresenterModel`
+(`pipeline`, `fps`, `buckets`, `audio_rate`, `output`, all required); all share `repo`, `steps`, `guidance`, `args`
+and `skip` (`DiffusersModel`). The YAML has no role key: `diffusers_entry.role_of` reads the role from the keys
+(a presenter-only key, then a video-only key or `pipeline`/`fps`, then a music key, else image), and the class of
+that role refuses a key of another role and names each missing required key.
+
+`image` limits differ by kind: `OpenAIImageLimits` (`max_edge`, `min_pixels`, `max_pixels`, all required;
+`always_sized`, `default_quality` of `Quality`: low, medium, high, auto) and `DiffusersImageLimits` (`max_edge`,
+`min_edge`, both required). Both derive from `ImageLimits` (`max_edge`).
+
+The groupings of provider kinds the code branches on are in `schema/provider_kind.py`: `OPENAI_KINDS`, `API_KINDS`,
+`LOCAL_KINDS`, `IMAGE_LIMIT_KINDS`, `SPEECH_KINDS`. `schema/task_kinds.py` holds `TASK_KINDS`, the kinds each task
+takes, and `TASK_ROLES`, the diffusers role of the image, music, video and presenter tasks.
+
+`Config.task_error(task, model_id)` says why a model cannot serve a task: its provider is not in `providers`, is of
+a kind not in `TASK_KINDS[task]`, is local and has no entry for the model, the entry is a diffusers model of another
+role, or a System-1 model's provider has no `base_url`. After every section validates, `Config` runs it for each
+`tasks.<task>`; `ai_models.config.resolve` runs it for a model a caller names (`--model`). Each provider class
+checks its own required keys (`setup:settings` lists them).
 
 `Config.provider(name)`, `Config.model_entry(model_id)` and `Config.task_model(task)` return None when absent;
 `ai_models.config` turns that into a `ConfigError` (`docs/ai_models.md`).
@@ -85,9 +116,10 @@ The setup:settings skill describes every key and creates the file.
 The cross references run only when every section is valid, so their lines (`tasks.music: provider 'vertex' is not
 in providers`) appear once the other errors are fixed.
 
-The path comes from Pydantic's `loc`, joined with `.` and list indexes as `[i]`; the provider kind tag of the
-discriminated union is dropped from it. An unknown key reads `not a setting` (`not a setting of kind <k>` inside a
-provider). Home paths show as `~`.
+The path comes from Pydantic's `loc`, joined with `.` and list indexes as `[i]`; the tags of the discriminated
+unions (the provider kind, the diffusers role) are dropped from it. An unknown key reads `not a setting` (`not a
+setting of kind <k>` inside a provider, `not a setting of a video model (kind diffusers)` inside a diffusers
+entry), a missing one `required` with the same suffix. Home paths show as `~`.
 
 ## Keys of the earlier layout
 
@@ -101,6 +133,7 @@ new place:
 | `settings` | each key: `IMAGE_GEN_*` to `providers.<p>.models.<m>.image.*`, `BRAND_PATH` to `brand.path`, `STUDIO_DIR` and `AUTHOR_NAME` to `studio.*`, `VOICEOVER_VOICES_DIR` to `voiceover.voices_dir`, proxies, `EXTRA_CA_CERT`, `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE` to `network.*`, `HF_HOME` and `HF_TOKEN` to `huggingface.*`; another `VOICEOVER_*` to `tasks.speech`, `tasks.align` and their providers; any other key is `not a setting` |
 | `providers.<p>.predict_models` | `providers.<p>.models.<m>.predict: true` |
 | `providers.<p>.memory_share` | `memory`, in GB |
+| `providers.<p>.<k>` for a model key `<k>` (`MODEL_KEYS`: `model_url`, `voices_url`, `langs`, `url`, `files`, `repo`, `deploy`, `memory`, `overhead`, `style`, `voice`, `voices`) | `providers.<p>.models.<m>.<k>` |
 
 The full texts are `OLD_SECTIONS`, `OLD_SETTINGS` and `OLD_PROVIDER_KEYS` in `old_keys.py`.
 
@@ -112,12 +145,13 @@ the file, so a shell variable is never a setting for the skills' code, the libra
 - Each row of `ENV_EXPORTS` (`EnvVar(name, getter, lower)`) sets its variable to the config value, or removes it
   when the value is None or empty. A row with `lower` sets or removes the lower-case name too, since httpx prefers
   `https_proxy` over `HTTPS_PROXY`.
-- Every variable whose name starts with one of `CLEARED_PREFIXES` (`OPENAI_`, `AZURE_OPENAI_`, `AZURE_VOICELIVE_`,
-  `OPENROUTER_`, `OLLAMA_`, `GOOGLE_GENAI_`, `GOOGLE_CLOUD_`, `SYSTEM_ONE_`) or is one of `CLEARED_KEYS`
-  (`GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_GEMINI_BASE_URL`,
-  `GOOGLE_VERTEX_BASE_URL`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`) is removed. The model clients of
-  ai_models read keys, endpoints, API versions, projects, credentials, extra headers and CA bundles from them;
-  ai_models passes each of those from `config.yaml` instead.
+- Every variable whose name starts with one of `CLEARED_PREFIXES` or is one of `CLEARED_KEYS` is removed. The model
+  clients of ai_models read keys, endpoints, API versions, projects, credentials, extra headers and CA bundles from
+  them, and huggingface_hub a cache, an offline switch and a token that would replace `huggingface.*`; ai_models
+  passes each of those from `config.yaml` instead. The names are listed for users in setup:settings `SKILL.md`, the
+  one statement of the list outside the code; `tests/unit/plugin_settings/test_settings.py` checks that it names
+  every one. The Chatterbox worker sets `HF_HUB_OFFLINE=1` in its own process after the export, since its weights
+  are local.
 
 `ENV_EXPORTS`:
 

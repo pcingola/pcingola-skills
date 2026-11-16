@@ -6,10 +6,10 @@ from typing import Literal
 
 from pydantic import model_validator
 
-from .base import RemoteProvider
+from .openai_kind import OpenAIKindProvider
 
 
-class OpenAIProvider(RemoteProvider):
+class OpenAIProvider(OpenAIKindProvider):
     kind: Literal["openai"]
 
     @model_validator(mode="after")

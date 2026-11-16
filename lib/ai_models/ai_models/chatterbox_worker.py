@@ -20,7 +20,7 @@ def main() -> None:
     answers = os.fdopen(os.dup(1), "w", buffering=1)
     os.dup2(2, 1)
     sys.stdout = sys.stderr
-    os.environ.setdefault("HF_HUB_OFFLINE", "1")  # the weights are local; no request to huggingface.co
+    os.environ["HF_HUB_OFFLINE"] = "1"  # the weights are local; no request to huggingface.co
     import numpy as np
     import soundfile as sf
     from chatterbox.tts_turbo import ChatterboxTurboTTS

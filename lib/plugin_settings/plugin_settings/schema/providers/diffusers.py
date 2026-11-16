@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Literal
 
 from ..base import Strict
-from ..diffusers_model import DiffusersModel
+from ..diffusers_entry import DiffusersEntry
+from ..fields import Catalogue
 
 
 class DiffusersProvider(Strict):
     kind: Literal["diffusers"]
-    models: dict[str, DiffusersModel] = {}
+    models: Catalogue[DiffusersEntry] = {}

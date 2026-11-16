@@ -24,12 +24,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin_settings import GoogleProvider, Provider, ProviderKind, RemoteProvider
+from plugin_settings import GoogleProvider, Provider, ProviderKind, RemoteProvider, TimedProvider
 
 from . import config
-from .errors import ConfigError
 
-OLLAMA_URL = "http://localhost:11434/v1"
 OPENAI_URL = "https://api.openai.com/v1"
 # The key of a provider that needs none, so the client library does not read one from its environment
 # variable; servers that check no key ignore it.
@@ -39,11 +37,9 @@ CONNECT_TIMEOUT_SECONDS = 10.0
 # The Pydantic-AI model prefix of a kind, where it differs; `openai` uses Chat Completions,
 # which every OpenAI-compatible server has.
 CHAT_PREFIX = {ProviderKind.OPENAI: "openai-chat"}
-API_KINDS = (ProviderKind.OLLAMA, ProviderKind.OPENROUTER, ProviderKind.OPENAI, ProviderKind.AZURE,
-             ProviderKind.GOOGLE)
 
 
-def http_client(spec: Provider):
+def http_client(spec: TimedProvider):
     """An `httpx2.AsyncClient` with the provider's `timeout` (seconds) and the TLS context of `tls`."""
     import httpx2
 
@@ -51,12 +47,6 @@ def http_client(spec: Provider):
 
     return httpx2.AsyncClient(verify=ssl_verify(), timeout=httpx2.Timeout(spec.timeout,
                                                                          connect=CONNECT_TIMEOUT_SECONDS))
-
-
-def base_url(spec: Provider) -> str | None:
-    """The provider's `base_url`; Ollama's default for an `ollama` provider without one."""
-    url = getattr(spec, "base_url", None)
-    return url or (OLLAMA_URL if spec.kind == ProviderKind.OLLAMA else None)
 
 
 def uses_cloud_credentials(spec: Provider) -> bool:
@@ -85,13 +75,11 @@ def vertex_provider(spec: GoogleProvider, url: str | None, http):
 
 
 def provider(name: str):
-    """The Pydantic-AI provider of provider `name` in the config."""
+    """The Pydantic-AI provider of provider `name` in the config, a provider of a kind in `API_KINDS`: callers
+    reach it with a model id that `config.resolve` checked against its task's kinds."""
     spec = config.provider(name)
     kind = spec.kind
-    if kind not in API_KINDS:
-        raise ConfigError(f"provider {name!r} of kind {kind!r} has no API models; kinds: "
-                          + ", ".join(API_KINDS))
-    url = base_url(spec)
+    url = spec.base_url
     if uses_cloud_credentials(spec):
         return vertex_provider(spec, url, http_client(spec))
     key, http = provider_key(spec), http_client(spec)

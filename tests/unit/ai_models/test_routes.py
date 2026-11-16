@@ -24,7 +24,10 @@ HEADER = "| task | model | when | why |\n|---|---|---|---|\n"
 # escalation models, and an Ollama provider.
 LOCAL = {"providers": {"local": {"kind": "diffusers", "models": {"flux2-klein-4b": {"repo": "r/f"},
                                                                   "qwen-image": {"repo": "r/q"},
-                                                                  "ltx-2.5": {"repo": "r/l"}}},
+                                                                  "ltx-2.5": {"repo": "r/l", "pipeline": "P", "fps": 24,
+                                                                              "size_multiple": 32, "frame_step": 8,
+                                                                              "width": 64, "height": 64,
+                                                                              "max_frames": 9}}},
                        "ollama": {"kind": "ollama"}},
          "tasks": {"image": "local:flux2-klein-4b", "video": "local:ltx-2.5"}}
 
@@ -71,11 +74,13 @@ def test_default_row_from_config_then_escalations(write_config, tmp_path):
 
 
 def test_user_rows_in_file_order_and_unconfigured_dropped(write_config, tmp_path):
-    """Escalation rows keep the file's order; a row of a missing provider or diffusers model is left out."""
+    """Escalation rows keep the file's order; a row of a missing provider or diffusers model, or of a model that
+    cannot serve the task (`Config.task_error`: a diffusers model of another role), is left out."""
     write_config(LOCAL)
     user_table(tmp_path, "| image | ollama:x-image | only when it is a diagram | mine |\n"
                          "| image | cloud:gpt | only when tested | no such provider |\n"
                          "| image | local:not-there | only when tested | no such diffusers model |\n"
+                         "| image | local:ltx-2.5 | only when tested | a video model |\n"
                          "| image | local:qwen-image | only when text | spelled |\n")
     assert routes.table(["image"])[1:] == [
         routes.Route("image", "ollama:x-image", "only when it is a diagram", "mine"),
@@ -143,12 +148,12 @@ def test_malformed_table_names_file_and_line(write_config, tmp_path, table, line
 def test_user_file_beside_skills_config(tmp_path):
     """The table is `routes.md` in the directory of the config file that SKILLS_CONFIG names."""
     cfg = write_settings(tmp_path / "elsewhere" / "config.yaml", **LOCAL)
-    user_table(cfg.parent, "| video | local:ltx-2.5 | default | calm scenes |\n"
-                           "| video | ollama:v | only when tested | mine |\n")
+    user_table(cfg.parent, "| image | local:flux2-klein-4b | default | drafts |\n"
+                           "| image | ollama:v | only when tested | mine |\n")
     env = child_env(SKILLS_CONFIG=str(cfg))
     assert py_value("from ai_models import routes", "str(routes.user_path())", env) == str(cfg.parent / "routes.md")
-    assert py_value("from ai_models import routes", "[[r.model, r.why] for r in routes.table(['video'])]", env) == [
-        ["local:ltx-2.5", "calm scenes"], ["ollama:v", "mine"]]
+    assert py_value("from ai_models import routes", "[[r.model, r.why] for r in routes.table(['image'])]", env) == [
+        ["local:flux2-klein-4b", "drafts"], ["ollama:v", "mine"]]
 
 
 def test_command_prints_the_table_or_the_error(write_config, tmp_path, capsys):
