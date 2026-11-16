@@ -57,7 +57,22 @@ A skill installed as part of a plugin loads as `<plugin>:<skill>`. A skill that 
 
 ## Python environments
 
-Each skill with a CLI tool runs it with `uv run --project` in its own environment, so `uv` must be on `PATH`. uv builds the environment on first use, under `<plugin data dir>/env/`, outside the plugin directory. `<plugin data dir>` is `$CLAUDE_PLUGIN_DATA`, else `<config dir>/plugins/data/<plugin>-pcingola-skills`. The shared libraries (`plugin-settings`, `ai-models`) are git dependencies that uv downloads from the marketplace's GitHub repository while building the environment. That needs `git`, network access to GitHub and read access to the repository (the same git credentials as installing the marketplace from it).
+Each skill with a CLI tool runs it with `uv run --project` in its own environment, so `uv` must be on `PATH`. uv builds the environment on first use, under `<plugin data dir>/env/`, outside the plugin directory. `<plugin data dir>` is `$CLAUDE_PLUGIN_DATA`, else `<config dir>/plugins/data/<plugin>-pcingola-skills`. The shared libraries (`plugin-settings`, `ai-models`) are git dependencies that uv downloads from the marketplace's GitHub repository while building the environment. That needs `git` and network access to `https://github.com/pcingola/pcingola-skills`; the repository is public, so no credentials. uv downloads Python 3.11 or later when the system has none. Most environments build in seconds; voiceover always installs PyTorch (on Linux the CUDA 13.0 build, a few GB, which also runs on the CPU), and image-gen, music and short-video install it at the GPU level.
+
+## System tools
+
+When the user sets up the skills, name the tools that the skills the user wants need on `PATH`, with their install command:
+
+| Tool | Skills | macOS | Linux (Debian, Ubuntu) |
+|---|---|---|---|
+| `uv`, `git` | every CLI skill | `brew install uv git` | `curl -LsSf https://astral.sh/uv/install.sh \| sh`, `apt-get install git` |
+| `ffmpeg` | music, short-video, video-effects, voiceover recordings, second-opinion large video | `brew install ffmpeg` | `apt-get install ffmpeg` |
+| `soffice`, `pdftoppm` | pptx previews and slide export | `brew install libreoffice poppler` | `apt-get install libreoffice poppler-utils` |
+| `node` 22 or later, `npm` | short-video HTML scenes (the first render runs `npm ci` and downloads a headless Chrome) | `brew install node` | Node.js 22 from nodejs.org or NodeSource |
+| `latex`, `dvisvgm` | short-video Manim scenes with formulas | `brew install --cask mactex` | `apt-get install texlive texlive-latex-extra dvisvgm` |
+| `ollama` | the `ollama` provider | ollama.com | ollama.com |
+
+Short-video Manim scenes on Linux also need `libcairo2-dev`, `libpango1.0-dev`, `pkg-config` and a C compiler. On macOS, PyTorch has wheels only for Apple Silicon, so voiceover does not run on an Intel Mac.
 
 ## The settings file: config.yaml
 
@@ -88,7 +103,7 @@ Rules:
 When the user asks to set up the skills, or a skill reports a missing config, setting or key:
 
 1. Find the file: `$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`. Read it when it exists.
-2. When it does not exist, read `${CLAUDE_SKILL_DIR}/assets/config.example.yaml`. Ask the user's level (below), then write the file from the template: the `providers` and `models` of that level, `diffusers` only for the GPU level, and the whole commented `settings` section. Create the directory when it is missing.
+2. When it does not exist, read `${CLAUDE_SKILL_DIR}/assets/config.example.yaml`. Ask the user's level (below), then write the file from the template: the `providers` and `models` of that level (every level includes `kokoro` and `torchaudio` with the tasks `speech` and `align`: voiceover aligns by default), `diffusers` only for the GPU level, and the whole commented `settings` section. Create the directory when it is missing.
    Then write `routes.md` in the same directory as a copy of `${CLAUDE_SKILL_DIR}/assets/routes.md` (Model routes below), unless it exists.
 3. Ask for each key the chosen providers need and write it as `api_key` of the provider. Never echo a key back in the reply.
 4. Ask for the settings of the skills the user wants (the table of required settings below), and uncomment or add them under `settings`.
@@ -102,7 +117,7 @@ Each level adds to the one before.
 
 | Level | Needs | Providers | Tasks it serves |
 |---|---|---|---|
-| 1. API only | a key of OpenRouter, of Azure OpenAI and Vertex AI, or of a company (enterprise) gateway that serves them; no GPU | `openrouter` (kind `openrouter`) or `azure` (kind `azure`) and `vertex` (kind `google`, `vertex: true`), each with the `base_url` of the service or of the gateway | `chat`, `vision`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `audio`; `music` on a provider of kind `google` (Lyria) |
+| 1. API only | a key of OpenRouter, of Azure OpenAI and Vertex AI, or of a company (enterprise) gateway that serves them; no GPU | `openrouter` (kind `openrouter`) or `azure` (kind `azure`) and `vertex` (kind `google`, `vertex: true`), each with the `base_url` of the service or of the gateway; `kokoro` (kind `kokoro`) and `torchaudio` (kind `torchaudio`) on the CPU, no key | `chat`, `vision`, `image`, `image_best`, `speech`, `align`, `audio`; `image_edit` and `image_multi_ref` on `azure` or `vertex` (OpenRouter serves no image edits: `POST /images/edits` returns 404); `music` on a provider of kind `google` (Lyria) |
 | 2. Ollama | a running Ollama server with the models pulled (`ollama pull <tag>`); no key | add `ollama` (kind `ollama`) | `system1` (System-1 models, needed by classify `--backend system1`), small `chat` and `vision` models, `speech` on macOS (`lfm3-audio`, for tests only: its intonation is odd and uncontrolled) |
 | 3. GPU | an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon | add `local` (kind `diffusers`) and the `diffusers` section | `image`, `image_edit`, `image_best`, `image_multi_ref`, `music`, `video`, `presenter` in the skill's process |
 
@@ -143,7 +158,7 @@ Provider kinds (`providers.<name>.kind`):
 | Kind | Serves | Keys of the entry |
 |---|---|---|
 | `ollama` | chat, vision, embeddings, System-1 models, speech (Ollama on macOS) | `base_url` (default `http://localhost:11434/v1`) |
-| `openrouter` | chat, vision, audio input, embeddings, images, image edits, speech | `api_key` |
+| `openrouter` | chat, vision, audio input, embeddings, images (no image edits: `image_edit`, `image_multi_ref` and `--ref` need another kind), speech | `api_key` |
 | `openai` | any OpenAI-compatible server: chat, embeddings, images, speech | `base_url` (default the OpenAI API), `api_key` (required without `base_url`) |
 | `azure` | Azure OpenAI: chat, images with masks, speech | `base_url` (the Azure endpoint), `api_version`, `api_key` |
 | `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint, which takes Google Cloud credentials in place of `api_key`: `credentials` (path to a service-account JSON file; its project unless `project` is set), else Application Default Credentials (`gcloud auth application-default login`), with `project` and `location` (default `us-central1`); the `:predict` models need `api_key`; `predict_models`, the music models served by the Vertex `:predict` endpoint (the others stream) |

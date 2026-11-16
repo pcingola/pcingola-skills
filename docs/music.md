@@ -6,21 +6,22 @@ behaviour and the local models are in `ai_models` (`docs/ai_models.md`).
 
 ## Generation
 
-The model is `--model` (a `<provider>:<model>` id), else `models.music`. The skill has no aliases and no model table.
+The model is `--model` (a `<provider>:<model>` id), else `models.music`. The skill has no model table in code.
 The wrapper installs the skill's `local` extra (`ai-models[diffusers]`) when the config has a provider of kind
 `diffusers`.
 
-`ai_models.music.compose` refuses, before any request, an option the model kind does not take (`music.TAKES`):
+`ai_models.music.compose` refuses, before any request, an option the model's API does not take (`music.TAKES`,
+`music.model_api`):
 
-| Model kind | Options |
-|---|---|
-| `diffusers` (ACE-Step) | `--seconds`, `--lyrics`, `--seed` |
-| `lyria-002` (`:predict`) | `--seed`, `--negative`, `--samples` |
-| other Lyria models (Lyria 3, stream) | `--seconds`, `--lyrics`, `--image` (up to 10) |
+| API | Models | Options |
+|---|---|---|
+| `diffusers` | ACE-Step | `--seconds`, `--lyrics`, `--seed` |
+| `predict` | `google` models in the provider's `predict_models` (`lyria-002`) | `--seed`, `--negative`, `--samples` |
+| `stream` | other `google` models (Lyria 3) | `--seconds`, `--lyrics`, `--image` (up to 10) |
 
 `--seed` with `--samples` is refused. The endpoint can answer a bad streaming request with no cause, so refusing early gives
-the only useful message. The skill no longer checks the `--seconds` range or the output extension per model; the
-model refuses what it cannot do.
+the only useful message. The skill checks neither the `--seconds` range nor the output extension per model; the model
+refuses what it cannot do.
 
 Lyria has no request fields for tempo or vocals, so `prompt.compose` writes them into the prompt. ACE-Step reads the
 prompt as style tags, so `--bpm` is appended as a tag (`prompt.tags`) and `--instrumental` is the lyrics
@@ -32,10 +33,10 @@ with the audio (lyrics or song structure).
 
 ## Crest factor check
 
-ACE-Step 1.5 XL turbo (`ACE-Step/acestep-v15-xl-turbo-diffusers`, 8 steps) generates loud, compressed audio; more
-turbo steps did not change it. The XL SFT model (`ACE-Step/acestep-v15-xl-sft-diffusers`, 50 steps, guidance 7) takes
-about 12 s per 30 s clip, and in a listening test SFT was clearly better. The config template's `models.music` is
-therefore `local:ace-step-sft`; the turbo model `local:ace-step` stays for tests and quick drafts.
+ACE-Step 1.5 XL turbo (`ACE-Step/acestep-v15-xl-turbo-diffusers`, 8 steps) generates loud, compressed audio at 8,
+16 and 32 steps. The XL SFT model (`ACE-Step/acestep-v15-xl-sft-diffusers`, 50 steps, guidance 7) takes about 12 s
+per 30 s clip and won a listening test against turbo. The config template's `models.music` is `local:ace-step-sft`;
+the turbo model `local:ace-step` is for tests and quick drafts.
 
 The crest factor (`measure.crest_db`) is sample peak minus RMS over the 2 s windows whose RMS is within 6 dB of the
 loudest, on the track decoded in stereo at 48 kHz (`measure.track_crest_db`). The whole-file value counts quiet intros,
@@ -79,10 +80,10 @@ The description request therefore holds no brief, so the description is not prim
 second request, sent only when a brief exists, which quotes the description and the briefs. An answer that lacks a key
 the schema requires is asked again.
 
-Probed 2026-10-21 on Vertex AI, gemini-3.1-pro-preview, gemini-3.5-flash, gemini-3-flash-preview,
-gemini-3.1-flash-lite, gemini-2.5-pro, gemini-2.5-flash and gemini-2.5-flash-lite accepted inline audio. All of them
-misreported the pitch of a 440 Hz tone, and the tempo a model gave usually repeated the brief's. Probed 2026-10-23 on
-the same clips, gemini-3.1-pro-preview:
+On Vertex AI, gemini-3.1-pro-preview, gemini-3.5-flash, gemini-3-flash-preview, gemini-3.1-flash-lite,
+gemini-2.5-pro, gemini-2.5-flash and gemini-2.5-flash-lite accept inline audio. In a probe all of them misreported the
+pitch of a 440 Hz tone, and the tempo a model gave usually repeated the brief's. A second probe on the same clips,
+gemini-3.1-pro-preview:
 
 | clip | answer |
 |---|---|

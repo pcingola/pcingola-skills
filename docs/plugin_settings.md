@@ -8,13 +8,12 @@ is `plugins/setup/skills/settings/assets/config.example.yaml`.
 ## The settings file
 
 One file for all plugins: `$SKILLS_CONFIG` when set, else `<config dir>/plugins/data/config.yaml`, where `<config
-dir>` is `$CLAUDE_CONFIG_DIR`, else `~/.claude`. `use(path)` sets another file for the process. `read_config()`
+dir>` is `$CLAUDE_CONFIG_DIR`, else `~/.claude`. `use(path)` sets another file for the process, over `$SKILLS_CONFIG`. `read_config()`
 returns the parsed file, `{}` when the file is missing or empty, and raises `ConfigFileError` when it is not valid
-YAML or not a mapping. ai_models reads its sections (`providers`, `models`, `diffusers`) through the same two calls
-(`docs/ai_models.md`), so there is one file and one loader.
+YAML or not a mapping. ai_models reads its sections (`providers`, `models`, `diffusers`) through `config_file()`
+and `read_config()` (`docs/ai_models.md`), so there is one file and one loader.
 
-The fourth section, `settings`, holds every other setting as `KEY: value`, with the setting names the skills used
-before (`HF_HOME`, `EXTRA_CA_CERT`, ...). It is flat: no setting name is read by two plugins
+The fourth section, `settings`, holds every other setting as `KEY: value` (`HF_HOME`, `EXTRA_CA_CERT`, ...). It is flat: no setting name is read by two plugins
 with two meanings. `settings()` returns it as strings: a YAML boolean becomes `true` or `false`, a number its text,
 and a key with no value (null) is left out. A list or mapping value, or a `settings` that is not a mapping, exits
 with an error naming the file.
@@ -69,7 +68,8 @@ dir>/plugins/cache/<marketplace>/<plugin>/<version>` sits in a directory named a
 ## Data directory
 
 Without `CLAUDE_PLUGIN_DATA`, the data directory is the one Claude Code assigns to the plugin, `<config
-dir>/plugins/data/<plugin>-<marketplace>`. The marketplace name has two sources:
+dir>/plugins/data/<plugin>-<marketplace>`, with characters other than letters, digits, `_` and `-` replaced by `-`.
+The marketplace name has two sources:
 
 - A plugin loaded in place from a directory marketplace has `.claude-plugin/marketplace.json` above it, whose `name`
   is used.

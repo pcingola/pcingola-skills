@@ -1,7 +1,7 @@
 # ai_models
 
 `lib/ai_models` (distribution `ai-models`) makes every model call of the skills (`docs/architecture.md`, One home
-per concern). It has three parts:
+per concern). It has four parts:
 
 1. Pydantic-AI: chat, vision, audio input, embeddings, image generation, image edits with reference images and
    System-1 models. The package reads the config and builds the Pydantic-AI object (`Agent`, `Embedder`,
@@ -21,16 +21,16 @@ per concern). It has three parts:
 | `models` | the Pydantic-AI provider of each kind; `chat_model`, `agent`, `embedder` |
 | `images` | `image_generator`, `MaskedOpenAIImageModel` |
 | `system1` | `system1_model`, `decide` |
-| `speech` | `speak`, `voices`, `check`, `fetch`, `model_of`; `Traits` and `TRAITS` (what each kind's speech models take) |
+| `speech` | `speak`, `voices`, `check`, `fetch`, `model_of`, `model_of_kind`; `Traits` and `TRAITS` (what each kind's speech models take) |
 | `kokoro` | `speak`, `voices` of a `kokoro` provider (Local speech and alignment) |
 | `chatterbox` | `speak` of a `chatterbox` provider through `chatterbox_worker.py` (Local speech and alignment) |
 | `align` | `aligner`: an `Aligner` of a `torchaudio` provider (Local speech and alignment) |
 | `weights` | the weights directory of a provider (`dir`), `ensure_file` |
 | `espeak` | the espeak-ng data path for Kokoro |
 | `music` | `compose` |
-| `video` | `animate`, `aanimate`; `frame_count`, `frame_size`, `clip_size` |
+| `video` | `animate`, `aanimate`, `present`, `apresent`; `frame_count`, `frame_size`, `clip_size`, `bucket` |
 | `omni` | `aspeak` of a vLLM-Omni server (Speech models of vLLM-Omni) |
-| `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` (video), the pipeline cache, the lock, memory check and cap (Local model memory) |
+| `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` and `present` (video), the pipeline cache, the lock, memory check and cap, what holds the memory (Local model memory) |
 | `tls` | the TLS context of remote clients |
 | `errors` | `AIModelsError`, `ConfigError`, `explained` |
 
@@ -50,8 +50,8 @@ The package reads three sections; the fourth, `settings`, belongs to `plugin_set
   (seconds, default 600) applies to every request of that provider.
 - Keys come only from `api_key`. `openrouter`, `azure`, `google` and `openai` without `base_url` need it; building
   one of them without it raises `ConfigError` before any request. A Vertex provider (`google` with `vertex: true`)
-  may instead set `project`, `location` and `credentials` (a service-account JSON file); its predict models (Lyria)
-  still need `api_key`. `ollama` and `openai` with a `base_url` need no key and send a placeholder, so no client
+  may instead set `project`, `location` and `credentials` (a service-account JSON file; without it, Application
+  Default Credentials); its predict models (Lyria) still need `api_key`. `ollama` and `openai` with a `base_url` need no key and send a placeholder, so no client
   library reads its own environment variable. A 401 or 403 from a provider without `api_key` names
   `providers.<name>.api_key` and the config file.
 - `models`: task to model id. A model id is `<provider name>:<model>`; the first colon splits it, so
@@ -123,7 +123,7 @@ The template rows come from wall-time and quality measurements on an NVIDIA GB10
 | `google` | `GoogleProvider`, or `GoogleCloudProvider` (Vertex) with `vertex: true` | `api_key`, `base_url`; Vertex: `project`, `location`, `credentials` |
 | `diffusers` | none; `local` | none |
 | `kokoro` | none; `kokoro` | `model_url`, `voices_url`, `langs`, `dir` (Local speech and alignment) |
-| `chatterbox` | none; `chatterbox` | `python`, `url`, `files`, `dir` (Local speech and alignment) |
+| `chatterbox` | none; `chatterbox` | `python`, `url`, `files`, `dir`, `start_timeout` (Local speech and alignment) |
 | `torchaudio` | none; `align` | `url`, `dir` (Local speech and alignment) |
 | `vllm-omni` | none; `omni` | `python`, `repo`, `deploy`, `memory`, `overhead`, `style`, `args`, `env`, `start_timeout` (Speech models of vLLM-Omni) |
 
@@ -140,6 +140,7 @@ What each kind serves:
 | align | `align.aligner` | `torchaudio` |
 | music | `music.compose`: Google predict or stream, or `local.DiffusersMusicModel` | `google`, `diffusers` |
 | video | `video.animate`: `local.animate` (image to video) | `diffusers` |
+| presenter | `video.present`: `local.present` (portrait and speech to video) | `diffusers` |
 
 Remote clients are one `httpx2.AsyncClient` per provider object, with the provider's timeout and the context of
 `tls`.
@@ -149,8 +150,9 @@ Remote clients are one `httpx2.AsyncClient` per provider object, with the provid
 Pydantic-AI covers chat, vision, audio input, structured output, embeddings, image generation and image edits with
 reference images, and System-1 models. The package adds no retry policy of its own: the callers rely on
 Pydantic-AI's errors (`ModelRateLimitError`, `ModelConnectionError`, `ContentFilterError`, ...) and decide what to
-retry. `errors.explained(model_id)` wraps a call and turns two common failures into an `AIModelsError` with the fix:
-an Ollama model that is not pulled (HTTP 404, "run `ollama pull <model>`") and a provider that does not answer.
+retry. `errors.explained(model_id)` wraps a call and turns three common failures into an `AIModelsError` with the
+fix: a 401 or 403 from a provider without `api_key` (Config), an Ollama model that is not pulled (HTTP 404, "run
+`ollama pull <model>`") and a provider that does not answer.
 
 The adapters cover what Pydantic-AI has no call for:
 
@@ -166,12 +168,13 @@ The adapters cover what Pydantic-AI has no call for:
   models of the `google` kind stream with
   AUDIO and TEXT parts; length and lyrics go in the prompt, images as parts after it, and the text parts come back
   with the MP3. A server may end the stream with a `[DONE]` line the SDK cannot parse: it is ignored once audio
-  arrived, and a stream without audio is tried again, up to 3 times. `music.TAKES` lists the options of each model
+  arrived, and a stream without audio is tried again, 3 attempts in all. `music.TAKES` lists the options of each model
   kind (`diffusers`, `predict`, `stream`); another option is refused before any request.
 - Local models (`local`). `DiffusersImageModel` is a Pydantic-AI `ImageGenerationModel`; `DiffusersMusicModel` gives
   a WAV file; `animate` gives an MP4 (Video). Pipelines load in bfloat16 with `DiffusionPipeline.from_pretrained`,
-  or with the class a model's `pipeline` names, on CUDA, else MPS, else an error,
-  and stay loaded for the life of the process. `from_pretrained` leaves the weights memory-mapped from the safetensors
+  or with the class a model's `pipeline` names, from the cached snapshot folder when the Hugging Face cache has
+  one (a load by repository id fetches every weight file of each component folder, including shardings the
+  pipeline never reads), on CUDA, else MPS, else an error, and stay loaded for the life of the process. `from_pretrained` leaves the weights memory-mapped from the safetensors
   files; `to_device` copies each one to process memory before the move to the GPU, because a host-to-device copy
   from a file mapping is about 100 times slower on a unified-memory GPU (GB10: 87 s against under 2 s for FLUX.2
   klein 4B). Weights go to the Hugging Face cache. torch and diffusers are imported
@@ -182,7 +185,7 @@ The adapters cover what Pydantic-AI has no call for:
 A diffusers pipeline runs in the caller's process and keeps its weights for the life of that process. Skills run
 model commands in parallel (parallel tool calls, one subagent per scene), and Ollama keeps a model resident for
 5 minutes after its last call. On a unified-memory GPU, allocations past the free memory exhaust system memory and
-the machine hangs without an error. `local.pipeline` therefore does three things before a load:
+the machine hangs without an error. `local.pipeline` therefore does four things before a load:
 
 - Lock. The first load of a process takes an exclusive `filelock.FileLock` on `ai-models-local.lock` in the system
   temporary directory (`tempfile.gettempdir()`) and holds it until the process exits; the OS releases it then,
@@ -197,12 +200,12 @@ the machine hangs without an error. `local.pipeline` therefore does three things
   for 0.5 s and 126.9 GB 1 s after, so a 70 GB load right after the handover is refused. A process that waited for the lock
   therefore waits up to `SETTLE_SECONDS` for the PID in the PID file to exit (gone, or a zombie), and a check that
   then fails reads the free memory again every `SETTLE_POLL_SECONDS` for up to `SETTLE_SECONDS`
-  (`wait_for_memory`) and resets the cap before it raises.
+  (`wait_for_memory`) and sets the cap again from the last reading before the check.
 - Check. After `from_pretrained` and before any weight moves to the device, the bytes of every parameter and
   buffer of the pipeline's torch modules (`weight_bytes`) are compared with the device's free memory
   (`free_memory`), read before the load, because a load that converts dtypes holds the weights in process memory
-  until the move. Weights over the free memory raise `AIModelsError` with the model, both sizes in GB and the
-  models resident in each `ollama` provider of the config (`GET /api/ps`).
+  until the move. Weights over the free memory raise `AIModelsError` (`memory_error`) with the model, both sizes in
+  GB and what holds the memory (`memory_holders`, Speech models of vLLM-Omni).
 - Cap. On CUDA, `torch.cuda.set_per_process_memory_fraction((free + memory_reserved) / total)` is set before each
   load (`cap_memory`). Growth during a load or call then raises `torch.OutOfMemoryError`, which `out_of_memory`
   turns into the same kind of `AIModelsError`, instead of taking memory other processes need. MPS has its own
@@ -224,7 +227,7 @@ list `speech.voices` returns; without it a `kokoro` model lists its voices and t
 that takes none or that name a field the request is built with (`omni.BUILT_FIELDS`), before any request or model
 load; `speak` calls it. `speech.model_of_kind(kind)` is the configured speech model of a provider kind:
 `models.speech` when its provider has the kind, else the first speech routes row of such a provider, else None
-(media:short-video and Studio map a voice of an earlier version with it). `aspeak` runs Kokoro and Chatterbox in a
+(media:short-video and Studio map the voice `backend` field of an earlier storyboard with it). `aspeak` runs Kokoro and Chatterbox in a
 worker thread (`asyncio.to_thread`), so they do not block the event loop; one lock per kind serializes a model load
 or a worker request.
 
@@ -236,7 +239,7 @@ providers with the same `dir` and model share the files. `weights.ensure_file` d
 `<file>.part`, checks its length against Content-Length and renames it, so a failed download leaves no file under the
 final name; it uses the TLS context of `tls`. `speech.fetch` downloads the files of a `kokoro` or `chatterbox` model.
 
-- `kokoro`: kokoro-onnx in the caller's process on the CPU (extra `ai-models[kokoro]`), no lock. `model_url` and
+- `kokoro`: kokoro-onnx in the caller's process on the CPU (extra `ai-models[kokoro]`), no local-model lock. `model_url` and
   `voices_url` are the ONNX model and the voices file (the kokoro-onnx GitHub release); `langs` maps a voice-name
   prefix to the espeak-ng language it is phonemized with, and a voice of no listed prefix is refused. One model per
   model file stays loaded for the life of the process. The answer is a 24 kHz WAV file; speed 0.5 to 2 (kokoro-onnx's
@@ -276,7 +279,8 @@ model (`repo`). `omni.aspeak`:
    SIGTERM), takes the local-model lock (`local.hold_lock`, Local model memory) and reads the free memory
    (`local.free_memory`). After waiting for the lock, it reads the free memory until it stops rising
    (`local.wait_for_settled_memory`: a rise under 0.5 GB between readings 0.5 s apart, at most 10 s), while the
-   previous holder's memory comes back. vLLM 0.32 checks each stage's budget against the same figure: on an
+   previous holder's memory comes back, and when that is short of the need, reads it again for up to
+   `SETTLE_SECONDS` (`local.wait_for_memory`). vLLM 0.32 checks each stage's budget against the same figure: on an
    integrated GPU `MemAvailable` (`MemorySnapshot.measure`), elsewhere `mem_get_info()`. The start needs the
    provider's `memory` (GB, the stages' budgets together) plus `overhead` (GB the server takes outside `memory`,
    default `omni.OVERHEAD_GB`, 22). When less is free and local Ollama models hold the shortfall, it waits for
@@ -343,8 +347,8 @@ model (`repo`). `omni.aspeak`:
    only the last `LOG_TAIL` characters). `StartFailure.KV_CACHE` (no memory for the cache blocks) gives
    `local.memory_error` with the advice to raise `memory`; `StartFailure.OUT_OF_MEMORY` (a CUDA or torch
    out-of-memory error, or vLLM's free memory check) the advice to free memory or lower `memory`. A CUDA
-   out-of-memory error at this process's first CUDA calls (`omni.context_out_of_memory`) gives the second advice
-   too. The start runs in the calling thread, the event loop's, and blocks the loop while the model loads:
+   out-of-memory error at this process's first CUDA calls (`omni.context_out_of_memory`) gives `local.memory_error`
+   with the advice to free memory. The start runs in the calling thread, the event loop's, and blocks the loop while the model loads:
    `PR_SET_PDEATHSIG` stops the server when the thread that started it exits, and the loop's thread lives as long
    as the caller.
 4. Sends each request asynchronously (`httpx.AsyncClient`) to `POST /v1/audio/speech` (`response_format: wav`; the
@@ -360,8 +364,9 @@ eager took 34 s), `--stage-init-timeout 1800`, and `VLLM_USE_FLASHINFER_SAMPLER=
 sampling kernel for sm_121 and JIT-compiles it with nvcc, which is not installed). vllm-omni 0.32.0 needs vllm
 0.32 (with vllm 0.33 its CLI fails on `vllm.entrypoints.launchers.cli_args`).
 
-The server lives for one command, like a diffusers pipeline. The in-process `Omni` class was not used: it needs
-the model's prompt layout in our code (vLLM-Omni's TTS adapter builds it for the server, per architecture).
+The server lives for one command, like a diffusers pipeline. The package does not use the in-process `Omni` class:
+it needs the model's prompt layout in the caller's code (vLLM-Omni's TTS adapter builds it for the server, per
+architecture).
 
 Voice: `default` (the model's own voice), or a path to a reference recording with its transcript in a `.txt` file
 of the same stem, sent as `ref_audio` (a `data:` URI) and `ref_text`. Drama 3 picks a new speaker for each
@@ -423,8 +428,8 @@ entry with optional `steps`, `guidance`, `args` and `skip`, and these keys, all 
 | `audio_rate` | the sample rate the model takes the speech at; the speech goes to the model mono at this rate |
 | `output` | the pipeline output that holds the videos (a modular pipeline's `output=` argument) |
 
-PyAV decodes and resamples the speech (`local.read_audio`). The image is cropped to the bucket (`ImageOps.fit`) and
-passed with its `width` and `height`; `prompt`, when given, replaces the pipeline's default prompt.
+PyAV decodes and resamples the speech (`local.read_audio`). The image is cropped to the bucket (`ImageOps.fit`,
+biased upward to keep the head, `local.presenter_still`) and passed with its `width` and `height`; `prompt`, when given, replaces the pipeline's default prompt.
 
 `local.pipeline` loads a `ModularPipeline` class (`modular_model_index.json`, Kandinsky S2V) with `from_pretrained`
 then `load_components(dtype=bfloat16)` of every component outside `skip`, under the same lock, memory check of the

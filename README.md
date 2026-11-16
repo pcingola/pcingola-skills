@@ -25,7 +25,9 @@ claude plugin install studio@pcingola-skills --scope user
 claude plugin install setup@pcingola-skills --scope user
 ```
 
-Added from a local path, the marketplace is a directory source: Claude Code reads each installed plugin in place from `plugins/<plugin>/`, and working-tree edits, uncommitted ones included, take effect at the next session start or `/reload-plugins`. Install and update also write a copy to `~/.claude/plugins/cache/pcingola-skills/<plugin>/<HEAD sha>/`, which is not loaded. The version label is the HEAD commit; after a commit these commands refresh the label and that copy:
+Inside a Claude Code session the same commands are `/plugin marketplace add pcingola/pcingola-skills` and `/plugin install <plugin>@pcingola-skills`. Installing `studio` alone also installs every other plugin except `dev`.
+
+Added from GitHub, each installed plugin loads from a copy in `~/.claude/plugins/cache/pcingola-skills/<plugin>/<commit>/`. Added from a local clone (`claude plugin marketplace add /path/to/pcingola-skills`), the marketplace is a directory source: Claude Code reads each installed plugin in place from `plugins/<plugin>/`, and working-tree edits, uncommitted ones included, take effect at the next session start or `/reload-plugins`; the cache copy is then written but not loaded. The version label is the commit. These commands fetch the latest commit and refresh the installed plugins:
 
 ```
 claude plugin marketplace update pcingola-skills
@@ -38,7 +40,7 @@ claude plugin update studio@pcingola-skills
 claude plugin update setup@pcingola-skills
 ```
 
-The CLI tools need `uv` on `PATH`. uv builds each skill's environment on first use and fetches the shared packages in `lib/` from the repository's git origin, which needs git read access to it.
+The CLI tools need `uv` on `PATH`. uv builds each skill's environment on first use (a few seconds for most skills; minutes and several GB for the skills that install PyTorch) and fetches the shared packages in `lib/` from `https://github.com/pcingola/pcingola-skills` (branch `main`), which needs `git` and network access to GitHub, no credentials. uv downloads Python 3.11 or later when the system has none.
 
 ## Uninstall
 
@@ -55,35 +57,65 @@ claude plugin install <plugin>@pcingola-skills --scope user
 
 ## Models
 
-The skills that call a model (classify, second-opinion, image-gen, music, voiceover) go through the shared package `lib/ai_models`, built on Pydantic-AI. One YAML file holds every setting: `~/.claude/plugins/data/config.yaml` (`SKILLS_CONFIG` names another file). Its sections are `providers` (with each provider's key in `api_key`), `models` (the model of each task), `diffusers` (local models) and `settings` (every other setting). The `setup:settings` skill creates it from `plugins/setup/skills/settings/assets/config.example.yaml`. A model id is `<provider name>:<model>`, for example `ollama:d3:4b`.
+The skills that call a model (classify, second-opinion, image-gen, music, voiceover, short-video) go through the shared package `lib/ai_models`, built on Pydantic-AI. One YAML file holds every setting: `~/.claude/plugins/data/config.yaml` (`SKILLS_CONFIG` names another file). Its sections are `providers` (with each provider's key in `api_key`), `models` (the model of each task), `diffusers` (local models) and `settings` (every other setting). The `setup:settings` skill creates it from `plugins/setup/skills/settings/assets/config.example.yaml`. A model id is `<provider name>:<model>`, for example `ollama:d3:4b`.
 
-Provider kinds: `ollama`, `openrouter`, `openai` (any OpenAI-compatible server), `azure`, `google` (Gemini API or Vertex) and `diffusers` (local models in process). Tasks: `chat`, `vision`, `system1`, `image`, `image_edit`, `speech`, `music`, `audio`. The `setup:settings` skill documents the file, every kind and every task.
+Provider kinds: `ollama`, `openrouter`, `openai` (any OpenAI-compatible server), `azure`, `google` (Gemini API or Vertex), `diffusers` (local models in process), `kokoro` and `chatterbox` (local speech on the CPU), `torchaudio` (word alignment on the CPU) and `vllm-omni` (local speech on a GPU). Tasks: `chat`, `vision`, `system1`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`, `film_critic`. The `setup:settings` skill documents the file, every kind and every task.
 
 Three levels of setup, each adding to the one before:
 
 1. API only: a key of OpenRouter, of Azure OpenAI and Vertex AI, or of a company (enterprise) gateway that serves them (kinds `azure` and `google`). No GPU.
 2. Ollama: System-1 models, small chat models and speech (macOS) on a local Ollama server. No key.
-3. GPU: a `diffusers` provider for local images and music. The image-gen and music wrappers then install torch and diffusers. It needs an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon.
+3. GPU: a `diffusers` provider for local images and music. The image-gen, music and short-video wrappers then install torch and diffusers. It needs an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon.
 
 ## Requirements
 
-- macOS or Linux.
+- Linux, or macOS on Apple Silicon (PyTorch, which voiceover always installs, has no wheels for Intel Macs).
 - `uv` and `git` on `PATH`.
-- FFmpeg for the audio and video skills (music, short-video, video-effects, and large video input of second-opinion).
-- LibreOffice and Poppler (`pdftoppm`) for the pptx previews and PDF export.
-- Ollama for local chat and System-1 models.
+- FFmpeg for the audio and video skills (music, short-video, video-effects, voiceover recordings, and large video input of second-opinion).
+- LibreOffice and Poppler (`pdftoppm`) for the pptx previews and PDF export. macOS: `brew install libreoffice poppler`. Linux: `apt-get install libreoffice poppler-utils`.
+- Node.js 22 or later with `npm` for short-video HTML scenes. Its first render runs `npm ci` and downloads a headless Chrome through HyperFrames.
+- For short-video Manim scenes, Manim's system libraries (on Linux the Cairo and Pango development packages, `pkg-config` and a C compiler), and LaTeX with `dvisvgm` for formulas.
+- Ollama for local chat, vision and System-1 models.
+- On Linux, voiceover installs the CUDA 13.0 build of PyTorch (a few GB) even without a GPU; it runs on the CPU there.
+- An NVIDIA GPU or Apple Silicon only for the local `diffusers` models (level 3 above).
 
 ## First use
 
 With an OpenRouter key only:
 
-1. Ask Claude to set up the skills; the `setup:settings` skill writes `~/.claude/plugins/data/config.yaml`. By hand: copy `plugins/setup/skills/settings/assets/config.example.yaml` there and `chmod 600` it.
-2. Keep an `openrouter` provider (`kind: openrouter`, `api_key: <key>`) and point each task you use at an OpenRouter model.
+1. Ask Claude to set up the skills; the `setup:settings` skill asks for the level and the keys and writes `~/.claude/plugins/data/config.yaml`.
+2. By hand, a minimal file for this level (`chmod 600` it):
+
+```yaml
+providers:
+  openrouter: {kind: openrouter, api_key: sk-or-v1-replace-me}
+  kokoro:     {kind: kokoro, model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx, voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin, langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}, voice: af_heart}
+  torchaudio: {kind: torchaudio, url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt}
+models:
+  chat: openrouter:google/gemini-3.1-pro-preview
+  vision: openrouter:google/gemini-3.1-pro-preview
+  image: openrouter:google/gemini-3-pro-image
+  image_best: openrouter:google/gemini-3-pro-image
+  speech: kokoro:kokoro-v1.0
+  align: torchaudio:MMS_FA
+settings:
+  IMAGE_GEN_OPENAI_MAX_EDGE: 3840
+  IMAGE_GEN_OPENAI_MIN_PIXELS: 655360
+  IMAGE_GEN_OPENAI_MAX_PIXELS: 8294400
+  IMAGE_GEN_LOCAL_MAX_EDGE: 2048
+  IMAGE_GEN_LOCAL_MIN_EDGE: 256
+```
+
+Kokoro speech and the torchaudio aligner run on the CPU with no key; their first use downloads about 1.6 GB. OpenRouter serves no image edits (`POST /images/edits` returns 404), so `image_edit`, `image_multi_ref` and every image-gen call with `--ref` need a provider of kind `azure`, `google` or `openai` (a server with image edits), or level 3. Music needs a provider of kind `google` (Lyria) or level 3. Copied unchanged, `config.example.yaml` is a level 3 file: its `local` provider of kind `diffusers` makes the image-gen, music and short-video wrappers install PyTorch and diffusers, and several of its tasks name local GPU models.
 
 With no key:
 
 1. Install Ollama and pull the models the config names with `ollama pull <tag>`. A skill that finds a model not pulled names the command.
 2. For images and music, add a `diffusers` provider and its models to the config (see the example). The first run downloads the weights.
+
+## Studio
+
+`/studio` in a Claude Code session with the `studio` plugin starts a local server on `127.0.0.1` (a free port) and opens its page in the default browser (`open` on macOS, `xdg-open` on Linux). Projects are kept in `STUDIO_DIR`, default `~/Documents/Studio`. The session carries out the page's requests with the media skills, so Studio needs the models of the work it is asked for.
 
 ## Settings and documentation
 

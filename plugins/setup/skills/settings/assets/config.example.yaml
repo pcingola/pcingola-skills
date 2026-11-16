@@ -29,6 +29,9 @@
 # aligner of media:voiceover); keys in their entries below.
 # Every kind except diffusers takes timeout (seconds per request, default 600).
 # Delete the providers you do not use; replace each replace-me with a key.
+# Without a GPU, also delete the local provider, the diffusers section and the
+# models that name local: a provider of kind diffusers makes the image-gen,
+# music and short-video wrappers install PyTorch and diffusers.
 # azure and vertex below point at a company (enterprise) gateway that serves
 # Azure OpenAI and Vertex AI; for the services themselves, set base_url to the
 # Azure resource or remove it for Vertex. A Vertex provider takes Google Cloud
@@ -104,13 +107,13 @@ providers:
 #               provider of kind google)
 # A `--model <provider>:<model>` flag of a skill replaces the task's model.
 models:
-  chat: openrouter:google/gemini-3-pro
+  chat: openrouter:google/gemini-3.1-pro-preview
   vision: ollama:gemma4:31b
   system1: ollama:d3:4b
   image: local:flux2-klein-4b
   image_edit: local:flux2-klein-4b
   image_best: azure:gpt-image-2
-  image_multi_ref: openrouter:google/gemini-3-pro-image
+  image_multi_ref: azure:gpt-image-2
   speech: kokoro:kokoro-v1.0
   #speech: azure:gpt-4o-mini-tts
   align: torchaudio:MMS_FA

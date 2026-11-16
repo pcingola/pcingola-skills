@@ -111,8 +111,8 @@ on one key scene iterated with "Choose others", "Invent others" or the catalogue
 applied to every scene, then the voice, the music and the film. Where a scene with a picture gets its picture, a
 drawn scene gets its page (`scaffold`, the page written from its brief in the film's page style) and one still from
 `media:short-video`'s `stills`. Before the voice is recorded, a narrated drawn scene's page is timed from its words
-at 2.5 words per second (`scaffold --estimate`, which writes `estimated` into the version's `timing.json`);
-`make-film` records the voice and scaffolds the page again on the recording. The still is a picture version whose
+(`scaffold --estimate`, [short-video](short-video.md#html-scenes)); `make-film` records the voice and scaffolds the
+page again on the recording. The still is a picture version whose
 sidecar names the PNG in `<page version>/stills/`; the server lists it with the scene's pictures (`image` the still)
 and gives the newest as the scene's `still`. Every page version that becomes a drawn scene's latest gets a still and
 its sidecar. A still is posted as soon as it is taken, without short-video's Brief check, motion check or stills
@@ -234,7 +234,7 @@ recording it was rendered with).
 
 A scene's `page` is its latest page, rendered or not; null for a scene of another engine or one with no page. For a
 plain HTML scene it is the newest `scenes/<scene>/v<N>/` holding `index.html`; for a world scene the newest
-`worlds/<world>/v<K>/` holding `index.html` and a `world.json` that names the scene. Fields: `n` (N or K), `page`,
+`worlds/<world>/v<K>/` holding `index.html`, when its `world.json` names the scene. Fields: `n` (N or K), `page`,
 `page_url`, `created` (the `index.html` time), `start`, `duration` (the render's `meta.json`, else the root's `data-duration`, else `timing.json`; for a
 world scene `world.json`), `world`, `narration` (the recording of the page's `voice_version`), and `video` (the
 `scene.mp4` rendered from that version, or null). `html_films` lists the HTML films, newest first, each

@@ -57,7 +57,8 @@ each line as the model takes it (`script.Line.of`):
   tags is refused, and so is an `@` line whose name is not a speaker name (lowercase letters, digits, `-`, `_`).
   A speaker without `--speaker NAME=VOICE` is made up: its first take is the reference of its later lines
   (`omni.aspeak` keeps one take per speaker) and is written as `voice-<name>.wav` (`write_takes`); the made-up
-  speakers are named on stderr.
+  speakers are named on stderr. The narrator's `default` voice works the same way, and its first take is written as
+  `voice.wav`. Each take has its transcript in the `.txt` of the same stem.
 - A model that takes a style but no tags: a line that starts with `[<style>]` is that sentence's style
   (`split_style`), passed instead of `--style`, with a `style` key in `timing.json`. Such a model takes any style.
 - Any other model: the line is literal text.

@@ -18,7 +18,8 @@ replaces the provider's `timeout` for each request.
 ## Question checks
 
 `questions.check` refuses before any request what a model would refuse or answer badly: fewer than 2 classes, more than
-10 score levels, repeated levels, empty names or descriptions, and a noul question with only one side described.
+10 score levels, repeated option names or levels, empty instructions, names or descriptions, and a noul question with
+only one side described.
 `questions.from_file` refuses keys other than `type`, `instructions` and `criteria` in a question, since a model
 ignores unknown keys. Limits per model family (questions per request, options per choice) are the server's: a request
 over a limit gets the server's message.

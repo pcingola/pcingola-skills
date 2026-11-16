@@ -27,18 +27,27 @@ The highest version number ever issued is kept in `.last_version`, so a number i
 the newest directory is deleted. Versions refer to each other by number: a scene version names its voice version, and
 a film manifest names the scene, voice and music versions it was made from; a reissued number would make an old
 reference point at different content. A version counts as complete once its `meta.json` is written, and `clip` and
-`assemble` remove a half-written version on failure, keeping its number used. `scaffold`, `voice`, `clip`, `music` and
-`assemble` each write a new version; `render` rewrites the outputs of the latest scene version; the other commands
-write no version.
+`assemble` remove a half-written version on failure, keeping its number used. `scaffold`, `voice`, `clip`, `music`,
+`html` and `assemble` each write a new version, and `scaffold --refresh` rewrites the latest version in place while it
+is not rendered. `render` rewrites the outputs of the latest scene version, except on a world scene, where it writes a
+new version of every scene of the world. The other commands write no version.
+
+A scene or world version carries forward every file the author added (fonts, pictures, `background.mp4`): `scaffold`
+copies each file and directory of the previous version that it does not generate itself (`scenes.GENERATED`) into the
+new one.
 
 ## Staleness
 
 Versions store no hashes of their inputs, and `assemble` takes each scene's latest rendered version without checking
 it against the storyboard. `status` compares what a version holds with what the commands would make now: a voice
 version's `timing.json` (sentences, and each sentence's recorded voice) with the storyboard and the resolved voices,
-and a rendered scene version's voice version, engine, `background.png`, `brief.md` and `card.js` with the latest voice
-version and what `scaffold` writes now. A change that reaches the page only through the agent (a lesson, a reworded
-`references/scenes.md`) is not detected.
+and a scene version's voice version, engine, `background.png`, `brief.md` and `card.js` with the latest voice version
+and what `scaffold` writes now. An HTML scene is judged on its latest page version, rendered or not, since the HTML
+film plays pages; `rendered` says whether that version has a render for `assemble`. Other engines are judged on their
+latest render. A world scene is judged with its world (`world.page_reasons`, `world.render_reasons`): a newer world
+version, or a change of the world's scenes, voice versions, lengths, Briefs or On screen text, makes every scene of the
+world stale. A change that reaches the page only through the agent (a lesson, a reworded `references/scenes.md`) is
+not detected.
 
 ## Narration and music
 
@@ -54,26 +63,115 @@ uses to check each sentence's recorded voice.
 ## HTML scenes
 
 Each scene version is a self-contained HyperFrames project with its own copy of the background image (when it has
-one), GSAP and the timing data, so an old version renders the same later. On the pinned HyperFrames version the render length comes from
+one), the timing data, `gsap.min.js` and every library and kit file its page loads (`scenes.copy_page_files`), so an
+old version renders the same later. On the pinned HyperFrames version the render length comes from
 the root element's `data-duration` and, without it, from the GSAP timeline length, not from the clips. The root and
 the background layers therefore carry `data-duration` marked `data-full-length`; every scaffold that copies an
-`index.html` rewrites those to the scene length, the narration plus the template's `hold_seconds`. `render` checks
-every literal timing-helper call against `timing.json` before rendering, because a wrong call throws in the page and
-renders a scene with no animation.
+`index.html` rewrites those to the scene length, the narration plus the template's `hold_seconds` (a silent scene: its
+`Length:`).
+
+An HTML scene needs no render to be seen: `stills`, `check` and `html` work on its latest page version
+(`pages.scene_page`), and only an MP4 film needs `render`. A silent scene's `timing.json` is
+`{"duration": <length>, "sentences": []}` with no `voice_version`, and `render` muxes silence. `scaffold --estimate`
+times a narrated scene without a recording: each word lasts 1 / `length.words_per_second` s, `timing.json` holds
+`estimated` (that rate), and `render` refuses the version until the voice is recorded and the scene scaffolded again.
+It applies to an HTML scene outside a world only.
+
+`check` and `render` run the same static checks (`scenes.check_page`) before `hyperframes lint`:
+
+- every literal timing-helper call against `timing.json`, because a wrong call throws in the page and renders a scene
+  with no animation;
+- a seekable page (`check_timeline`): the root registers `window.__timelines["<id>"]` (GSAP) or listens for
+  `hf-seek` (anime.js, Motion, three.js; required with `data-no-timeline`);
+- the determinism rules below;
+- each `<video>` file exists in the version and lasts the scene within one frame, because HyperFrames stops updating a
+  video, and a camera move on it, where the file ends.
 
 A scene without `Image:` starts from `assets/scene-drawn.html`: `#bg-fill` as a flat colour or gradient and the
 `#anchored` layer the camera moves, with no `#bg-image` and no `background.png`, since what it shows is drawn in the
-page. A scene whose image was removed keeps its previous page, which still shows `background.png`; `render` refuses a
-non-template page that uses `background.png` when the version has none, because the picture would render broken.
+page. A scene whose image was removed keeps its previous page, which still shows `background.png`; `check` and
+`render` refuse a non-template page that uses `background.png` when the version has none, because the picture would
+render broken.
 
-HyperFrames and GSAP are pinned in `scripts/node/package-lock.json`, so a render does not change when either package
-publishes a new version. `setup` copies the package files to `$PLUGIN_ENV_DIR/node` and runs `npm ci` there, outside
-the plugin directory; `render` reruns it when the copies differ from `scripts/node/`. `hyperframes doctor` reports
+HyperFrames and the animation libraries (GSAP, anime.js, Motion, d3, three.js) are pinned in
+`scripts/node/package-lock.json`, so a render does not change when a package publishes a new version. A page loads a
+library by bare file name (`<script src="three.min.js">`), and `scenes.LIBS` maps each allowed name to its file under
+`node_modules` with its SHA-256, which `setup` checks. Only classic UMD files are listed, because module scripts do not
+load from file://; three.js stays at 0.159.0, the last release with `build/three.min.js`. `setup` copies the package
+files to `$PLUGIN_ENV_DIR/node` and runs `npm ci` there, outside the plugin directory; `scaffold`, `check`, `stills`,
+`render` and `html` rerun it when the copies differ from `scripts/node/`. `hyperframes doctor` reports
 failure whenever an optional tool is missing, so `setup` judges only the checks rendering needs (Node.js, FFmpeg,
 FFprobe, Chrome).
 
 Every engine ends in `scenes.finish`, which muxes the scene's audio with the video stream-copied. The audio is padded
 and cut to the video length (`apad=whole_dur`, `atrim`) because `-shortest` with stream copy and `apad` never ends.
+
+## Determinism
+
+HyperFrames seeks a page frame by frame, so the frame at `t` must depend on `t` only. `determinism.check` reads the
+page's inline scripts and styles, its tags and the author's own local scripts without running them, on code with
+comments and string contents blanked (`js_source.JsSource`), and refuses: timers and frame loops (`setTimeout`,
+`setInterval`, `requestAnimationFrame`, `setAnimationLoop`, `THREE.Clock`), the wall clock (`Date.now`, `new Date()`,
+`performance.now`), unseeded randomness (`Math.random` and the library helpers built on it), d3 transitions, endless
+repeats, autoplay and `.play()`, CSS animations, transitions and `@keyframes` (in styles, style attributes and strings
+set from scripts), `<audio>` and `new Audio`, a `<video>` without `data-start`, run-time loads (`fetch`,
+`XMLHttpRequest`, dynamic `import`, CSS `@import`), remote URLs other than `www.w3.org` namespaces, and a declaration
+that shadows a timing helper (`S`, `SE`, `W`, `WE`, `ST`, `STE`). The `LIBS` files, `kit/*.js`, `timing.js` and
+`card.js` are trusted and not scanned.
+
+## Stills
+
+`stills` takes PNGs of a page at scene times with `hyperframes snapshot --at`, which seeks the page as `render` does,
+so an HTML scene is checked without an MP4. Each time is seeked twice, first `stills.WARM` (0.005 s) later, and only
+the second shot is kept: on the hardware GPU the first three.js draw that links new shader programs can come out all
+black, and GSAP calls no `onUpdate` for a seek to the time it is already at. A WebGL page's still with at least
+`BLANK_FRACTION` (0.5) of its pixels exactly #000000 is taken again once in a new browser, and a second blank still
+fails. The snapshot keeps the GPU, because SwiftShader's compositor paints a page-coloured rectangle over the canvas at
+a DOM overlay's position, mirrored vertically. Stills go to `<page dir>/stills/` (a world scene's prefixed with the
+scene id); `--mark` adds a copy with a red point or box, `--sheet` a labelled contact sheet.
+
+## Shared worlds
+
+Consecutive HTML scenes with the same `World:` share one page, `worlds/<name>/v<N>/index.html`, whose root id and
+timeline key are the world name. Scene starts are frame-aligned: with $d_k$ the length of scene $k$,
+$f_0 = 0$, $f_{k+1} = \mathrm{round}((d_0 + \dots + d_k)\cdot \mathrm{fps})$ and $\mathrm{start}_k = f_k/\mathrm{fps}$,
+so the cut points fall on frames and rounding does not accumulate. `world.json` holds that plan and each scene's voice
+version. `timing.js` gives absolute times and the helpers take the scene id first; `ST` and `STE` give a scene's start
+and end.
+
+`scaffold` on any scene of a world writes the next world version. `render` checks the plan against the storyboard,
+renders the world once to `silent.mp4`, then cuts each scene's frames `[f_k, f_{k+1})` (`select` on the frame number,
+re-encoded with the `encode:` settings) into a new version of that scene with its own `world.json` (world, version,
+start, length), and muxes the scene's narration with `scenes.finish`. Every scene of the world gets a new version on
+every render, so parallel work on two scenes of one world overwrites each other's.
+
+## HTML film
+
+`html` writes `film/html/v<N>/film.html` and `manifest.json` (segments with start, length, scenes, source and audio
+files, and the file size). The film is a list of segments in storyboard order: a page (one scene, or a world once
+across its scenes), a rendered `scene.mp4` of another engine, or a card for a scene with nothing to show, which lasts
+its `Length:`, its recording or 3 s. `assets/film-player.html` owns the clock; `assets/film-scene.js`, inlined into
+every page, seeks it the way HyperFrames does (the GSAP timeline, `hf-seek`, each `<video data-start>`), with the same
+double draw as `stills` on a paused seek. Each page is inlined whole (`film_html.inline_page`): local scripts as text,
+every other local file as a data URI; narration and the music `assemble` would use play beside the pages as 128 kbit/s
+MP3 data URIs. The file plays from file:// on another machine. A font installed only on this machine is missing there,
+so `html` warns for each font stack whose first family no local `@font-face` file embeds.
+
+## Kit and techniques
+
+`assets/kit/` holds classic three.js helper scripts that a page loads as `kit/<file>.js`; `scaffold` copies the named
+files into the version, and `check`, `stills`, `render` and `html` copy any that is missing. `assets/techniques/<name>/` holds working silent GSAP pages with a still and a note.
+No code reads the techniques: the agent copies a page into a scaffolded `index.html`. Their `README.md` files list the
+functions and the techniques.
+
+## Reference analysis
+
+`refs` extracts the measurable part of a reference video or reference images into `<project>/refs/` (or `--out`) for
+the agent that writes `reference.md`. For a video: full-size frames at `--fps` (default 4) and at scene changes (FFmpeg
+`scene` score above 0.3), contact sheets of 12 frames, and in `refs.json` the size, fps, cut times, each frame's median
+colour, a motion curve (mean absolute difference of consecutive grey frames at 12 fps, 0 to 1) and dominant colours
+(k-means with a fixed seed) per sheet and per source. Images are copied and sheeted. A second run replaces the entry of
+the same source and keeps the others.
 
 ## Manim scenes
 
@@ -160,14 +258,13 @@ name must equal the `brand:` setting, so a folder of another brand is refused.
 
 ## Review
 
-Motion is judged by agents looking at the rendered scenes and the film, and no code measures it: a frame comparison
-is a proxy tied to how scenes are rendered today, and the rule (no stretch still for longer than about 2 s) is about
-what a viewer sees. The agent that makes a scene takes `frames` at one per second and compares frames 2 s apart: each
-pair shows a new framing (the view moved by about 10% of the frame or more) or a new drawn, flowing or counting
-element, so a slow drift of a few pixels fails. The contact sheet's thumbnails are too small for this.
+Motion is judged by agents looking at stills of the scenes (`stills` on a page, `frames` on a render), and no code
+measures it: a frame comparison is a proxy tied to how scenes are rendered today, and the rule (no stretch still for
+longer than about 2 s) is about what a viewer sees. The agent that builds an HTML scene does not judge its own stills;
+a fresh critic subagent scores them (`references/scene-critic.md`). The procedures are in `SKILL.md`.
 
-The review runs on the assembled film by default: the film critic (task `film_critic` of `config.yaml`, or `critic.model` of a project's `settings.yaml`; `critic` prints it; through `ai:second-opinion`)
-reports at most `critic.max_findings` findings, each with a time range in the film, limited to what misleads or bores
+The film critic runs only on an MP4 film, through `ai:second-opinion`, with the model of task `film_critic` of
+`config.yaml` or `critic.model` of a project's `settings.yaml` (`critic` prints it). It reports at most `critic.max_findings` findings, each with a time range in the film, limited to what misleads or bores
 a viewer: still stretches, wrong facts or numbers, narration that does not match the picture, unreadable text, and
 narration hard to hear or audio defects. Consistency of fonts and colours and the brand logo are not on its list; the
 logo is checked in post-production. Each round ends in one assembly, and `critic.rounds` (default 1) sets how many

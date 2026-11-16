@@ -53,9 +53,9 @@ plugins/media/skills/image-gen/scripts/image-gen.sh generate \
 sips -Z 768 "$PWD/$dir/assets/$name.png"
 ```
 
-`sips` (macOS only) converts and scales the image. `azure` is the provider
-of the model config that serves `gpt-image-2` in the example config (`setup:settings`); use the name of yours. The samples of the eleven styles the catalogue started with were generated with one shared scene
-(a field research station in a meadow) and scaled to a long edge of 1024 pixels.
+`sips` (macOS only) converts and scales the image. `azure` is the provider that serves `gpt-image-2` in the example
+config (`setup:settings`); another config names its own provider. A few samples were generated with one shared scene
+(a field research station in a meadow) and have a long edge of 1024 pixels.
 
 ## Adding a style
 

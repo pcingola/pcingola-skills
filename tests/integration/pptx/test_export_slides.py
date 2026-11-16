@@ -1,8 +1,7 @@
 """Integration tests for the export-slides command.
 
 `export-slides` is what the deck-authoring skills run their render checks
-through. These tests also check that the PyMuPDF rasterizer gives the same
-result as `pdftoppm`.
+through, which rasterizes with `pdftoppm`.
 """
 import unittest
 
@@ -49,7 +48,7 @@ class TestExportSlides(unittest.TestCase):
 
     def test_jpg_format_and_dpi(self) -> None:
         """export-slides --format jpg writes JPEGs and --dpi 150 gives wider images than --dpi 72.
-        Guards that both options reach the PyMuPDF rasterizer."""
+        Guards that both options reach `pdftoppm`."""
         low = DIR / "jpg"
         r = run_cli("export-slides", str(self.source), str(low), "--format", "jpg", "--dpi", "72")
         self.assertEqual(r.returncode, 0, r.stderr)

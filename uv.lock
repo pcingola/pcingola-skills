@@ -33,6 +33,7 @@ version = "0.1.0"
 source = { editable = "lib/ai_models" }
 dependencies = [
     { name = "certifi" },
+    { name = "filelock" },
     { name = "plugin-settings" },
     { name = "pydantic-ai-slim", extra = ["google", "openai"] },
     { name = "pyyaml" },
@@ -59,6 +60,7 @@ requires-dist = [
     { name = "av", marker = "extra == 'diffusers'" },
     { name = "certifi", specifier = ">=2024.0.0" },
     { name = "diffusers", marker = "extra == 'diffusers'", specifier = ">=0.43" },
+    { name = "filelock", specifier = ">=3.12" },
     { name = "kokoro-onnx", marker = "extra == 'kokoro'", specifier = ">=0.6.1,<0.7" },
     { name = "numpy", marker = "extra == 'align'" },
     { name = "numpy", marker = "extra == 'kokoro'" },

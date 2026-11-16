@@ -7,7 +7,7 @@ works is in `docs/<skill>.md` where one exists.
 
 A skill reads nothing outside its plugin directory except its plugin data directory, the settings file, the user's
 model routes file `routes.md` in the settings file's directory, a brand folder reported by `brand:brand` (read in
-place) and files another skill wrote as its output. It reads no repo-root path, no repo-root `data/` and no file of
+place), the user's input and output files and files another skill wrote as its output. It reads no repo-root path, no repo-root `data/` and no file of
 another plugin. The user's `routes.md` sits beside the settings file for the same reason the settings file sits
 outside every plugin: a plugin update or uninstall leaves it in place, and every plugin finds it through one path
 rule (`plugin_settings.config_file`). Its template is an asset of `setup:settings`, which copies it there.
@@ -34,7 +34,8 @@ skill defines is referred to by name. The reason is the same as for plugin isola
 fixed path from the caller, and the loaded `SKILL.md` is the only interface that holds in every install. No skill's
 Python imports another skill.
 
-A caller's `allowed-tools` lists `Skill` and only its own wrapper rules. A skill that loads another skill has it in
+A caller's `allowed-tools` lists `Skill` and only its own wrapper rules. Any other `Bash` entry, bare `Bash`
+included, needs an entry with its reason in `BASH_RULE_ALLOWLIST` of the test file. A skill that loads another skill has it in
 its own plugin or in a plugin listed in its `plugin.json` `dependencies`, because installing a plugin also installs
 its dependencies and a load of a skill outside them fails in an install without that plugin.
 
@@ -47,13 +48,13 @@ Each concern has one location, and every other skill reaches it through that loc
 
 - Shared Python code: the packages in the repo-root `lib/` (see Shared packages).
 - Every model call: `lib/ai_models`, on Pydantic-AI (`docs/ai_models.md`). TLS and the providers' clients are set up
-  there once, and the local models (diffusers, Kokoro, Chatterbox, the torchaudio aligner) are loaded there. No
-  module of a plugin project that depends on `ai-models` imports google-genai, the OpenAI SDK or a model library
-  (`test_model_calls_only_through_ai_models`).
+  there once, and the local models (diffusers, Kokoro, Chatterbox, the torchaudio aligner, vLLM-Omni) are run
+  there. No module of a `<skill>_tool` package of a plugin project that depends on `ai-models` imports
+  google-genai, the OpenAI SDK or a model library (`test_model_calls_only_through_ai_models`).
 - Settings: one file, `config.yaml` (`$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`). It holds the
   providers with their keys, the model of each task, the local `diffusers` models and, under `settings`, every other
-  setting. A skill has no model setting and no model default in code; it asks `ai_models` for a task (`chat`,
-  `vision`, `system1`, `image`, `image_edit`, `speech`, `align`, `music`, `audio`) or passes the user's `--model`.
+  setting. A skill has no model setting and no model default in code; it asks `ai_models` for a task (the list is
+  in `docs/ai_models.md`, Config) or passes the user's `--model`.
 - Reading the settings file and the plugin data directory: `lib/plugin_settings`. `ai_models` reads the file through
   it.
 - Model routes, per task the recommended default model and the escalations from it to another model for some
@@ -106,7 +107,7 @@ behaves the same whatever shell started Claude Code. The variables that locate f
 from the environment: `CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` (Claude Code), `SKILLS_CONFIG` (the settings
 file) and `PLUGIN_ENV_DIR` (set by the wrappers). The settings that libraries and child processes read from the
 environment (proxies, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `HF_HOME`, `HF_TOKEN`) are set there by
-`Plugin.load` from the file, and removed when the file does not set them; it also removes the variables the model
+`Plugin.load` from the file (`ENV_KEYS` of `plugin_settings`), and removed when the file does not set them; it also removes the variables the model
 client libraries read for keys, endpoints and headers (`OPENAI_*`, `GOOGLE_API_KEY`, ...).
 
 ## Data outside the plugin
@@ -139,7 +140,10 @@ Tests: `test_every_plugin_with_wrappers_has_uv_env`, `test_uv_env_copies_identic
 ## CLI wrappers
 
 Each skill with a CLI tool has its own uv project and environment, so its dependencies do not constrain another skill's.
-The wrapper unsets `VIRTUAL_ENV`, so a parent venv cannot replace the project's environment. The image-gen and music wrappers add `--extra local` (torch and diffusers, through
+The project is `scripts/pyproject.toml` with a package `<skill>_tool` (hyphens as underscores), which the wrapper
+`scripts/<skill>.sh` runs with `uv run python -m`.
+The wrapper unsets `VIRTUAL_ENV`, so a parent venv cannot replace the project's environment. The image-gen, music and
+short-video wrappers add `--extra local` (torch and diffusers, through
 `ai-models[diffusers]`) when `config.yaml` (`SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`) has a
 provider of kind `diffusers`, so a user without local models does not install torch. The repo-root `pyproject.toml`
 is used by the plugin and library test suites.
@@ -161,7 +165,8 @@ untracked and ignored files included, so a marketplace of tracked files only nee
 
 `SKILL.md` holds what the agent needs on every use of the skill. Its frontmatter description is the only text matched
 at startup; it is quoted on one line, at most 250 characters because Claude Code truncates longer descriptions, and
-contains `TRIGGER when:` (`test_skill_frontmatter`, `test_skills_found`). Material the agent needs only for some tasks
+contains `TRIGGER when:`; the frontmatter `name` equals the skill directory (`test_skill_frontmatter`,
+`test_skills_found`). Material the agent needs only for some tasks
 is in the skill's `references/`, loaded on demand.
 
 `SKILL.md` and `references/` are read from an installed plugin, where `docs/`, `CLAUDE.md` and the repository root do
@@ -175,9 +180,9 @@ All tests run in one environment, the repo-root project's `dev` group, from the 
 path dependencies (`ai-models` with its `diffusers` extra), so every test sees the working tree's `lib/`, and the
 dependencies of every skill project. Its pytest `pythonpath` lists each skill's `scripts/` and the studio server. A
 dependency added to a skill project is also added to the root `dev` group, so the suites never need a second
-environment. Manim alone runs in its own environment, as a subprocess, for users and tests alike; Chatterbox runs in its
-own environment (`voiceover setup --chatterbox`), as ai_models' worker process, and its test reads that environment's
-python from the config.
+environment. Manim runs in its own environment, as a subprocess, for users and tests alike. Chatterbox
+(`voiceover setup --chatterbox`, as ai_models' worker process) and the vLLM-Omni server run in environments of their
+own, and their tests read that environment's python from the config.
 
 Tests call the real code and the real dependency. No test imports a mock library, patches, uses the `monkeypatch` or
 `mocker` fixture, uses a fake or stub server, writes the process environment, or skips (`skip`, `skipif`, `xfail`,
