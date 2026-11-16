@@ -165,8 +165,9 @@ scene.
    `voice.name` to that person's voice; `media:voiceover` lists the models
    (`routes`) and the cloned voices, and explains how to add one. For several voices, see "Speakers" in
    `references/storyboard.md`.
-2. References and storyboard. When the user gives a reference video or
-   reference images, run
+2. References and storyboard. A reference video is optional for every
+   engine: an HTML film, like any other, needs only the prompt. When the
+   user gives a reference video or reference images, run
    `${CLAUDE_SKILL_DIR}/scripts/short-video.sh refs -p <project> --src FILE_OR_DIR` and write
    `reference.md` in the project as `references/reference-video.md` says, before the storyboard.
    Write every Brief from `reference.md` (and its Mapping when the subject differs), and run the

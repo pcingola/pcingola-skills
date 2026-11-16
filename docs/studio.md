@@ -295,7 +295,7 @@ Actions of `videos`:
 
 | Action | Effect |
 |---|---|
-| `storyboard` | runs `media:short-video`'s `refs` and writes `reference.md` for each reference video, writes the storyboard from the brief, sources and references, then the pictures; with `auto` or `invent` style in `step` autonomy, three style samples instead; `make_film` goes on to the film |
+| `storyboard` | runs `media:short-video`'s `refs` and writes `reference.md` for each reference video (optional for every engine; an HTML film needs only the prompt), writes the storyboard from the brief, sources and references, then the pictures; with `auto` or `invent` style in `step` autonomy, three style samples instead; `make_film` goes on to the film |
 | `use-style`, `style-samples` | sets the film's style from a sample (one of the current samples, or an earlier style sample of the key scene: a still with a `page_style`) or the catalogue and redraws the pictures and drawn scenes' pages and stills, or makes three new samples (pictures, or stills of a drawn key scene's page) |
 | `change`, `variations`, `other-styles` | as for images, on a scene's picture |
 | `use-still` | `scene`, `version` (a still of a drawn scene); a new page version copied from that still's page, with its still: the still's page becomes the film's |
