@@ -5,85 +5,304 @@
 # process environment names another file. The file holds API keys: chmod 600.
 #
 # Sections:
-#     providers   where models run, with the key of each provider (api_key)
-#     models      the model of each task, as <provider name>:<model>
-#     diffusers   local image, music and video models (GPU)
-#     settings    every other setting, KEY: value
+#     providers    where models run, with the key of each provider (api_key) and
+#                  the attributes of its models (models)
+#     tasks        the model of each task, as <provider name>:<model>
+#     network      proxies and CA certificates
+#     huggingface  the weights cache and token of the local diffusers models
+#     brand        brand:brand and the Studio catalogue
+#     studio       the Studio
+#     voiceover    media:voiceover
 #
-# A skill reads settings.<KEY>, else the default; a variable KEY exported in
-# the shell is ignored. CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA and
-# SKILLS_CONFIG come from the process environment only. Every setting is optional unless its comment says
-# "Required".
+# The whole file is validated when a skill starts: a misspelt section or key, a
+# missing required key or a wrong type is an error naming its path. A section
+# that holds only comments takes its defaults. Every key is optional unless its
+# comment says "required". A variable exported in the shell is never a setting;
+# CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA and SKILLS_CONFIG come from the process
+# environment only.
 
 
-# === Models ==================================================================
+# === providers ===============================================================
 # A model id is <provider name>:<model>; the first colon splits it, so
 # ollama:d3:4b is the Ollama tag d3:4b.
 #
-# Provider kinds: ollama, openrouter, openai (any OpenAI-compatible server),
-# azure (Azure OpenAI, needs api_version), google (Gemini, Lyria; vertex: true
-# for a Vertex endpoint; predict_models lists the music models served by the
-# Vertex predict endpoint, the others stream), diffusers (local models of the diffusers section),
-# vllm-omni (a local speech model served by vLLM-Omni; keys in its entry below),
-# kokoro and chatterbox (local speech on the CPU), torchaudio (the word
-# aligner of media:voiceover); keys in their entries below.
+# kind (required): ollama, openrouter, openai (any OpenAI-compatible server),
+# azure (Azure OpenAI), google (Gemini, Lyria; vertex: true for a Vertex
+# endpoint), diffusers (local models in process, GPU), vllm-omni (a local
+# speech model served by vLLM-Omni), kokoro and chatterbox (local speech on the
+# CPU), torchaudio (the word aligner of media:voiceover).
 # Every kind except diffusers takes timeout (seconds per request, default 600).
+# Required keys: openrouter and azure need api_key; azure also base_url and
+# api_version; openai needs api_key without base_url (the OpenAI API); google
+# needs api_key, except a Vertex provider with Google Cloud credentials.
+#
+# models: the attributes of each model of the provider, by the model name after
+# the colon. It is not an allow list: a remote provider serves any model id. A
+# diffusers model must have an entry (its repo).
+#
 # Delete the providers you do not use; replace each replace-me with a key.
-# Without a GPU, also delete the local provider, the diffusers section and the
-# models that name local: a provider of kind diffusers makes the image-gen,
-# music and short-video wrappers install PyTorch and diffusers.
+# Without a GPU, also delete the local provider and the tasks that name local:
+# a provider of kind diffusers makes the image-gen, music and short-video
+# wrappers install PyTorch and diffusers.
 # azure and vertex below point at a company (enterprise) gateway that serves
 # Azure OpenAI and Vertex AI; for the services themselves, set base_url to the
-# Azure resource or remove it for Vertex. A Vertex provider takes Google Cloud
-# credentials in place of api_key: credentials (a service-account JSON file),
-# else Application Default Credentials, with project and location (default
-# us-central1); its predict_models need api_key. Keys come only from this
-# file: OPENAI_API_KEY, GOOGLE_API_KEY and the like in the shell are ignored.
+# Azure resource or remove it for Vertex. Keys come only from this file:
+# OPENAI_API_KEY, GOOGLE_API_KEY and the like in the shell are ignored.
 
 providers:
-  ollama:      {kind: ollama, base_url: http://localhost:11434/v1}
-  openrouter:  {kind: openrouter, api_key: sk-or-v1-replace-me}
-  azure:       {kind: azure, base_url: https://gateway.example.com/azure-openai, api_version: 2025-04-01-preview, api_key: replace-me}
-  vertex:      {kind: google, vertex: true, base_url: https://gateway.example.com/vertex-ai, api_key: replace-me, predict_models: [lyria-002]}
-  #vertex_sa:  {kind: google, vertex: true, credentials: /path/to/service_account.json, location: us-central1}
-  local:       {kind: diffusers}
-  # Fish Audio Drama 3, local speech (about 42 GB), served by vLLM-Omni from its
-  # own environment (vllm-omni pins torch and transformers):
-  #   uv venv <env dir> --python 3.12
-  #   uv pip install --python <env dir>/bin/python "vllm==0.32.*" vllm-omni==0.32.0 --torch-backend=cu130
-  # The server's stages take memory GB together (Drama 3: over 56; 70 leaves
-  # a 13 GB KV cache), and the server overhead GB more (optional, default 22).
-  # With less free, a start waits for local Ollama models that unload within
-  # 15 min, else is refused and names what holds the memory. The server stops
-  # after the command. style puts voiceover --style
-  # into the text as inline tags. args:
-  # more server arguments (eager: the weights load in 34 s instead of 4.5 min
-  # on a unified-memory GPU); env: server environment variables (FlashInfer's
-  # sampler needs nvcc to JIT-compile on GPUs without prebuilt kernels).
-  # Kokoro 82M, local speech on the CPU in the skill's process (about 340 MB,
-  # English US and UK voices, no style): model_url and voices_url are its
-  # files; langs maps a voice-name prefix to its espeak language (voices of
+  ollama:
+    kind: ollama
+    base_url: http://localhost:11434/v1
+  openrouter:
+    kind: openrouter
+    api_key: sk-or-v1-replace-me
+  azure:
+    kind: azure
+    base_url: https://gateway.example.com/azure-openai
+    api_version: 2025-04-01-preview
+    api_key: replace-me
+    models:
+      gpt-image-2:
+        # media:image-gen request limits of this model. Required for an image
+        # model of an OpenAI kind (openai, azure, openrouter, ollama): edges are
+        # multiples of 16; max_edge is the longest edge (px), min_pixels and
+        # max_pixels the total pixel range (these are gpt-image-2's).
+        image:
+          max_edge: 3840
+          min_pixels: 655360
+          max_pixels: 8294400
+          always_sized: true      # every request gets a size (default 1:1, 1K)
+          default_quality: high   # low | medium | high | auto, when --quality is not given
+  vertex:
+    kind: google
+    vertex: true
+    base_url: https://gateway.example.com/vertex-ai
+    api_key: replace-me
+    models:
+      # predict: served by the Vertex predict endpoint (needs api_key); the
+      # other music models stream.
+      lyria-002: {predict: true}
+  # A Vertex provider takes Google Cloud credentials in place of api_key:
+  # credentials (a service-account JSON file, must exist), else Application
+  # Default Credentials, with project and location (default us-central1).
+  #vertex_sa:
+  #  kind: google
+  #  vertex: true
+  #  credentials: /path/to/service_account.json
+  #  location: us-central1
+
+  # Local models (kind diffusers). Each entry: repo (required, a Hugging Face
+  # repository), steps, guidance (without it no guidance_scale is passed, for a
+  # pipeline that has no such argument), inpaint (the diffusers pipeline class
+  # for edits with a mask), args (a mapping of more pipeline call arguments,
+  # after steps and guidance and before the caller's) and skip (a list of
+  # pipeline components loaded as None, such as a text encoder the model does
+  # not use).
+  # An image model needs image: max_edge and min_edge (longest and shortest
+  # edge, px), the media:image-gen request limits.
+  # A music model also has duration_arg and lyrics_arg: the names of the
+  # pipeline call arguments for the length in seconds and the lyrics (a model
+  # without one does not take that option), and optionally min_crest_db: a
+  # track whose crest factor (peak minus RMS where the music is loud, dB) is
+  # below it is loud and compressed, and music generate sends the request again
+  # with the next seed (--min-crest-db overrides it per call, 0 turns it off);
+  # without it no check.
+  # A video model also has, all required: pipeline (the diffusers class to
+  # load), fps, size_multiple (width and height are rounded to it), frame_step
+  # (frame counts are frame_step * k + 1), width, height (the default size) and
+  # max_frames.
+  # A presenter model also has, all required: pipeline (a DiffusionPipeline or
+  # ModularPipeline class), fps, buckets (the frame sizes the model makes,
+  # [width, height]; a clip takes the one nearest the picture's aspect ratio),
+  # audio_rate (the sample rate the model takes the speech at) and output (the
+  # pipeline output that holds the videos).
+  # The first run downloads the weights to the Hugging Face cache
+  # (huggingface.home below).
+  local:
+    kind: diffusers
+    models:
+      # FLUX.2 klein 4B, the default local image model; garbles text
+      # (Qwen-Image spells it right).
+      flux2-klein-4b:
+        repo: black-forest-labs/FLUX.2-klein-4B
+        steps: 4
+        guidance: 1.0
+        inpaint: Flux2KleinInpaintPipeline
+        image: {max_edge: 2048, min_edge: 256}
+      # Z-Image-Turbo, optional: no better than FLUX.2 klein in the photoreal,
+      # illustration and text tests.
+      #z-image-turbo:
+      #  repo: Tongyi-MAI/Z-Image-Turbo
+      #  steps: 9
+      #  guidance: 0.0
+      #  inpaint: ZImageInpaintPipeline
+      #  image: {max_edge: 2048, min_edge: 256}
+      # Qwen-Image 2.1, generation and edit (one pipeline, no guidance_scale).
+      qwen-image:
+        repo: Qwen/Qwen-Image-2.1
+        steps: 40
+        args: {output_resolution: 2048}
+        image: {max_edge: 2048, min_edge: 256}
+      # ACE-Step 1.5 XL SFT, the default music model.
+      ace-step-sft:
+        repo: ACE-Step/acestep-v15-xl-sft-diffusers
+        steps: 50
+        guidance: 7.0
+        duration_arg: audio_duration
+        lyrics_arg: lyrics
+        min_crest_db: 10
+      # ACE-Step 1.5 XL turbo, for tests and quick drafts; saturates: loud,
+      # compressed sound (more steps do not change it). No min_crest_db: it is
+      # chosen knowing that.
+      ace-step:
+        repo: ACE-Step/acestep-v15-xl-turbo-diffusers
+        steps: 8
+        guidance: 1.0
+        duration_arg: audio_duration
+        lyrics_arg: lyrics
+      # LTX-Video 0.9.5 (2B), image to video; usable only for slow, near-static
+      # motion (fast motion pixelates and deforms). LTX-2.5 is the default.
+      ltx-video:
+        repo: Lightricks/LTX-Video-0.9.5
+        pipeline: LTXImageToVideoPipeline
+        steps: 30
+        guidance: 3.0
+        fps: 24
+        size_multiple: 32
+        frame_step: 8
+        width: 768
+        height: 512
+        max_frames: 121
+      # LTX-2.5 distilled, image to video (gated: accept the license, set
+      # huggingface.token). The args are the distilled schedule and guidance
+      # off, from the model card.
+      ltx-2.5:
+        repo: Lightricks/LTX-2.5-Diffusers
+        pipeline: LTX2ImageToVideoPipeline
+        steps: 8
+        guidance: 1.0
+        fps: 24
+        size_multiple: 32
+        frame_step: 8
+        width: 960
+        height: 544
+        max_frames: 481
+        args:
+          sigmas: [1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875]
+          audio_guidance_scale: 1.0
+          stg_scale: 0.0
+          audio_stg_scale: 0.0
+          modality_scale: 1.0
+          audio_modality_scale: 1.0
+        skip: [processor, prompt_enhancer]
+      # Kandinsky 6.0 Pro distilled, text and image to video with a sound track;
+      # 10 steps, guidance off (distilled).
+      #kandinsky-6:
+      #  repo: kandinskylab/Kandinsky-6.0-Pro-distill-5s-Diffusers
+      #  pipeline: Kandinsky6TI2VAPipeline
+      #  steps: 10
+      #  guidance: 1.0
+      #  fps: 24
+      #  size_multiple: 32
+      #  frame_step: 4
+      #  width: 864
+      #  height: 480
+      #  max_frames: 121
+      # Kandinsky S2V 1.0 Pro distilled, presenter (portrait and speech to
+      # video, 5 s chunks); 16 steps, guidance distilled into the weights.
+      kandinsky-s2v:
+        repo: kandinskylab/Kandinsky-S2V-1.0-Pro-distill-Diffusers
+        pipeline: KandinskyS2VDistilledModularPipeline
+        steps: 16
+        fps: 25
+        buckets: [[512, 512], [512, 768], [768, 512]]
+        audio_rate: 16000
+        output: videos
+      # Kandinsky S2V 1.0 Lite distilled (2B transformer), for tests.
+      kandinsky-s2v-lite:
+        repo: kandinskylab/Kandinsky-S2V-1.0-Lite-distill-Diffusers
+        pipeline: KandinskyS2VDistilledModularPipeline
+        steps: 16
+        fps: 25
+        buckets: [[512, 512], [512, 768], [768, 512]]
+        audio_rate: 16000
+        output: videos
+      # LTX-Video 0.9.5 at small size and few steps, for tests.
+      ltx-video-small:
+        repo: Lightricks/LTX-Video-0.9.5
+        pipeline: LTXImageToVideoPipeline
+        steps: 8
+        guidance: 3.0
+        fps: 24
+        size_multiple: 32
+        frame_step: 8
+        width: 512
+        height: 320
+        max_frames: 121
+
+  # Kokoro 82M, local speech on the CPU in the skill's process (English US and
+  # UK voices, no style): model_url and voices_url (required) are its files;
+  # langs (required) maps a voice-name prefix to its espeak language (voices of
   # other prefixes are refused); voice is the default voice. The files go to
   # <dir>/<model>/; without dir, media:voiceover keeps them in
   # <media data dir>/voiceover.
-  kokoro:      {kind: kokoro, model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx, voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin, langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}, voice: af_heart}
-  # torchaudio forced-alignment pipelines (models.align): word times of
-  # media:voiceover on the CPU. url: the pipeline's weights file (MMS_FA:
-  # 1.26 GB), downloaded to <dir>/<model lowercased>/ (dir as for kokoro).
-  torchaudio:  {kind: torchaudio, url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt}
+  kokoro:
+    kind: kokoro
+    model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
+    voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+    langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}
+    voice: af_heart
+  # torchaudio forced-alignment pipelines (tasks.align): word times of
+  # media:voiceover on the CPU. url (required): the pipeline's weights file,
+  # downloaded to <dir>/<model lowercased>/ (dir as for kokoro).
+  torchaudio:
+    kind: torchaudio
+    url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt
   # Chatterbox Turbo, local speech with voice cloning from one recording, on
-  # the CPU (about 3 GB), in a worker process of its own environment
-  # (chatterbox-tts pins torch 2.6). media:voiceover's `setup --chatterbox` builds
-  # that environment under the media data directory and prints its python,
-  # the value of python. url and files: the model files, downloaded to <dir>/<model>/ (dir as
-  # for kokoro); the voice default is the model's built-in voice.
-  #chatterbox:  {kind: chatterbox, python: /path/to/env/bin/python, url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master, files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]}
-  #fish:        {kind: vllm-omni, python: /path/to/env/bin/python, repo: fishaudio/drama-3, deploy: fish_omni.yaml, memory: 70, style: "[{instructions}] {text}", args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager], env: {VLLM_USE_FLASHINFER_SAMPLER: 0}}
+  # the CPU, in a worker process of its own environment (chatterbox-tts pins
+  # torch 2.6). media:voiceover's `setup --chatterbox` builds that environment
+  # under the media data directory and prints its python, the value of python
+  # (required). url and files (required): the model files, downloaded to
+  # <dir>/<model>/ (dir as for kokoro); start_timeout: seconds the load may
+  # take (default 600). The voice default is the model's built-in voice.
+  #chatterbox:
+  #  kind: chatterbox
+  #  python: /path/to/env/bin/python
+  #  url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master
+  #  files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]
+  # Fish Audio Drama 3, local speech, served by vLLM-Omni from its own
+  # environment (vllm-omni pins torch and transformers):
+  #   uv venv <env dir> --python 3.12
+  #   uv pip install --python <env dir>/bin/python "vllm==0.32.*" vllm-omni==0.32.0 --torch-backend=cu130
+  # python, repo, deploy and memory are required. The server's stages take
+  # memory GB together (Drama 3: over 56; 70 leaves a 13 GB KV cache), and the
+  # server overhead GB more (default 22). With less free, a start waits for
+  # local Ollama models that unload within 15 min, else is refused and names
+  # what holds the memory. The server stops after the command. style puts
+  # voiceover --style into the text as inline tags. args: more server
+  # arguments (eager loading: the default memory-mapped load is too slow on a
+  # unified-memory GPU); env: server environment variables (FlashInfer's
+  # sampler needs nvcc to JIT-compile on GPUs without prebuilt kernels);
+  # start_timeout: seconds the start may take (default 1800).
+  #fish:
+  #  kind: vllm-omni
+  #  python: /path/to/env/bin/python
+  #  repo: fishaudio/drama-3
+  #  deploy: fish_omni.yaml
+  #  memory: 70
+  #  style: "[{instructions}] {text}"
+  #  args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager]
+  #  env: {VLLM_USE_FLASHINFER_SAMPLER: 0}
 
-# The model of each task. The skills ask for these tasks:
+
+# === tasks ===================================================================
+# The model of each task, <provider name>:<model>; its provider must be in
+# providers, and a diffusers model in that provider's models. The skills ask
+# for these tasks:
 #   chat        ai:classify (chat backend), ai:second-opinion
 #   vision      ai:second-opinion when an image is among the files
 #   system1     ai:classify (system1 backend, System-1 models)
+#   embed       embeddings (ai_models.models.embedder)
 #   image       media:image-gen --tier fast (the default) without --ref:
 #               quick drafts, bulk variations
 #   image_edit  media:image-gen --tier fast with --ref
@@ -106,7 +325,7 @@ providers:
 #               model that takes video with sound: a Gemini model of a
 #               provider of kind google)
 # A `--model <provider>:<model>` flag of a skill replaces the task's model.
-models:
+tasks:
   chat: openrouter:google/gemini-3.1-pro-preview
   vision: ollama:gemma4:31b
   system1: ollama:d3:4b
@@ -122,7 +341,7 @@ models:
   audio: vertex:gemini-3.1-pro-preview
   video: local:ltx-2.5
   film_critic: vertex:gemini-3.1-pro-preview
-  # Local models on a GPU (Ollama and the diffusers section below), in place of
+  # Local models on a GPU (Ollama and the local provider above), in place of
   # the cloud lines above:
   #speech: fish:drama-3
   #image_best: local:qwen-image
@@ -142,143 +361,64 @@ models:
   #video: local:ltx-video-small
   #presenter: local:kandinsky-s2v-lite
 
-# Local models (provider kind diffusers): repo (Hugging Face repository),
-# steps, guidance (optional; without it no guidance_scale is passed, for a
-# pipeline that has no such argument), inpaint (the diffusers pipeline class
-# for edits with a mask), args (optional: a mapping of more pipeline call
-# arguments, after steps and guidance and before the caller's) and skip
-# (optional: a list of pipeline components loaded as None, such as a text
-# encoder the model does not use). A music model also has duration_arg and
-# lyrics_arg: the names of the pipeline call arguments for the length in
-# seconds and the lyrics (a model without one does not take that option), and
-# optionally min_crest_db: a track whose crest factor (peak minus RMS where
-# the music is loud, dB) is below it is loud and compressed, and music
-# generate sends the request again with the next seed (--min-crest-db
-# overrides it per call, 0 turns it off); without it no check. Mastered rock,
-# techno and EDM can sit at 8 to 12 dB. A
-# video model also has, all required: pipeline (the diffusers class to load),
-# fps, size_multiple (width and height are rounded to it), frame_step (frame
-# counts are frame_step * k + 1), width, height (the default size) and
-# max_frames. A presenter model also has, all required: pipeline (a
-# DiffusionPipeline or ModularPipeline class), fps, buckets (the frame sizes
-# the model makes, [width, height]; a clip takes the one nearest the
-# picture's aspect ratio), audio_rate (the sample rate the model takes the speech at)
-# and output (the pipeline output that holds the videos). The image-gen, music and short-video wrappers install torch and
-# diffusers when a provider of kind diffusers is present; the first run
-# downloads the weights to the Hugging Face cache (HF_HOME below).
-diffusers:
-  # FLUX.2 klein 4B, the default local image model: about 16 s per 2K image on
-  # a GB10, garbles text (Qwen-Image below spells it right).
-  flux2-klein-4b: {repo: black-forest-labs/FLUX.2-klein-4B, steps: 4, guidance: 1.0, inpaint: Flux2KleinInpaintPipeline}
-  # Z-Image-Turbo, optional: about 40 s per image, no better than FLUX.2 klein
-  # in the photoreal, illustration and text tests.
-  #z-image-turbo:  {repo: Tongyi-MAI/Z-Image-Turbo, steps: 9, guidance: 0.0, inpaint: ZImageInpaintPipeline}
-  # ACE-Step 1.5 XL SFT, the default music model: about 12 s per 30 s clip.
-  # Crest factor where loud: 10.9 to 16.2 dB on five SFT clips (corporate,
-  # rock); the turbo clip of the hot seed 9 measured 9.1 dB.
-  ace-step-sft:   {repo: ACE-Step/acestep-v15-xl-sft-diffusers, steps: 50, guidance: 7.0, duration_arg: audio_duration, lyrics_arg: lyrics, min_crest_db: 10}
-  # ACE-Step 1.5 XL turbo, for tests and quick drafts: about 2 s per 30 s clip;
-  # saturates: loud, compressed sound (more steps do not change it); crest
-  # factor where loud 9.1 to 13.7 dB on 15 turbo clips. No min_crest_db: it is
-  # chosen knowing that.
-  ace-step:       {repo: ACE-Step/acestep-v15-xl-turbo-diffusers, steps: 8, guidance: 1.0, duration_arg: audio_duration, lyrics_arg: lyrics}
-  # LTX-Video 0.9.5 (2B), image to video; about 26 GB of weights. About 1 min per 5 s clip;
-  # usable only for slow, near-static motion (fast motion pixelates and deforms). LTX-2.5 is the default.
-  ltx-video:      {repo: Lightricks/LTX-Video-0.9.5, pipeline: LTXImageToVideoPipeline, steps: 30, guidance: 3.0, fps: 24, size_multiple: 32, frame_step: 8, width: 768, height: 512, max_frames: 121}
-  # Qwen-Image 2.1, generation and edit (one pipeline, no guidance_scale); about 33 GB.
-  qwen-image:     {repo: Qwen/Qwen-Image-2.1, steps: 40, args: {output_resolution: 2048}}
-  # LTX-2.5 distilled, image to video (gated: accept the license, set HF_TOKEN);
-  # about 70 GB of the components it loads. The args are the distilled
-  # schedule and guidance off, from the model card.
-  ltx-2.5:        {repo: Lightricks/LTX-2.5-Diffusers, pipeline: LTX2ImageToVideoPipeline, steps: 8, guidance: 1.0, fps: 24, size_multiple: 32, frame_step: 8, width: 960, height: 544, max_frames: 481, args: {sigmas: [1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875], audio_guidance_scale: 1.0, stg_scale: 0.0, audio_stg_scale: 0.0, modality_scale: 1.0, audio_modality_scale: 1.0}, skip: [processor, prompt_enhancer]}
-  # Kandinsky 6.0 Pro distilled, text and image to video with a sound track;
-  # about 81 GB. 10 steps, guidance off (distilled).
-  #kandinsky-6:    {repo: kandinskylab/Kandinsky-6.0-Pro-distill-5s-Diffusers, pipeline: Kandinsky6TI2VAPipeline, steps: 10, guidance: 1.0, fps: 24, size_multiple: 32, frame_step: 4, width: 864, height: 480, max_frames: 121}
-  # Kandinsky S2V 1.0 Pro distilled, presenter (portrait and speech to video,
-  # 5 s chunks); about 62 GB. 16 steps, guidance distilled into the weights.
-  kandinsky-s2v:  {repo: kandinskylab/Kandinsky-S2V-1.0-Pro-distill-Diffusers, pipeline: KandinskyS2VDistilledModularPipeline, steps: 16, fps: 25, buckets: [[512, 512], [512, 768], [768, 512]], audio_rate: 16000, output: videos}
-  # Kandinsky S2V 1.0 Lite distilled (2B transformer), for tests; about 24 GB.
-  kandinsky-s2v-lite: {repo: kandinskylab/Kandinsky-S2V-1.0-Lite-distill-Diffusers, pipeline: KandinskyS2VDistilledModularPipeline, steps: 16, fps: 25, buckets: [[512, 512], [512, 768], [768, 512]], audio_rate: 16000, output: videos}
-  # LTX-Video 0.9.5 at small size and few steps, for tests (see models above).
-  ltx-video-small: {repo: Lightricks/LTX-Video-0.9.5, pipeline: LTXImageToVideoPipeline, steps: 8, guidance: 3.0, fps: 24, size_multiple: 32, frame_step: 8, width: 512, height: 320, max_frames: 121}
+
+# === network =================================================================
+# A skill that loads the settings sets these in its process environment, where
+# the HTTP, TLS and Node.js libraries and child processes read them, and
+# removes each one not set here (proxies also in lower case): a value exported
+# in the shell has no effect.
+network:
+  # Proxies (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, NO_PROXY). Read by the HTTP
+  # clients of the model layer, its weight downloads included.
+  #http_proxy: http://proxy.example.com:8080
+  #https_proxy: http://proxy.example.com:8080
+  #all_proxy: http://proxy.example.com:8080
+  #no_proxy: [localhost, 127.0.0.1]
+  # An extra CA certificate for TLS-intercepting proxies: export the proxy root
+  # CA to a PEM file and name it here (the file must exist). Every remote call
+  # of the model layer trusts it on top of certifi's roots (ai:classify,
+  # ai:second-opinion, media:image-gen, media:music, media:voiceover), and it
+  # is exported as NODE_EXTRA_CA_CERTS for Node.js programs. Chain and hostname
+  # verification stay on.
+  #extra_ca_cert: /path/to/proxy_root_ca.pem
+  # A PEM bundle that replaces the default trust store (SSL_CERT_FILE; the file
+  # must exist). The remote calls and weight downloads of the model layer do
+  # not read it: they use certifi's roots plus extra_ca_cert.
+  #ca_bundle: /path/to/ca_bundle.pem
 
 
-# === Settings ================================================================
-# Uncomment a line to set it. A value with ': ' or ' #' in it needs quotes.
+# === huggingface =============================================================
+huggingface:
+  # Hugging Face cache (HF_HOME), where the local diffusers models
+  # (media:image-gen, media:music, media:short-video) download their weights.
+  # Default ~/.cache/huggingface.
+  #home: /path/to/huggingface
+  # Hugging Face token (HF_TOKEN). Needed only for a gated repository.
+  #token: hf_replace-me
 
-settings:
 
-  # --- TLS / CA certificates (all plugins) -----------------------------------
-  # An extra CA certificate for TLS-intercepting proxies.
-  # Export the proxy root CA to a PEM file and name it here. It is trusted on
-  # top of certifi's roots by every remote call of the model layer
-  # (ai:classify, ai:second-opinion, media:image-gen, media:music,
-  # media:voiceover).
-  # The readers take EXTRA_CA_CERT, else NODE_EXTRA_CA_CERTS, the first that
-  # names an existing file. With neither set, they use the default trust only.
-  # Chain and hostname verification stay on.
-  #EXTRA_CA_CERT: /path/to/proxy_root_ca.pem
-  # Checked after EXTRA_CA_CERT. Exported to the process environment, where
-  # Node.js programs read it.
-  #NODE_EXTRA_CA_CERTS: /path/to/proxy_root_ca.pem
+# === brand ===================================================================
+brand:
+  # Directories searched for brand folders (<dir>/<name>/brand.yaml) after the
+  # bundled brands, in order; the first match wins. Missing directories are
+  # skipped.
+  #path: [/path/to/brands]
 
-  # --- Read by libraries (exported to the process environment) ---------------
-  # A skill that loads the settings sets these in its process environment,
-  # where the HTTP, TLS and Hugging Face libraries and child processes read
-  # them, and removes each one not set here (proxies also in lower case): a
-  # value exported in the shell has no effect.
-  #
-  # Proxies. Read by the HTTP clients of the model layer, its weight downloads
-  # included.
-  #HTTP_PROXY: http://proxy.example.com:8080
-  #HTTPS_PROXY: http://proxy.example.com:8080
-  #ALL_PROXY: http://proxy.example.com:8080
-  #NO_PROXY: localhost,127.0.0.1
-  # PEM bundle that replaces the default trust store. The remote calls and
-  # weight downloads of the model layer do not read it: they use certifi's
-  # roots plus EXTRA_CA_CERT.
-  #SSL_CERT_FILE: /path/to/ca_bundle.pem
-  # Hugging Face cache, where the local diffusers models (media:image-gen,
-  # media:music, media:short-video) download their weights (4 to 90 GB per
-  # model). Default ~/.cache/huggingface.
-  #HF_HOME: /path/to/huggingface
-  # Hugging Face token. Needed only for a gated repository.
-  #HF_TOKEN: hf_replace-me
 
-  # --- media:voiceover -------------------------------------------------------
-  # The speech and align models are in models above. Reference recordings
-  # written by `add-voice` (voices of the models that clone one: chatterbox,
-  # vllm-omni). Default <media data dir>/voiceover/voices.
-  #VOICEOVER_VOICES_DIR: /path/to/voices
-
-  # --- media:image-gen -------------------------------------------------------
-  # Size limits. Required for OpenAI-kind models (openai, azure, openrouter,
-  # ollama): edges multiples of 16, longest edge, total pixels (the values
-  # below are gpt-image-2's). Required for local diffusers models: longest
-  # and shortest edge.
-  IMAGE_GEN_OPENAI_MAX_EDGE: 3840
-  IMAGE_GEN_OPENAI_MIN_PIXELS: 655360
-  IMAGE_GEN_OPENAI_MAX_PIXELS: 8294400
-  IMAGE_GEN_LOCAL_MAX_EDGE: 2048
-  IMAGE_GEN_LOCAL_MIN_EDGE: 256
-  # OpenAI-kind model ids (<provider>:<model>, comma-separated) that always get
-  # a size (default 1:1, 1K) and quality IMAGE_GEN_SIZED_QUALITY unless the
-  # options give them.
-  IMAGE_GEN_SIZED_MODELS: azure:gpt-image-2
-  IMAGE_GEN_SIZED_QUALITY: high
-
-  # --- brand:brand -----------------------------------------------------------
-  # Colon-separated directories searched for brand folders (<dir>/<name>/
-  # brand.yaml) after the bundled brands, in order; the first match wins.
-  # Empty and missing entries are skipped.
-  #BRAND_PATH: /path/to/brands
-
-  # --- studio ----------------------------------------------------------------
+# === studio ==================================================================
+studio:
   # Directory of the Studio projects: <dir>/<skill>/<project>/ (images,
-  # infographic, slides, short-video). Created when missing. Default
-  # ~/Documents/Studio.
-  #STUDIO_DIR: ~/Documents/Studio
-  # Your name, the default "Made by" of a new short video in the Studio.
-  # Several names are separated by commas. Unset: films start with no author,
-  # and a film without an author has no creator credit.
-  #AUTHOR_NAME: Alice Example
+  # infographic, slides, short-video). Absolute or starting with ~. Created when
+  # missing. Default ~/Documents/Studio.
+  #dir: ~/Documents/Studio
+  # Your names, the default "Made by" of a new short video in the Studio.
+  # Unset: films start with no author, and a film without an author has no
+  # creator credit.
+  #author: [Alice Example]
+
+
+# === voiceover ===============================================================
+voiceover:
+  # Reference recordings written by `add-voice` (voices of the models that
+  # clone one: chatterbox, vllm-omni). Default <media data dir>/voiceover/voices.
+  #voices_dir: /path/to/voices

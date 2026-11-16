@@ -13,6 +13,14 @@ from ai_models import config
 OLLAMA = "http://localhost:11434"
 
 
+@pytest.fixture(autouse=True)
+def _no_user_config(tmp_path):
+    """Point the layer at a missing file, so no test reads the user's config.yaml; `write_config` replaces it."""
+    config.use(tmp_path / "no-config.yaml")
+    yield
+    config.use(None)
+
+
 @pytest.fixture
 def write_config(tmp_path):
     """Write a config mapping to a file and point the layer at it."""

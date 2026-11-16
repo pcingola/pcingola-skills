@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 
+from plugin_settings import RemoteProvider
+
 from . import config
 from .errors import ConfigError, explained
 from .models import base_url, http_client, provider_key
@@ -24,15 +26,15 @@ def system1_model(model: str | None = None, *, task: str = "system1"):
     name, bare = config.split_id(config.resolve(model, task))
     spec = config.provider(name)
     url = base_url(spec)
-    if not url:
+    if not url or not isinstance(spec, RemoteProvider):
         raise ConfigError(f"provider {name!r} has no base_url for System-1 models")
-    return SystemOneModel(bare, provider=SystemOneProvider(base_url=url, api_key=provider_key(spec, name),
+    return SystemOneModel(bare, provider=SystemOneProvider(base_url=url, api_key=provider_key(spec),
                                                            http_client=http_client(spec)))
 
 
 async def adecide(state: str, questions: Mapping, *, model: str | None = None, temperature: float | None = None,
                   timeout: float | None = None):
-    """The `DecisionResponse` of `model` (else `models.system1`) for `state` and `questions`
+    """The `DecisionResponse` of `model` (else `tasks.system1`) for `state` and `questions`
     ({id: question}). `timeout` (seconds) replaces the provider's `timeout` for this request."""
     from pydantic_ai.models.decision import DecisionRequest
 

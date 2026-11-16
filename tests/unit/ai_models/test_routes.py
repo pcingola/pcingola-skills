@@ -1,5 +1,5 @@
 """Model routes (`ai_models.routes`, docs/ai_models.md "Model routes"): one table, the user's `routes.md` beside
-the config file; per task a default row with the model of `models.<task>`, then the escalation rows, unconfigured
+the config file; per task a default row with the model of `tasks.<task>`, then the escalation rows, unconfigured
 models left out."""
 
 from __future__ import annotations
@@ -22,9 +22,11 @@ TEMPLATE = ASSETS / routes.FILE_NAME
 HEADER = "| task | model | when | why |\n|---|---|---|---|\n"
 # Defaults for image and video, a diffusers provider holding the template's image models but not its video
 # escalation models, and an Ollama provider.
-LOCAL = {"providers": {"local": {"kind": "diffusers"}, "ollama": {"kind": "ollama"}},
-         "models": {"image": "local:flux2-klein-4b", "video": "local:ltx-2.5"},
-         "diffusers": {"flux2-klein-4b": {"repo": "r/f"}, "qwen-image": {"repo": "r/q"}, "ltx-2.5": {"repo": "r/l"}}}
+LOCAL = {"providers": {"local": {"kind": "diffusers", "models": {"flux2-klein-4b": {"repo": "r/f"},
+                                                                  "qwen-image": {"repo": "r/q"},
+                                                                  "ltx-2.5": {"repo": "r/l"}}},
+                       "ollama": {"kind": "ollama"}},
+         "tasks": {"image": "local:flux2-klein-4b", "video": "local:ltx-2.5"}}
 
 
 def user_table(tmp_path: Path, rows: str) -> Path:
@@ -43,8 +45,8 @@ def template_default(task: str) -> routes.Route:
 
 def test_template_rows_name_models_of_the_config_template():
     """The setup:settings template `routes.md` is valid; each model is a `local` model that `config.example.yaml`
-    names in `diffusers`, or a model of a provider it names in `providers`, commented or not; each default row names
-    the config template's `models.<task>`."""
+    names in `providers.local.models`, or a model of a provider it names in `providers`, commented or not; each
+    default row names the config template's `tasks.<task>`."""
     rows = routes.parse(TEMPLATE)
     assert rows
     text = EXAMPLE.read_text(encoding="utf-8")
@@ -54,12 +56,12 @@ def test_template_rows_name_models_of_the_config_template():
         key = name if provider == "local" else provider
         assert re.search(rf"^\s*#?{re.escape(key)}:", text, re.M), r.model
         if r.is_default:
-            assert template["models"][r.task] == r.model, r
+            assert template["tasks"][r.task] == r.model, r
 
 
 def test_default_row_from_config_then_escalations(write_config, tmp_path):
     """With the template as the user's table, `table` lists per task the default row with the model of
-    `models.<task>` and the table's `why`, then the escalation rows; a row whose provider or diffusers model is
+    `tasks.<task>` and the table's `why`, then the escalation rows; a row whose provider or diffusers model is
     missing is left out (here z-image-turbo, kandinsky-6 and ltx-video)."""
     write_config(LOCAL)
     shutil.copy(TEMPLATE, tmp_path / routes.FILE_NAME)
@@ -81,9 +83,9 @@ def test_user_rows_in_file_order_and_unconfigured_dropped(write_config, tmp_path
 
 
 def test_config_model_other_than_the_table_default_is_used_with_a_note(write_config, tmp_path):
-    """When `models.<task>` differs from the table's default model, the default row has the config model and a
+    """When `tasks.<task>` differs from the table's default model, the default row has the config model and a
     `why` naming the table's recommendation."""
-    write_config({**LOCAL, "models": {"image": "local:qwen-image"}})
+    write_config({**LOCAL, "tasks": {"image": "local:qwen-image"}})
     user_table(tmp_path, "| image | local:flux2-klein-4b | default | fast |\n")
     assert routes.table(["image"]) == [routes.Route(
         "image", "local:qwen-image", routes.DEFAULT,
@@ -92,8 +94,8 @@ def test_config_model_other_than_the_table_default_is_used_with_a_note(write_con
 
 def test_task_without_table_default_or_without_config_model(write_config, tmp_path):
     """A task without a default row in the table gets the config model with `why` `set in config.yaml`; a task
-    without `models.<task>` has no default row but keeps its escalation rows."""
-    write_config({**LOCAL, "models": {"chat": "ollama:c"}})
+    without `tasks.<task>` has no default row but keeps its escalation rows."""
+    write_config({**LOCAL, "tasks": {"chat": "ollama:c"}})
     user_table(tmp_path, "| image | local:flux2-klein-4b | default | fast |\n"
                          "| image | ollama:x | only when tested | mine |\n")
     assert routes.table(["chat"]) == [routes.Route("chat", "ollama:c", routes.DEFAULT, routes.DEFAULT_WHY)]
@@ -101,7 +103,7 @@ def test_task_without_table_default_or_without_config_model(write_config, tmp_pa
 
 
 def test_missing_file_gives_config_defaults_and_a_note(write_config, tmp_path, capsys):
-    """Without the user's `routes.md`, `table` has only the default rows of `models.<task>`, and the `routes`
+    """Without the user's `routes.md`, `table` has only the default rows of `tasks.<task>`, and the `routes`
     command prints them and, on stderr, that the table is missing and that setup:settings creates it."""
     write_config(LOCAL)
     assert not (tmp_path / routes.FILE_NAME).exists()

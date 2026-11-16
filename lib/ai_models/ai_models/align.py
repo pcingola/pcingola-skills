@@ -14,13 +14,12 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from plugin_settings import ProviderKind, TorchaudioProvider
 
 from . import config, weights
-from .config import required
 from .errors import AIModelsError, ConfigError
 
-KIND = "torchaudio"
+KIND = ProviderKind.TORCHAUDIO
 TASK = "align"
 
 _aligners: dict[str, "Aligner"] = {}
@@ -62,29 +61,28 @@ class Aligner:
         return [(sp[0].start * ratio, sp[-1].end * ratio) for sp in spans]
 
 
-def spec_of(model_id: str) -> tuple[str, dict[str, Any], str]:
+def spec_of(model_id: str) -> tuple[str, TorchaudioProvider, str]:
     """(provider name, its settings, the pipeline name) of an align model id."""
     name, bare = config.split_id(model_id)
     spec = config.provider(name)
-    if spec["kind"] != KIND:
-        raise ConfigError(f"provider {name!r} of kind {spec['kind']!r} has no align models; kind: {KIND}")
+    if spec.kind != KIND:
+        raise ConfigError(f"provider {name!r} of kind {spec.kind!r} has no align models; kind: {KIND}")
     return name, spec, bare
 
 
-def fetch(spec: dict[str, Any], name: str, model: str):
+def fetch(spec: TorchaudioProvider, model: str):
     """The weights file of the pipeline, downloaded when missing."""
-    url = str(required(spec, "url", name))
-    return weights.ensure_file(url, weights.model_dir(spec, model) / weights.basename(url))
+    return weights.ensure_file(spec.url, weights.model_dir(spec, model) / weights.basename(spec.url))
 
 
 def aligner(model: str | None = None, weights_dir: str | Path | None = None) -> Aligner:
-    """The aligner of `model` (else `models.align`), loaded once per process, its weights in the provider's `dir`,
+    """The aligner of `model` (else `tasks.align`), loaded once per process, its weights in the provider's `dir`,
     else `weights_dir` (`weights.with_dir`)."""
     model_id = config.resolve(model, TASK)
     if model_id not in _aligners:
         name, spec, bare = spec_of(model_id)
         spec = weights.with_dir(spec, weights_dir)
-        fetch(spec, name, bare)
+        fetch(spec, bare)
         try:
             _aligners[model_id] = Aligner(bare, str(weights.model_dir(spec, bare)))
         except (OSError, RuntimeError) as e:

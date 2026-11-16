@@ -16,7 +16,7 @@ def require_provider(name: str) -> None:
     """Fail the test unless the user's config.yaml has provider `name` with its `api_key`."""
     config.use(None)
     try:
-        if not config.api_key(config.provider(name)):
+        if config.provider(name).key() is None:
             pytest.fail(f"provider {name!r} of the user's config.yaml has no api_key")
     except ConfigError as e:
         pytest.fail(f"provider {name!r} of the user's config.yaml: {e}")

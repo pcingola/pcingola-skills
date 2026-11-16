@@ -22,10 +22,11 @@ HAS_GPU = torch.cuda.is_available() or torch.backends.mps.is_available()
 def small_config(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump({
-        "providers": {"local": {"kind": "diffusers"}}, "models": {"video": "local:ltx-small"},
-        "diffusers": {"ltx-small": {"repo": LTX_VIDEO, "pipeline": "LTXImageToVideoPipeline", "steps": 2,
-                                    "guidance": 3.0, "fps": 24, "size_multiple": 32, "frame_step": 8,
-                                    "width": 128, "height": 96, "max_frames": 9}}}), encoding="utf-8")
+        "providers": {"local": {"kind": "diffusers", "models": {
+            "ltx-small": {"repo": LTX_VIDEO, "pipeline": "LTXImageToVideoPipeline", "steps": 2, "guidance": 3.0,
+                          "fps": 24, "size_multiple": 32, "frame_step": 8, "width": 128, "height": 96,
+                          "max_frames": 9}}}},
+        "tasks": {"video": "local:ltx-small"}}), encoding="utf-8")
     config.use(path)
     yield
     config.use(None)
@@ -57,10 +58,11 @@ def presenter_config(tmp_path):
     positions, so the prompt is short."""
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump({
-        "providers": {"local": {"kind": "diffusers"}}, "models": {"presenter": "local:s2v-tiny"},
-        "diffusers": {"s2v-tiny": {"repo": TINY_S2V, "pipeline": "KandinskyS2VDistilledModularPipeline", "steps": 2,
-                                   "fps": 25, "buckets": [[64, 64], [64, 96], [96, 64]], "audio_rate": 16000,
-                                   "output": "videos", "args": {"prompt": "A person speaks."}}}}), encoding="utf-8")
+        "providers": {"local": {"kind": "diffusers", "models": {
+            "s2v-tiny": {"repo": TINY_S2V, "pipeline": "KandinskyS2VDistilledModularPipeline", "steps": 2, "fps": 25,
+                         "buckets": [[64, 64], [64, 96], [96, 64]], "audio_rate": 16000, "output": "videos",
+                         "args": {"prompt": "A person speaks."}}}}},
+        "tasks": {"presenter": "local:s2v-tiny"}}), encoding="utf-8")
     config.use(path)
     yield
     config.use(None)

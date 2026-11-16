@@ -112,6 +112,27 @@ The template rows come from wall-time and quality measurements on an NVIDIA GB10
 (`local:flux2-klein-4b` for `image`, `local:ltx-2.5` for `video`, `local:ace-step-sft` for `music`,
 `kokoro:kokoro-v1.0` for `speech`). A user without one of the escalation models has that row dropped.
 
+Sizes and wall times of the template's local models on the GB10 (crest factors of the music models: `docs/music.md`):
+
+| Model | Weights | Wall time |
+|---|---|---|
+| `flux2-klein-4b` | | about 16 s per 2K image |
+| `z-image-turbo` | | about 40 s per image |
+| `qwen-image` | about 33 GB | |
+| `ace-step-sft` | | about 12 s per 30 s clip |
+| `ace-step` (turbo) | | about 2 s per 30 s clip |
+| `ltx-video` | about 26 GB | about 1 min per 5 s clip |
+| `ltx-2.5` | about 70 GB of the components it loads | |
+| `kandinsky-6` | about 81 GB | |
+| `kandinsky-s2v` | about 62 GB | |
+| `kandinsky-s2v-lite` | about 24 GB | |
+| Kokoro 82M (`kokoro`) | about 340 MB | |
+| MMS_FA (`torchaudio`) | 1.26 GB | |
+| Chatterbox Turbo (`chatterbox`) | about 3 GB | |
+| Fish Audio Drama 3 (`vllm-omni`) | about 42 GB | |
+
+A diffusers model downloads 4 to 90 GB of weights to the Hugging Face cache (`huggingface.home`).
+
 ## Provider kinds
 
 | Kind | Pydantic-AI provider | Keys |

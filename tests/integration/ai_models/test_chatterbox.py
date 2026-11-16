@@ -22,10 +22,10 @@ WEIGHTS = Plugin.of(Path(__file__).resolve().parents[3] / "plugins/media/skills/
 
 def provider() -> str | None:
     try:
-        providers = config.load().get("providers") or {}
+        providers = config.load().providers
     except AIModelsError:
         return None
-    return next((n for n, p in providers.items() if isinstance(p, dict) and p.get("kind") == "chatterbox"), None)
+    return next((n for n, p in providers.items() if p.kind == "chatterbox"), None)
 
 
 NAME = provider()

@@ -10,28 +10,36 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TypeVar
+
+from plugin_settings import ChatterboxProvider, KokoroProvider, TorchaudioProvider
 
 from .errors import AIModelsError, ConfigError
+
+# A provider with a weights directory (`dir`).
+WeightsProvider = TypeVar("WeightsProvider", KokoroProvider, ChatterboxProvider, TorchaudioProvider)
+
 
 class DownloadError(AIModelsError):
     """A weight file could not be downloaded."""
 
 
-def with_dir(spec: dict[str, Any], default: str | Path | None) -> dict[str, Any]:
+def with_dir(spec: WeightsProvider, default: str | Path | None) -> WeightsProvider:
     """`spec` with `dir` set to `default` when it has none (a copy; `spec` itself is unchanged)."""
-    return spec if spec.get("dir") or default is None else {**spec, "dir": str(default)}
+    if spec.dir is not None or default is None:
+        return spec
+    return spec.model_copy(update={"dir": Path(default).expanduser()})
 
 
-def root(spec: dict[str, Any]) -> Path:
+def root(spec: WeightsProvider) -> Path:
     """The provider's weights directory, its `dir`; `ConfigError` when it has none (the caller passed no default)."""
-    if not spec.get("dir"):
-        raise ConfigError(f"a provider of kind {spec.get('kind')} has no `dir` for its weights, and the caller gave "
+    if spec.dir is None:
+        raise ConfigError(f"a provider of kind {spec.kind} has no `dir` for its weights, and the caller gave "
                           "none; set `dir` in its entry")
-    return Path(str(spec["dir"])).expanduser()
+    return spec.dir
 
 
-def model_dir(spec: dict[str, Any], model: str) -> Path:
+def model_dir(spec: WeightsProvider, model: str) -> Path:
     """The directory of the files of `model` of a provider: `<root>/<model lowercased>`."""
     return root(spec) / model.lower()
 

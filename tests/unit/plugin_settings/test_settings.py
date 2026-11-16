@@ -1,5 +1,5 @@
 """Unit tests for plugin_settings: plugin and marketplace names, data directory,
-the config file, `get`, `require`, `invalid` and the export of ENV_KEYS.
+the config file and the export of ENV_EXPORTS (docs/plugin_settings.md).
 
 plugin_settings reads HOME, CLAUDE_CONFIG_DIR, CLAUDE_PLUGIN_DATA, SKILLS_CONFIG
 and the config file, and Plugin.load writes os.environ. Every test that depends
@@ -13,7 +13,6 @@ import pytest
 from plugin_settings import Plugin
 from tests.subproc import child_env, run_python
 
-KEY = "PLUGIN_SETTINGS_TEST_KEY"
 
 
 @pytest.fixture
@@ -151,136 +150,80 @@ def test_no_name_exits(home):
     assert "set CLAUDE_PLUGIN_DATA" in done.stderr
 
 
-# The config file and get
+# The config file and the export
 
 
 def test_skills_config_names_another_file(home, plugin, tmp_path):
     """SKILLS_CONFIG names the config file in place of the default. Guards the override the tests and the
     wrappers use."""
-    write(config_path(home), f"settings: {{{KEY}: default}}\n")
-    write(tmp_path / "other.yaml", f"settings: {{{KEY}: other}}\n")
-    got = value(run(home, plugin, f"out([str(plugin_settings.config_file()), P.get({KEY!r})])",
+    write(config_path(home), "studio: {dir: /default}\n")
+    write(tmp_path / "other.yaml", "studio: {dir: /other}\n")
+    got = value(run(home, plugin, "out([str(plugin_settings.config_file()), P.load().studio.dir])",
                     SKILLS_CONFIG=str(tmp_path / "other.yaml")))
-    assert got == [str(tmp_path / "other.yaml"), "other"]
-
-
-def test_get_file_then_default(home, plugin):
-    """get returns settings.<key> of the file, else the default when the file lacks the key or holds it empty
-    (null). Guards the documented order."""
-    body = f"out([P.get({KEY!r}), P.get('NULL_KEY', 'dflt'), P.get('NONE_KEY', 'dflt'), P.get('NONE_KEY')])"
-    write(config_path(home), f"settings:\n  {KEY}: file\n  NULL_KEY:\n")
-    assert value(run(home, plugin, body)) == ["file", "dflt", "dflt", None]
-
-
-def test_environment_variable_of_a_setting_is_ignored(home, plugin):
-    """get, require and ca_cert ignore a process environment variable named like a setting, with and without
-    a config file; Plugin.load removes an exported ENV_KEYS variable the file does not set. Guards
-    config.yaml as the only source of a setting."""
-    ca = home / "ca.pem"
-    write(ca, "pem")
-    env = {KEY: "env", "NULL_KEY": "env", "EXTRA_CA_CERT": str(ca), "HF_TOKEN": "env-tok"}
-    body = (f"P.load(); from plugin_settings.ca import ca_cert\n"
-            f"out([P.get({KEY!r}), P.get('NULL_KEY', 'dflt'), ca_cert(), os.environ.get('HF_TOKEN')])")
-    assert value(run(home, plugin, body, **env)) == [None, "dflt", None, None]
-    write(config_path(home), "settings:\n  NULL_KEY:\n")
-    assert value(run(home, plugin, body, **env)) == [None, "dflt", None, None]
-    done = run(home, plugin, f"P.require({KEY!r})", **env)
-    assert done.returncode == 1
-    assert f"{KEY} is not set" in done.stderr
-
-
-def test_values_are_strings(home, plugin):
-    """get returns YAML booleans as `true`/`false` and numbers as their text. Guards callers that parse a
-    boolean setting from a string."""
-    write(config_path(home), "settings: {A: true, B: false, C: 3, D: ~/x}\n")
-    assert value(run(home, plugin, "out([P.get(k) for k in 'ABCD'])")) == ["true", "false", "3", "~/x"]
+    assert got == [str(tmp_path / "other.yaml"), "/other"]
 
 
 def test_no_file_no_settings(home, plugin):
-    """Without a config file, get returns the default and Plugin.load changes nothing in an environment without
-    ENV_KEYS or client-library variables, and creates no file. Guards a first run before setup:settings."""
+    """Without a config file, Plugin.load returns the defaults and changes nothing in an environment without
+    ENV_EXPORTS or client-library variables, and creates no file. Guards a first run before setup:settings."""
     before = value(run(home, plugin, "out(dict(os.environ))"))
     assert value(run(home, plugin, "P.load(); out(dict(os.environ))")) == before
-    assert value(run(home, plugin, f"out(P.get({KEY!r}, 'dflt'))")) == "dflt"
+    assert value(run(home, plugin, "out(P.load().studio.dir)")) == "~/Documents/Studio"
     assert not config_path(home).exists()
 
 
-def test_load_sets_env_keys_from_the_file_only(home, plugin):
-    """Plugin.load sets each variable of ENV_KEYS from the file (over the process value; proxies also in lower
-    case), removes those the file does not set in both cases, removes the client-library variables of
-    CLEARED_PREFIXES and CLEARED_KEYS, exports no other setting and keeps unrelated variables. Guards that a shell
-    variable is never a setting (docs/plugin_settings.md, "Export to the environment")."""
-    write(config_path(home), f"settings: {{HF_TOKEN: tok, SSL_CERT_FILE: /ca.pem, HTTPS_PROXY: http://p:1, {KEY}: v}}\n")
-    names = ["HF_TOKEN", "SSL_CERT_FILE", "HTTPS_PROXY", "https_proxy", "HF_HOME", "HTTP_PROXY", "http_proxy",
-             "no_proxy", "OPENAI_API_KEY", "GOOGLE_API_KEY", KEY, "UNRELATED"]
+def test_load_sets_env_exports_from_the_file_only(home, plugin):
+    """Plugin.load sets each variable of ENV_EXPORTS from its key (over the process value; proxies also in lower
+    case, no_proxy joined with commas), removes those the file does not set in both cases, removes the
+    client-library variables of CLEARED_PREFIXES and CLEARED_KEYS and keeps unrelated variables. Guards that a
+    shell variable is never a setting (docs/plugin_settings.md, "Export to the environment")."""
+    ca, bundle = home / "ca.pem", home / "bundle.pem"
+    write(ca, "pem")
+    write(bundle, "pem")
+    write(config_path(home), (
+        f"network: {{https_proxy: 'http://p:1', no_proxy: [localhost, 127.0.0.1], extra_ca_cert: {ca}, "
+        f"ca_bundle: {bundle}}}\nhuggingface: {{token: tok, home: ~/hf}}\n"))
+    names = ["HF_TOKEN", "HF_HOME", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "HTTPS_PROXY", "https_proxy", "NO_PROXY",
+             "no_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "UNRELATED"]
     shell = {"SSL_CERT_FILE": "/process.pem", "https_proxy": "http://shell:1", "HF_HOME": "/shell/hf",
-             "HTTP_PROXY": "http://shell:2", "http_proxy": "http://shell:2", "no_proxy": "shell",
+             "HTTP_PROXY": "http://shell:2", "http_proxy": "http://shell:2", "ALL_PROXY": "http://shell:3",
              "OPENAI_API_KEY": "shell", "GOOGLE_API_KEY": "shell", "UNRELATED": "kept"}
     got = value(run(home, plugin, f"P.load(); out({{k: os.environ.get(k) for k in {names!r}}})", **shell))
-    assert got == {"HF_TOKEN": "tok", "SSL_CERT_FILE": "/ca.pem", "HTTPS_PROXY": "http://p:1",
-                   "https_proxy": "http://p:1", "HF_HOME": None, "HTTP_PROXY": None, "http_proxy": None,
-                   "no_proxy": None, "OPENAI_API_KEY": None, "GOOGLE_API_KEY": None, KEY: None, "UNRELATED": "kept"}
+    assert got == {"HF_TOKEN": "tok", "HF_HOME": str(home / "hf"), "SSL_CERT_FILE": str(bundle),
+                   "NODE_EXTRA_CA_CERTS": str(ca), "HTTPS_PROXY": "http://p:1", "https_proxy": "http://p:1",
+                   "NO_PROXY": "localhost,127.0.0.1", "no_proxy": "localhost,127.0.0.1", "HTTP_PROXY": None,
+                   "http_proxy": None, "ALL_PROXY": None, "OPENAI_API_KEY": None, "GOOGLE_API_KEY": None,
+                   "UNRELATED": "kept"}
 
 
-def test_path_keys_in_settings_have_no_effect(home, plugin, tmp_path):
-    """CLAUDE_PLUGIN_DATA in `settings` does not move the data directory, and Plugin.load does not export it.
-    Guards against the file moving the directories it decides."""
-    write(config_path(home), f"settings: {{CLAUDE_PLUGIN_DATA: {tmp_path / 'elsewhere'}}}\n")
-    got = value(run(home, plugin, "P.load(); out(['CLAUDE_PLUGIN_DATA' in os.environ, str(P.data_dir())])"))
-    assert got == [False, str(home / ".claude" / "plugins" / "data" / "demo-mk")]
+def test_every_env_export_row_is_set_and_removed(home, plugin):
+    """Each row of ENV_EXPORTS is set from a file that holds every network and huggingface key, in both cases
+    where the row says so, and removed from the environment by a file that holds none. Guards the table as the
+    one map from YAML keys to variables."""
+    ca = home / "ca.pem"
+    write(ca, "pem")
+    write(config_path(home), (
+        f"network: {{http_proxy: 'http://a:1', https_proxy: 'http://b:1', all_proxy: 'http://c:1', no_proxy: [h], "
+        f"extra_ca_cert: {ca}, ca_bundle: {ca}}}\nhuggingface: {{token: t, home: /hf}}\n"))
+    body = ("names = [n for v in plugin_settings.ENV_EXPORTS for n in v.names()]\n"
+            "P.load(); out({n: os.environ.get(n) for n in names})")
+    got = value(run(home, plugin, body))
+    assert None not in got.values() and got["http_proxy"] == got["HTTP_PROXY"] == "http://a:1"
+    assert "hf_home" not in got and got["HF_HOME"] == "/hf"
+    write(config_path(home), "network:\nhuggingface:\n")
+    shell = {n: "shell" for n in got}
+    assert set(value(run(home, plugin, body, **shell)).values()) == {None}
 
 
-@pytest.mark.parametrize("text, message", [
-    ("a: [", "is not valid YAML"),
-    ("- a\n", "must be a mapping"),
-    ("settings: [a]\n", "`settings` in ~/.claude/plugins/data/config.yaml must be a mapping"),
-    ("settings: {A: [1]}\n", "settings.A in ~/.claude/plugins/data/config.yaml must be a single value"),
-])
-def test_malformed_file_exits(home, plugin, text, message):
-    """Plugin.load exits 1 naming the file for a malformed config file. Guards a clear message instead of a
-    traceback."""
-    write(config_path(home), text)
+def test_invalid_file_exits_with_every_problem(home, plugin):
+    """Plugin.load exits 1 with one message naming the file (as ~), each problem on a line with its YAML path, and
+    the setup:settings line. Guards a clear message instead of a traceback."""
+    write(config_path(home), "studio: {dir: relative}\nnetwork: {extra_ca_cert: /nonexistent.pem}\nbogus: 1\n")
     done = run(home, plugin, "P.load()")
     assert done.returncode == 1
-    assert message in done.stderr
-
-
-# require and invalid
-
-
-def test_require_present(home, plugin):
-    """require returns the value stripped of whitespace. Guards settings with stray spaces."""
-    write(config_path(home), f"settings: {{{KEY}: ' v '}}\n")
-    assert value(run(home, plugin, f"out(P.require({KEY!r}))")) == "v"
-
-
-def test_require_empty_value_is_missing(home, plugin):
-    """require treats an empty or blank value in the file as missing. Guards that `KEY: ""` does not pass as
-    set."""
-    write(config_path(home), f"settings: {{{KEY}: '  '}}\n")
-    done = run(home, plugin, f"P.require({KEY!r})")
-    assert done.returncode == 1
-    assert f"{KEY} is not set" in done.stderr
-
-
-def test_require_missing_names_the_file(home, plugin):
-    """The error for a missing key names the config file with found/not found and `~`, and the lines to add.
-    Guards the message users follow to fix a missing setting."""
-    done = run(home, plugin, f"plugin_settings.require({KEY!r})")
-    assert done.returncode == 1
     assert done.stderr == (
-        f"Error: {KEY} is not set.\n"
-        "Settings are read from ~/.claude/plugins/data/config.yaml (not found), section `settings`.\n"
-        f"Add it to that file:\n  settings:\n    {KEY}: <value>\n"
-        "The setup:settings skill describes every setting and creates the file.\n"
-    )
-
-
-def test_invalid_names_the_setting_in_the_file(home, plugin):
-    """invalid names `settings.<key>` of the config file. Guards that the error names the place to fix."""
-    write(config_path(home), f"settings: {{{KEY}: b}}\n")
-    done = run(home, plugin, f"P.invalid({KEY!r}, P.get({KEY!r}), 'a number')")
-    assert done.returncode == 1
-    assert done.stderr == (
-        f"Error: {KEY}='b' (settings.{KEY} in ~/.claude/plugins/data/config.yaml) is not valid: a number.\n"
-        "The setup:settings skill describes every setting and creates the file.\n")
+        "Error: ~/.claude/plugins/data/config.yaml is not valid:\n"
+        "  network.extra_ca_cert: file /nonexistent.pem does not exist\n"
+        "  studio.dir: 'relative' is not an absolute path or a path starting with ~\n"
+        "  bogus: not a setting\n"
+        "The setup:settings skill describes every key and creates the file.\n")

@@ -24,14 +24,13 @@ PROVIDERS = {
            "api_key": KEY},
     "gg": {"kind": "google", "api_key": KEY},
     "vx": {"kind": "google", "vertex": True, "base_url": "https://gw.example/vertex", "api_key": KEY},
-    "local": {"kind": "diffusers"},
+    "local": {"kind": "diffusers", "models": {"zi": {"repo": "org/zi", "steps": 9}}},
 }
 
 
 @pytest.fixture(autouse=True)
 def _config(write_config):
-    write_config({"providers": PROVIDERS, "models": {"chat": "ollama:gemma4:31b", "vision": "gg:gemini-3-pro"},
-                  "diffusers": {"zi": {"repo": "org/zi", "steps": 9}}})
+    write_config({"providers": PROVIDERS, "tasks": {"chat": "ollama:gemma4:31b", "vision": "gg:gemini-3-pro"}})
 
 
 @pytest.mark.parametrize("model_id, cls", [
@@ -40,12 +39,14 @@ def _config(write_config):
     ("vx:gemini-3-pro", GoogleModel),
 ])
 def test_chat_model_per_kind(model_id, cls):
+    """The chat model class built for each remote provider kind, with the bare model name."""
     m = models.chat_model(model_id)
     assert type(m) is cls
     assert m.model_name == model_id.split(":", 1)[1]
 
 
 def test_chat_model_of_a_task_and_its_base_url():
+    """chat_model without an id takes `tasks.chat`; an ollama provider without base_url gets Ollama's default URL."""
     m = models.chat_model()
     assert m.model_name == "gemma4:31b"
     assert m.base_url.startswith(models.OLLAMA_URL)
@@ -53,6 +54,7 @@ def test_chat_model_of_a_task_and_its_base_url():
 
 
 def test_vertex_flag_builds_a_vertex_client():
+    """`vertex: true` on a google provider builds a Vertex client; without it, a Gemini API client."""
     assert models.provider("vx").client.vertexai
     assert not models.provider("gg").client.vertexai
 
@@ -62,6 +64,7 @@ def test_vertex_flag_builds_a_vertex_client():
     ("gg:gemini-embedding-001", GoogleEmbeddingModel),
 ])
 def test_embedder_per_kind(model_id, cls):
+    """The embedding model class built for each remote provider kind."""
     assert type(models.embedder(model_id).model) is cls
 
 
@@ -70,10 +73,12 @@ def test_embedder_per_kind(model_id, cls):
     ("gg:gemini-3-pro-image", GoogleImageGenerationModel), ("local:zi", DiffusersImageModel),
 ])
 def test_image_model_per_kind(model_id, cls):
+    """The image model class built for each provider kind, the local diffusers model included."""
     assert type(images.image_model(model_id)) is cls
 
 
 def test_mask_model_per_kind():
+    """A mask selects the masked OpenAI image model or the diffusers inpaint path; a google model refuses it."""
     assert type(images.image_model("azure:gpt-image-2", mask=b"png")) is images.MaskedOpenAIImageModel
     assert images.image_model("local:zi", mask=b"png").mask == b"png"
     with pytest.raises(ConfigError, match="mask"):
@@ -81,11 +86,13 @@ def test_mask_model_per_kind():
 
 
 def test_diffusers_provider_has_no_chat_model():
+    """A diffusers provider serves no chat model: ConfigError naming the kind."""
     with pytest.raises(ConfigError, match="diffusers"):
         models.chat_model("local:zi")
 
 
 def test_system1_model_on_ollama():
+    """The System-1 model of an ollama provider talks to Ollama's default URL."""
     m = system1.system1_model("ollama:d3:4b")
     assert type(m) is SystemOneModel
     assert m.base_url == models.OLLAMA_URL

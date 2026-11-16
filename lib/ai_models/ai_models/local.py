@@ -1,8 +1,8 @@
 """Local images and music in process with `diffusers` (extra `ai-models[diffusers]`), and the
 pipeline cache and device of every local model (video: `video`).
 
-A model is `diffusers.<name>` in the config: `repo` (a Hugging Face repo, loaded
-with `DiffusionPipeline.from_pretrained`; weights go to the Hugging Face cache),
+A model is `providers.<p>.models.<name>` of a diffusers provider in the config (`DiffusersModel`): `repo`
+(a Hugging Face repo, loaded with `DiffusionPipeline.from_pretrained`; weights go to the Hugging Face cache),
 `steps`, `guidance` (optional: without it no `guidance_scale` is passed), `inpaint` (a
 diffusers pipeline class for mask edits, built over the loaded modules with `from_pipe`),
 `args` (optional: more pipeline call arguments, after steps and guidance and before the
@@ -47,6 +47,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from plugin_settings import DiffusersModel, ProviderKind
 from pydantic import BaseModel
 from pydantic_ai.exceptions import UserError
 from pydantic_ai.images import GeneratedImage, ImageGenerationModel, ImageGenerationResult
@@ -408,18 +409,18 @@ def resident_ollama_models() -> list[OllamaModel]:
     from .tls import ssl_verify
 
     try:
-        providers = config.load().get("providers") or {}
+        providers = config.load().providers
     except AIModelsError:
         return []
     out = []
     for name, spec in providers.items():
-        if not isinstance(spec, dict) or spec.get("kind") != "ollama":
+        if spec.kind != ProviderKind.OLLAMA:
             continue
         url = base_url(spec).rstrip("/").removesuffix("/v1") + "/api/ps"
         if not loopback(url):
             continue
         req = urllib.request.Request(url)
-        if key := spec.get("api_key"):
+        if key := spec.key():
             req.add_header("Authorization", f"Bearer {key}")
         try:
             with urllib.request.urlopen(req, timeout=2, context=ssl_verify() if url.startswith("https") else None) as r:
@@ -506,12 +507,12 @@ def to_device(pipe, dev: str):
     return pipe.to(dev)
 
 
-def pipe_kwargs(spec: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+def pipe_kwargs(spec: DiffusersModel, extra: dict[str, Any]) -> dict[str, Any]:
     """Steps and guidance of the model (each only when set), its `args`, then `extra`; `seed` becomes a torch
     generator."""
-    kwargs = {k: v for k, v in (("num_inference_steps", spec.get("steps")),
-                                ("guidance_scale", spec.get("guidance"))) if v is not None}
-    kwargs.update(spec.get("args") or {})
+    kwargs = {k: v for k, v in (("num_inference_steps", spec.steps),
+                                ("guidance_scale", spec.guidance)) if v is not None}
+    kwargs.update(spec.args)
     kwargs.update(extra)
     if (seed := kwargs.pop("seed", None)) is not None:
         import torch
@@ -533,10 +534,11 @@ class DiffusersImageModel(ImageGenerationModel):
     `image`; with a `mask`, the first goes to the `inpaint` pipeline. `settings`:
     `dimensions` (width, height) and `extra_body` (more pipeline arguments, `seed`)."""
 
-    def __init__(self, name: str, *, mask: bytes | None = None, settings=None) -> None:
+    def __init__(self, model_id: str, *, mask: bytes | None = None, settings=None) -> None:
         super().__init__(settings=settings)
-        self._name = name
-        self.spec = config.diffusers_model(name)
+        self.model_id = model_id
+        self._name = config.split_id(model_id)[1]
+        self.spec = config.diffusers_model(model_id)
         self.mask = mask
 
     @property
@@ -553,8 +555,8 @@ class DiffusersImageModel(ImageGenerationModel):
             raise UserError("local image models take reference images as BinaryImage")
         if self.mask is not None and not images:
             raise UserError("a mask needs a reference image to edit")
-        if self.mask is not None and not self.spec.get("inpaint"):
-            raise ConfigError(f"diffusers model {self._name!r} has no `inpaint` pipeline for a mask")
+        if self.mask is not None and not self.spec.inpaint:
+            raise ConfigError(f"diffusers model {self.model_id!r} has no `inpaint` pipeline for a mask")
         return await asyncio.to_thread(self._run, prompt, [i.data for i in images], settings)
 
     def _run(self, prompt: str, refs: list[bytes], settings: dict[str, Any]) -> ImageGenerationResult:
@@ -570,9 +572,8 @@ class DiffusersImageModel(ImageGenerationModel):
                 kwargs["image_reference"] = pics[1:]
         elif pics:
             kwargs["image"] = pics
-        pipe = pipeline(self.spec["repo"], self.spec.get("inpaint") if self.mask is not None else None,
-                        skip=self.spec.get("skip") or ())
-        with out_of_memory(self.spec["repo"]):
+        pipe = pipeline(self.spec.repo, self.spec.inpaint if self.mask is not None else None, skip=self.spec.skip)
+        with out_of_memory(self.spec.repo):
             images = pipe(prompt=prompt, **kwargs).images
         out = []
         for img in images:
@@ -586,9 +587,9 @@ class DiffusersMusicModel:
     """A local music pipeline: `prompt` and the arguments named by `duration_arg` and `lyrics_arg` in,
     `.audios` and `sample_rate` out."""
 
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.spec = config.diffusers_model(name)
+    def __init__(self, model_id: str) -> None:
+        self.name = model_id
+        self.spec = config.diffusers_model(model_id)
 
     def compose(self, prompt: str, *, seconds: float | None = None, lyrics: str | None = None,
                 seed: int | None = None) -> bytes:
@@ -599,11 +600,11 @@ class DiffusersMusicModel:
         for key, value in (("duration_arg", None if seconds is None else float(seconds)), ("lyrics_arg", lyrics)):
             if value is None:
                 continue
-            if not (arg := self.spec.get(key)):
+            if not (arg := getattr(self.spec, key)):
                 raise ConfigError(f"diffusers model {self.name!r} has no `{key}` for {key.removesuffix('_arg')}")
             extra[arg] = value
-        pipe = pipeline(self.spec["repo"], skip=self.spec.get("skip") or ())
-        with out_of_memory(self.spec["repo"]):
+        pipe = pipeline(self.spec.repo, skip=self.spec.skip)
+        with out_of_memory(self.spec.repo):
             audio = pipe(prompt=prompt, output_type="pt", **pipe_kwargs(self.spec, extra)).audios[0]  # (channels, samples)
         pcm = (audio.float().clamp(-1, 1) * 32767).to(torch.int16).T.contiguous().cpu().numpy().tobytes()
         buf = io.BytesIO()
@@ -626,9 +627,9 @@ def audio_rate(pipe) -> int:
     raise AIModelsError(f"{type(pipe).__name__} returns audio but names no sample rate")
 
 
-def animate(name: str, image: bytes, prompt: str, *, seconds: float, width: int | None = None,
+def animate(model_id: str, image: bytes, prompt: str, *, seconds: float, width: int | None = None,
             height: int | None = None, aspect: float | None = None, seed: int | None = None) -> bytes:
-    """An MP4 (H.264) of the image-to-video model `diffusers.<name>`, at `width` x `height`, else
+    """An MP4 (H.264) of the image-to-video model `model_id` (a diffusers model), at `width` x `height`, else
     the model's size, reshaped to `aspect` when given (`video.clip_size`). The image is cropped to
     the clip's aspect ratio and scaled to its size. When the pipeline output has `audio` (a sound track generated
     with the frames, (channels, samples) or (samples,) per video, a tensor or an array), the clip carries it as an AAC
@@ -638,19 +639,19 @@ def animate(name: str, image: bytes, prompt: str, *, seconds: float, width: int 
 
     from .video import clip_size, frame_count, video_spec
 
-    spec = video_spec(name)
+    spec = video_spec(model_id)
     w, h = clip_size(spec, width, height, aspect)
-    frames_n = frame_count(seconds, spec["fps"], spec["frame_step"], spec["max_frames"])
+    frames_n = frame_count(seconds, spec.fps, spec.frame_step, spec.max_frames)
     extra: dict[str, Any] = {"width": w, "height": h, "num_frames": frames_n, "seed": seed}
-    pipe = pipeline(spec["repo"], cls=spec["pipeline"], skip=spec.get("skip") or ())
+    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip)
     still = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
-    with out_of_memory(spec["repo"]):
+    with out_of_memory(spec.repo):
         result = pipe(image=still, prompt=prompt, output_type="np", **pipe_kwargs(spec, extra))
     audio = getattr(result, "audio", None)
     track = {} if audio is None else {"audio": waveform(audio[0]), "audio_sample_rate": audio_rate(pipe)}
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "clip.mp4"
-        encode_video(result.frames[0], fps=spec["fps"], output_path=str(out), **track)
+        encode_video(result.frames[0], fps=spec.fps, output_path=str(out), **track)
         return out.read_bytes()
 
 
@@ -685,7 +686,7 @@ def read_audio(data: bytes, rate: int | None = None, layout: str | None = None):
 PRESENTER_CENTERING = (0.5, 0.3)  # `ImageOps.fit` centring of the bucket crop: biased upward, to keep the head
 
 
-def presenter_still(buckets: list[list[int]], image: bytes, aspect: float | None = None):
+def presenter_still(buckets: list[tuple[int, int]], image: bytes, aspect: float | None = None):
     """`image` as an RGB PIL image cropped to the bucket of `buckets` nearest `aspect` (default the image's,
     `video.bucket`) and scaled to it; the crop keeps more of the top (`PRESENTER_CENTERING`)."""
     from PIL import Image, ImageOps
@@ -696,9 +697,9 @@ def presenter_still(buckets: list[list[int]], image: bytes, aspect: float | None
     return ImageOps.fit(still, bucket(buckets, aspect or still.width / still.height), centering=PRESENTER_CENTERING)
 
 
-def present(name: str, image: bytes, speech: bytes, *, aspect: float | None = None, prompt: str | None = None,
+def present(model_id: str, image: bytes, speech: bytes, *, aspect: float | None = None, prompt: str | None = None,
             seed: int | None = None) -> bytes:
-    """An MP4 (H.264, AAC) of the presenter model `diffusers.<name>`: the person in `image` speaks `speech` (an audio
+    """An MP4 (H.264, AAC) of the presenter model `model_id` (a diffusers model): the person in `image` speaks `speech` (an audio
     file), as long as the speech, with the speech as its sound track (AAC, at the file's sample rate). The size is
     the model's bucket nearest `aspect` (width / height; default the image's, `video.bucket`); the image is cropped
     to it, biased upward, and scaled (`presenter_still`). The model takes the speech mono at its `audio_rate`;
@@ -707,21 +708,21 @@ def present(name: str, image: bytes, speech: bytes, *, aspect: float | None = No
 
     from .video import presenter_spec
 
-    spec = presenter_spec(name)
-    still = presenter_still(spec["buckets"], image, aspect)
+    spec = presenter_spec(model_id)
+    still = presenter_still(spec.buckets, image, aspect)
     w, h = still.size
-    drive, _ = read_audio(speech, int(spec["audio_rate"]), "mono")
+    drive, _ = read_audio(speech, spec.audio_rate, "mono")
     track, rate = read_audio(speech)
-    extra: dict[str, Any] = {"width": w, "height": h, "fps": spec["fps"], "seed": seed}
+    extra: dict[str, Any] = {"width": w, "height": h, "fps": spec.fps, "seed": seed}
     if prompt:
         extra["prompt"] = prompt
-    pipe = pipeline(spec["repo"], cls=spec["pipeline"], skip=spec.get("skip") or ())
-    with out_of_memory(spec["repo"]):
-        frames = pipe(image=still, audio=drive[0].numpy(), output=spec["output"], output_type="np",
+    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip)
+    with out_of_memory(spec.repo):
+        frames = pipe(image=still, audio=drive[0].numpy(), output=spec.output, output_type="np",
                       **pipe_kwargs(spec, extra))[0]
-    seconds = len(frames) / spec["fps"]
+    seconds = len(frames) / spec.fps
     track = track[:, : round(seconds * rate)]
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "presenter.mp4"
-        encode_video(frames, fps=spec["fps"], output_path=str(out), audio=track, audio_sample_rate=rate)
+        encode_video(frames, fps=spec.fps, output_path=str(out), audio=track, audio_sample_rate=rate)
         return out.read_bytes()

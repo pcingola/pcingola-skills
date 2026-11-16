@@ -1,4 +1,4 @@
-"""TLS context for remote providers: certifi roots plus an extra CA (setting EXTRA_CA_CERT)."""
+"""TLS context for remote providers: certifi roots plus an extra CA (`network.extra_ca_cert`)."""
 
 from __future__ import annotations
 
@@ -6,14 +6,18 @@ import functools
 import ssl
 from pathlib import Path
 
-from plugin_settings.ca import CA_CERT_KEYS
-from plugin_settings.ca import ca_cert as _ca_cert
+import plugin_settings
+
+from .errors import ConfigError
 
 
-def ca_cert(keys: tuple[str, ...] = CA_CERT_KEYS) -> Path | None:
-    """The extra CA to trust: the first setting of `keys` (EXTRA_CA_CERT, then
-    NODE_EXTRA_CA_CERTS) naming an existing file, else None."""
-    return _ca_cert(keys)
+def ca_cert() -> Path | None:
+    """The extra CA to trust, `network.extra_ca_cert` (checked to exist at load), else None; `ConfigError` for an
+    invalid config file."""
+    try:
+        return plugin_settings.load_config().network.extra_ca_cert
+    except plugin_settings.ConfigFileError as e:
+        raise ConfigError(str(e)) from None
 
 
 def ssl_context(ca: Path | None) -> ssl.SSLContext:

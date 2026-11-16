@@ -46,16 +46,13 @@ if (Path.home() / ".gitconfig").is_file():
     _KEEP["GIT_CONFIG_GLOBAL"] = str(Path.home() / ".gitconfig")
 
 
-def write_config(path: Path, settings: dict[str, str] | None = None, **sections: object) -> Path:
-    """Write a config.yaml at `path` with `settings` (the `settings` section) and the
-    other `sections` (providers, models, diffusers); return `path`."""
+def write_config(path: Path, **sections: object) -> Path:
+    """Write a config.yaml at `path` with `sections` (providers, tasks, network, huggingface, brand, studio,
+    voiceover); return `path`."""
     import yaml
 
-    data = dict(sections)
-    if settings is not None:
-        data["settings"] = settings
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    path.write_text(yaml.safe_dump(sections), encoding="utf-8")
     return path
 
 

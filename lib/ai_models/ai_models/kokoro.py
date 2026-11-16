@@ -14,49 +14,41 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from . import espeak, weights
-from .config import required
-from .errors import AIModelsError, ConfigError
+from plugin_settings import KokoroProvider, ProviderKind
 
-KIND = "kokoro"
+from . import espeak, weights
+from .errors import AIModelsError
+
+KIND = ProviderKind.KOKORO
 SAMPLE_RATE = 24_000
 
 _models: dict[Path, Any] = {}
 _lock = threading.Lock()  # one load at a time when callers run in several threads
 
 
-def files(spec: dict[str, Any], name: str, model: str) -> tuple[Path, Path]:
-    """The model and voices files of provider `name`'s `model`, downloaded when missing."""
-    urls = (str(required(spec, "model_url", name)), str(required(spec, "voices_url", name)))
+def files(spec: KokoroProvider, model: str) -> tuple[Path, Path]:
+    """The model and voices files of the provider's `model`, downloaded when missing."""
     d = weights.model_dir(spec, model)
-    return tuple(weights.ensure_file(url, d / weights.basename(url)) for url in urls)
+    return tuple(weights.ensure_file(url, d / weights.basename(url)) for url in (spec.model_url, spec.voices_url))
 
 
-def langs(spec: dict[str, Any], name: str) -> dict[str, str]:
-    """Voice-name prefix to espeak-ng language, from the provider's `langs` mapping."""
-    m = required(spec, "langs", name)
-    if not isinstance(m, dict) or not all(str(k) and str(v) for k, v in m.items()):
-        raise ConfigError(f"provider {name!r}: `langs` must map voice-name prefixes to espeak languages "
-                          "({af_: en-us, ...})")
-    return {str(k): str(v) for k, v in m.items()}
-
-
-def lang(spec: dict[str, Any], name: str, voice: str) -> str:
-    for prefix, language in langs(spec, name).items():
+def lang(spec: KokoroProvider, name: str, voice: str) -> str:
+    """The espeak-ng language of `voice`, from the provider's `langs` (voice-name prefix to language)."""
+    for prefix, language in spec.langs.items():
         if voice.startswith(prefix):
             return language
     raise AIModelsError(f"{name}: voice {voice!r} has no language in the provider's `langs` "
-                        f"({', '.join(langs(spec, name))})")
+                        f"({', '.join(spec.langs)})")
 
 
-def model(spec: dict[str, Any], name: str, bare: str):
+def model(spec: KokoroProvider, name: str, bare: str):
     """The loaded `kokoro_onnx.Kokoro` of provider `name`'s model `bare`, one per model file per process."""
     with _lock:
         return _load(spec, name, bare)
 
 
-def _load(spec: dict[str, Any], name: str, bare: str):
-    onnx, voices_file = files(spec, name, bare)
+def _load(spec: KokoroProvider, name: str, bare: str):
+    onnx, voices_file = files(spec, bare)
     if onnx not in _models:
         from kokoro_onnx import EspeakConfig, Kokoro
 
@@ -65,13 +57,13 @@ def _load(spec: dict[str, Any], name: str, bare: str):
     return _models[onnx]
 
 
-def voices(spec: dict[str, Any], name: str, bare: str) -> list[str]:
+def voices(spec: KokoroProvider, name: str, bare: str) -> list[str]:
     """The voices of the model whose prefix is in `langs`."""
-    prefixes = tuple(langs(spec, name))
+    prefixes = tuple(spec.langs)
     return [v for v in model(spec, name, bare).get_voices() if v.startswith(prefixes)]
 
 
-def speak(spec: dict[str, Any], name: str, bare: str, text: str, voice: str, speed: float) -> bytes:
+def speak(spec: KokoroProvider, name: str, bare: str, text: str, voice: str, speed: float) -> bytes:
     """A 24 kHz WAV file of `text` in `voice`."""
     import numpy as np
 

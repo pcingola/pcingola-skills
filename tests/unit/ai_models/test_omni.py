@@ -12,9 +12,16 @@ import pytest
 import yaml
 
 from ai_models import AIModelsError, ConfigError, omni
+from plugin_settings import VllmOmniProvider
 
-SPEC = {"kind": "vllm-omni", "python": "/env/bin/python", "repo": "org/tts", "deploy": "tts.yaml",
-        "memory": 70, "style": "[{instructions}] {text}"}
+RAW = {"kind": "vllm-omni", "python": "/env/bin/python", "repo": "org/tts", "deploy": "tts.yaml", "memory": 70,
+       "style": "[{instructions}] {text}"}
+SPEC = VllmOmniProvider(**RAW)
+
+
+def spec(**kw) -> VllmOmniProvider:
+    """SPEC with the keys `kw` replaced."""
+    return VllmOmniProvider(**{**RAW, **kw})
 
 
 def test_overlay_scales_stage_fractions_and_turns_mps_off(tmp_path):
@@ -39,32 +46,19 @@ def test_overlay_without_fractions_is_a_config_error(tmp_path):
 
 
 def test_memory_bytes_and_device_share():
-    """`memory` is GB of the stages together; a missing, non-numeric or non-positive one, or one above the device,
-    is a ConfigError."""
-    assert omni.memory_bytes(SPEC, "fish") == 70 * 10**9
+    """`memory` is GB of the stages together; one above the device is a ConfigError (a missing, non-numeric or
+    non-positive one fails at load, tests/unit/plugin_settings/test_schema.py)."""
+    assert omni.memory_bytes(SPEC) == 70 * 10**9
     assert omni.device_share(70 * 10**9, 140 * 10**9, "fish") == pytest.approx(0.5)
-    with pytest.raises(ConfigError, match="needs `memory`"):
-        omni.memory_bytes({"kind": "vllm-omni"}, "fish")
-    for bad in (0, -1, "lots"):
-        with pytest.raises(ConfigError, match="memory must be"):
-            omni.memory_bytes({**SPEC, "memory": bad}, "fish")
     with pytest.raises(ConfigError, match="exceeds the device"):
         omni.device_share(150 * 10**9, 140 * 10**9, "fish")
 
 
-def test_memory_share_names_its_replacement():
-    """A config written for the former `memory_share` gets an error that names `memory` and the Drama 3 value."""
-    old = {k: v for k, v in SPEC.items() if k != "memory"} | {"memory_share": 0.6}
-    with pytest.raises(ConfigError, match=r"`memory_share` was replaced by `memory`.*Drama 3: 70"):
-        omni.memory_bytes(old, "fish")
-
-
 def test_overhead_defaults_to_the_measured_value():
-    """Without `overhead` the server's memory outside `memory` is `OVERHEAD_GB`; the provider's key replaces it."""
-    assert omni.overhead_bytes(SPEC, "fish") == int(omni.OVERHEAD_GB * 10**9)
-    assert omni.overhead_bytes({**SPEC, "overhead": 3}, "fish") == 3 * 10**9
-    with pytest.raises(ConfigError, match="overhead must be"):
-        omni.overhead_bytes({**SPEC, "overhead": 0}, "fish")
+    """Without `overhead` the server's memory outside `memory` is 22 GB (docs/ai_models.md); the provider's key
+    replaces it."""
+    assert omni.overhead_bytes(SPEC) == 22 * 10**9
+    assert omni.overhead_bytes(spec(overhead=3)) == 3 * 10**9
 
 
 def test_deploy_path_takes_an_existing_file(tmp_path):
@@ -88,7 +82,7 @@ def test_styled_puts_instructions_into_the_text():
     assert omni.styled(SPEC, "fish", "Hello.", "whisper") == "[whisper] Hello."
     assert omni.styled(SPEC, "fish", "Hello.", None) == "Hello."
     with pytest.raises(AIModelsError, match="no `style`"):
-        omni.styled({"kind": "vllm-omni"}, "fish", "Hello.", "whisper")
+        omni.styled(spec(style=None), "fish", "Hello.", "whisper")
 
 
 def _wav(path):
@@ -151,7 +145,7 @@ def test_speed_is_refused_before_any_server_starts():
 
 def test_server_env_adds_the_provider_env():
     """The provider's `env` values reach the server's environment as strings, over this process's environment."""
-    env = omni.server_env({"env": {"VLLM_USE_FLASHINFER_SAMPLER": 0}})
+    env = omni.server_env(spec(env={"VLLM_USE_FLASHINFER_SAMPLER": 0}))
     assert env["VLLM_USE_FLASHINFER_SAMPLER"] == "0" and "PATH" in env
 
 
@@ -159,9 +153,9 @@ def test_server_env_on_an_integrated_gpu_turns_the_graph_estimate_off_unless_the
     """On an integrated GPU the CUDA graph memory estimate is off by default (`INTEGRATED_ENV`); the provider's
     `env` overrides it; on a discrete GPU it is left to vLLM."""
     key = "VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS"
-    assert omni.server_env({}, shared=True)[key] == "0"
-    assert omni.server_env({"env": {key: 1}}, shared=True)[key] == "1"
-    assert omni.server_env({}, shared=False).get(key) == os.environ.get(key)
+    assert omni.server_env(SPEC, shared=True)[key] == "0"
+    assert omni.server_env(spec(env={key: 1}), shared=True)[key] == "1"
+    assert omni.server_env(SPEC, shared=False).get(key) == os.environ.get(key)
 
 
 def test_stop_kills_a_group_member_that_outlives_the_main_process():

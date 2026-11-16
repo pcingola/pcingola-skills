@@ -16,13 +16,13 @@ from functools import partial
 from typing import Any
 
 from pydantic_ai.exceptions import UserError
+from plugin_settings import OPENAI_KINDS, ProviderKind
 from pydantic_ai.images.openai import OpenAIImageGenerationModel
 
 from . import config
 from .errors import ConfigError
 from .models import provider
 
-OPENAI_KINDS = ("ollama", "openrouter", "openai", "azure")
 
 
 class _MaskedClient:
@@ -57,19 +57,20 @@ class MaskedOpenAIImageModel(OpenAIImageGenerationModel):
 
 def image_model(model: str | None = None, *, task: str = "image", mask: bytes | None = None):
     """The Pydantic-AI image generation model of `model` (a model id), else of `task`."""
-    name, bare = config.split_id(config.resolve(model, task))
-    kind = config.provider(name)["kind"]
-    if kind == "diffusers":
+    model_id = config.resolve(model, task)
+    name, bare = config.split_id(model_id)
+    kind = config.provider(name).kind
+    if kind == ProviderKind.DIFFUSERS:
         from .local import DiffusersImageModel
 
-        return DiffusersImageModel(bare, mask=mask)
+        return DiffusersImageModel(model_id, mask=mask)
     if kind in OPENAI_KINDS:
         if mask is not None:
             return MaskedOpenAIImageModel(bare, mask=mask, provider=provider(name))
         return OpenAIImageGenerationModel(bare, provider=provider(name))
     if mask is not None:
         raise ConfigError(f"provider {name!r} of kind {kind!r} takes no mask")
-    if kind == "google":
+    if kind == ProviderKind.GOOGLE:
         from pydantic_ai.images.google import GoogleImageGenerationModel
 
         return GoogleImageGenerationModel(bare, provider=provider(name))

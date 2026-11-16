@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Plugin data directory and the settings file config.yaml for the skills of every plugin"
 requires-python = ">=3.11"
 dependencies = [
+    "pydantic>=2",
     "pyyaml>=6",
 ]
 

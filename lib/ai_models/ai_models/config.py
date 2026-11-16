@@ -1,18 +1,20 @@
-"""`config.yaml`: the providers, the model of each task and the `diffusers` models.
+"""`config.yaml`: the providers, the model of each task (`tasks`) and the attributes of each model
+(`providers.<p>.models`), read as the typed `Config` of `plugin_settings`.
 
-The file is the settings file of `plugin_settings` (`config_file`):
-`$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`. A provider holds
-its key in `api_key`. A model id is `<provider name>:<model>`; the first colon
-splits it.
+The file is the settings file of `plugin_settings` (`config_file`): `$SKILLS_CONFIG`, else
+`<config dir>/plugins/data/config.yaml`. The schema checks every key at load (required keys per provider kind, a task
+naming a missing provider, a diffusers task model without an entry), so the functions here only look entries up. A
+model id is `<provider name>:<model>`; the first colon splits it.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import plugin_settings
-from plugin_settings import ConfigFileError
+from plugin_settings import (Config, ConfigFileError, DiffusersModel, ImageLimits, Provider, ProviderKind,
+                             RemoteModel)
+from plugin_settings import split_id as _split_id
 
 from .errors import ConfigError
 
@@ -27,31 +29,32 @@ def path() -> Path:
     return plugin_settings.config_file()
 
 
-def load() -> dict[str, Any]:
-    """The parsed config file; `ConfigError` when it is missing, not YAML or not a mapping."""
+def load() -> Config:
+    """The validated config file; `ConfigError` when it is missing or not valid (the message of
+    `ConfigFileError`, a line per problem)."""
     p = path()
     if not p.is_file():
         raise ConfigError(f"no config at {p}; the setup:settings skill creates it")
     try:
-        return plugin_settings.read_config()
+        return plugin_settings.load_config()
     except ConfigFileError as e:
-        raise ConfigError(str(e)) from e
+        raise ConfigError(str(e)) from None
 
 
 def split_id(model_id: str) -> tuple[str, str]:
     """(provider name, model) of `<provider>:<model>`; the first colon splits."""
-    name, sep, model = model_id.partition(":")
-    if not sep or not name or not model:
-        raise ConfigError(f"model id {model_id!r} is not <provider>:<model>")
-    return name, model
+    try:
+        return _split_id(model_id)
+    except ValueError as e:
+        raise ConfigError(str(e)) from None
 
 
 def model_for(task: str) -> str:
-    """The model id of `task` (`models.<task>`)."""
-    model_id = (load().get("models") or {}).get(task)
+    """The model id of `task` (`tasks.<task>`)."""
+    model_id = load().task_model(task)
     if not model_id:
-        raise ConfigError(f"no model for task {task!r}: add `models.{task}: <provider>:<model>` to {path()}")
-    return str(model_id)
+        raise ConfigError(f"no model for task {task!r}: add `tasks.{task}: <provider>:<model>` to {path()}")
+    return model_id
 
 
 def resolve(model: str | None, task: str) -> str:
@@ -59,34 +62,43 @@ def resolve(model: str | None, task: str) -> str:
     return model or model_for(task)
 
 
-def provider(name: str) -> dict[str, Any]:
-    """The settings of provider `name` (`providers.<name>`), with `kind`."""
-    spec = (load().get("providers") or {}).get(name)
-    if not isinstance(spec, dict) or "kind" not in spec:
-        raise ConfigError(f"no provider {name!r} with a `kind` in {path()}")
+def provider(name: str) -> Provider:
+    """The settings of provider `name` (`providers.<name>`)."""
+    spec = load().provider(name)
+    if spec is None:
+        raise ConfigError(f"no provider {name!r}: add `providers.{name}` with a `kind` to {path()}")
     return spec
 
 
-def required(spec: dict[str, Any], key: str, name: str) -> Any:
-    """`key` of the settings `spec` of provider `name`; `ConfigError` when it is missing or empty."""
-    if spec.get(key) in (None, ""):
-        raise ConfigError(f"provider {name!r} of kind {spec.get('kind')} needs `{key}` in {path()}")
-    return spec[key]
+def model_entry(model_id: str) -> RemoteModel | DiffusersModel | None:
+    """The attributes of `model_id` (`providers.<p>.models.<m>`), None when the provider has no entry for it;
+    `ConfigError` when the provider is missing."""
+    name, _ = split_id(model_id)
+    provider(name)
+    return load().model_entry(model_id)
 
 
-def api_key(spec: dict[str, Any]) -> str | None:
-    """The provider's `api_key`, None when the entry has none; `ConfigError` when it is empty."""
-    if "api_key" not in spec:
-        return None
-    key = str(spec.get("api_key") or "").strip()
-    if not key:
-        raise ConfigError(f"a provider of kind {spec.get('kind')!r} has an empty `api_key` in {path()}")
-    return key
+def diffusers_model(model_id: str) -> DiffusersModel:
+    """The entry of the local model `model_id` (`providers.<p>.models.<m>` of a diffusers provider)."""
+    name, model = split_id(model_id)
+    spec = provider(name)
+    if spec.kind != ProviderKind.DIFFUSERS:
+        raise ConfigError(f"provider {name!r} of kind {spec.kind!r} has no diffusers models")
+    entry = spec.models.get(model)
+    if entry is None:
+        raise ConfigError(f"no diffusers model {model!r}: add `providers.{name}.models.{model}` with a `repo` "
+                          f"to {path()}")
+    return entry
 
 
-def diffusers_model(name: str) -> dict[str, Any]:
-    """The settings of a local model (`diffusers.<name>`): `repo` and pipeline defaults."""
-    spec = (load().get("diffusers") or {}).get(name)
-    if not isinstance(spec, dict) or "repo" not in spec:
-        raise ConfigError(f"no diffusers model {name!r} with a `repo` in {path()}")
-    return spec
+def image_limits(model_id: str) -> ImageLimits:
+    """The image request limits of `model_id` (`providers.<p>.models.<m>.image`); `ConfigError` with the fix when
+    the model has none."""
+    name, model = split_id(model_id)
+    entry = model_entry(model_id)
+    limits = getattr(entry, "image", None)
+    if limits is None:
+        more = "min_edge" if provider(name).kind == ProviderKind.DIFFUSERS else "min_pixels, max_pixels"
+        raise ConfigError(f"{model_id} has no image limits: add providers.{name}.models.{model}.image with max_edge "
+                          f"(and {more}) to {plugin_settings.display(path())}")
+    return limits

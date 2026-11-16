@@ -1,5 +1,5 @@
 """Run a skill CLI's `routes` command in a child process against a config with one Ollama provider and a user
-`routes.md` holding one escalation row of every task and, with `models.speech` set, the default row of `speech`, so
+`routes.md` holding one escalation row of every task and, with `tasks.speech` set, the default row of `speech`, so
 the output shows which tasks the skill routes."""
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ TASKS = ("chat", "vision", "system1", "image", "image_edit", "image_best", "imag
 
 def routed_rows(module: str, tmp_path: Path, *argv: str) -> list[list[str]]:
     """The rows, as cells `[task, model, when, why]`, that `<module>.main` prints for `routes *argv`, in order."""
-    cfg = write_config(tmp_path / "config.yaml", providers={"o": {"kind": "ollama"}}, models={"speech": "o:tts"})
+    cfg = write_config(tmp_path / "config.yaml", providers={"o": {"kind": "ollama"}}, tasks={"speech": "o:tts"})
     rows = "| speech | o:tts | default | test |\n"
     rows += "".join(f"| {t} | o:{t}-model | only when tested | test |\n" for t in TASKS)
     (tmp_path / "routes.md").write_text(HEADER + "\n|---|---|---|---|\n" + rows, encoding="utf-8")

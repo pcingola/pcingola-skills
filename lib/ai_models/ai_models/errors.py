@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from plugin_settings import ProviderKind
+
 
 class AIModelsError(Exception):
     """Every error this package raises."""
@@ -33,14 +35,14 @@ def explained(model_id: str) -> Iterator[None]:
     except Exception as e:
         name, model = config.split_id(model_id)
         spec = config.provider(name)
-        kind = spec.get("kind")
+        kind = spec.kind
         status = (getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
                   or getattr(e, "code", None))
         text = str(e).lower()
-        if status in REFUSED and "api_key" not in spec and not uses_cloud_credentials(spec):
+        if status in REFUSED and getattr(spec, "api_key", None) is None and not uses_cloud_credentials(spec):
             raise AIModelsError(f"{model_id}: provider {name!r} refused the request ({status}) and has no key; "
                                 f"set providers.{name}.api_key in {config.path()}") from e
-        if kind == "ollama" and status == 404 and "not found" in text:
+        if kind == ProviderKind.OLLAMA and status == 404 and "not found" in text:
             raise AIModelsError(f"{model_id}: the model is not pulled; run `ollama pull {model}`") from e
         if "connect" in type(e).__name__.lower() or "connection" in text:
             raise AIModelsError(f"{model_id}: cannot reach provider {name!r} ({e})") from e

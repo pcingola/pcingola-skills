@@ -3,11 +3,11 @@
 (`config.path().parent`). `setup:settings` creates it from its template.
 
 A row's `when` is `default` (the recommended default model of the task, at most one per task) or begins with
-`only when` (an escalation). The model in use is `models.<task>` of the config file, its one home: `table` prints
+`only when` (an escalation). The model in use is `tasks.<task>` of the config file, its one home: `table` prints
 each task's default row with that model, and when it differs from the table's default model, says so in `why`. The
 escalation rows follow, without the rows whose model is not configured: a provider missing from `providers`, or a
-`diffusers` provider's model missing from `diffusers`. Without the file, `table` has only the defaults of
-`models.<task>`. No code matches `when`; the agent reads it. `command` adds the `routes` command to a skill's CLI.
+`diffusers` provider's model missing from its `models`. Without the file, `table` has only the defaults of
+`tasks.<task>`. No code matches `when`; the agent reads it. `command` adds the `routes` command to a skill's CLI.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from plugin_settings import Config, ProviderKind
 
 from . import config
 from .errors import AIModelsError, ConfigError
@@ -27,7 +27,7 @@ COLUMNS = ("task", "model", "when", "why")
 # A default row's `when`; every other row's `when` starts with ESCALATION.
 DEFAULT = "default"
 ESCALATION = "only when"
-# The `why` of a default row from `models.<task>` when the table has no default row for the task.
+# The `why` of a default row from `tasks.<task>` when the table has no default row for the task.
 DEFAULT_WHY = "set in config.yaml"
 
 
@@ -53,7 +53,7 @@ def user_path() -> Path:
 
 def missing_message(path: Path) -> str:
     """The note `command` prints when the routes file `path` is missing."""
-    return (f"no routes table at {path}; the default rows are models.<task> of config.yaml only. "
+    return (f"no routes table at {path}; the default rows are tasks.<task> of config.yaml only. "
             "The setup:settings skill creates the table.")
 
 
@@ -102,22 +102,21 @@ def parse(path: Path) -> list[Route]:
     return rows
 
 
-def configured(model_id: str, cfg: dict[str, Any]) -> bool:
-    """Whether config `cfg` has the provider of `model_id`, and for a `diffusers` provider the model."""
+def configured(model_id: str, cfg: Config) -> bool:
+    """Whether config `cfg` has the provider of `model_id`, and for a `diffusers` provider the model's entry."""
     name, model = config.split_id(model_id)
-    spec = (cfg.get("providers") or {}).get(name)
-    if not isinstance(spec, dict) or "kind" not in spec:
+    spec = cfg.provider(name)
+    if spec is None:
         return False
-    return spec["kind"] != "diffusers" or model in (cfg.get("diffusers") or {})
+    return spec.kind != ProviderKind.DIFFUSERS or model in spec.models
 
 
-def _default(task: str, recommended: Route | None, cfg: dict[str, Any]) -> Route | None:
-    """The default row of `task`: the model of `models.<task>` (none when unset), with the table's `why` when the
+def _default(task: str, recommended: Route | None, cfg: Config) -> Route | None:
+    """The default row of `task`: the model of `tasks.<task>` (none when unset), with the table's `why` when the
     models agree and the table's recommendation when they differ."""
-    model = (cfg.get("models") or {}).get(task)
+    model = cfg.task_model(task)
     if not model:
         return None
-    model = str(model)
     if recommended is None:
         return Route(task, model, DEFAULT, DEFAULT_WHY)
     if recommended.model == model:
@@ -153,7 +152,7 @@ def command(sub: argparse._SubParsersAction, tasks: Sequence[str]) -> argparse.A
     `missing_message` on stderr when the user's file is missing, and returns 0; or prints the error and returns 1.
     The handler is `func` of the parsed arguments."""
     p = sub.add_parser("routes", help="Print the model routes of this skill's tasks from routes.md beside "
-                                      "config.yaml: per task the default row (models.<task>), then the escalations")
+                                      "config.yaml: per task the default row (tasks.<task>), then the escalations")
     p.add_argument("--task", choices=list(tasks), help="only the rows of this task")
 
     def run(args: argparse.Namespace) -> int:

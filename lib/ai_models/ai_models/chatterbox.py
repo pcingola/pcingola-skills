@@ -26,15 +26,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from plugin_settings import ChatterboxProvider, ProviderKind
+
 from . import omni, weights
-from .config import required
 from .errors import AIModelsError, ConfigError
 
-KIND = "chatterbox"
+KIND = ProviderKind.CHATTERBOX
 DEFAULT_VOICE = "default"
 WORKER = Path(__file__).with_name("chatterbox_worker.py")
 STOP_SECONDS = 30.0
-TIMEOUT = 600.0  # seconds for the load (provider key start_timeout) and for each answer (timeout)
 
 _workers: dict[str, "Worker"] = {}
 _lock = threading.Lock()  # one worker start or request at a time
@@ -88,25 +88,22 @@ class Worker:
             shutil.rmtree(self.log.parent, ignore_errors=True)
 
 
-def fetch(spec: dict[str, Any], name: str, model: str) -> Path:
+def fetch(spec: ChatterboxProvider, model: str) -> Path:
     """The directory of the model files, each downloaded when missing."""
-    files = required(spec, "files", name)
-    if not isinstance(files, list) or not files:
-        raise ConfigError(f"provider {name!r}: `files` must be a list of the file names under `url`")
-    base = str(required(spec, "url", name)).rstrip("/")
+    base = spec.url.rstrip("/")
     d = weights.model_dir(spec, model)
-    for f in files:
-        weights.ensure_file(f"{base}/{f}", d / str(f))
+    for f in spec.files:
+        weights.ensure_file(f"{base}/{f}", d / f)
     return d
 
 
-def worker(spec: dict[str, Any], name: str, model: str) -> Worker:
+def worker(spec: ChatterboxProvider, name: str, model: str) -> Worker:
     """The worker of provider `name`, started on the first call of the process. Callers in several threads
     (`asyncio.to_thread`) share it, one request at a time (`_lock`)."""
     if name in _workers and _workers[name].proc.poll() is None:
         return _workers[name]
-    python = str(Path(str(required(spec, "python", name))).expanduser())
-    d = fetch(spec, name, model)
+    python = str(spec.python)
+    d = fetch(spec, model)
     log = Path(tempfile.mkdtemp(prefix="ai-models-chatterbox-")) / "worker.log"
     with log.open("wb") as err:
         try:
@@ -116,7 +113,7 @@ def worker(spec: dict[str, Any], name: str, model: str) -> Worker:
             raise ConfigError(f"provider {name!r}: cannot run {python}: {e}") from e
     w = Worker(proc, log)
     atexit.register(w.stop)
-    w.ask({}, float(spec.get("start_timeout", TIMEOUT)))  # the ready line
+    w.ask({}, spec.start_timeout)  # the ready line
     _workers[name] = w
     return w
 
@@ -131,13 +128,13 @@ def reference(voice: str) -> str | None:
     return str(p.resolve())
 
 
-def speak(spec: dict[str, Any], name: str, model: str, text: str, voice: str) -> bytes:
+def speak(spec: ChatterboxProvider, name: str, model: str, text: str, voice: str) -> bytes:
     """A 24 kHz WAV file of `text` in `voice`."""
     ref = reference(voice)
     with _lock, tempfile.TemporaryDirectory(prefix="ai-models-chatterbox-") as tmp:
         out = Path(tmp) / "speech.wav"
         answer = worker(spec, name, model).ask({"text": text, "reference": ref, "out": str(out)},
-                                               float(spec.get("timeout", TIMEOUT)))
+                                               spec.timeout)
         if "error" in answer:
             raise AIModelsError(f"{name}:{model}: {answer['error']}")
         return out.read_bytes()

@@ -46,13 +46,13 @@ from typing import Any
 
 import yaml
 
+from plugin_settings import ProviderKind, VllmOmniProvider
+
 from . import local
-from .config import required
 from .errors import AIModelsError, ConfigError
 
-KIND = "vllm-omni"
+KIND = ProviderKind.VLLM_OMNI
 DEFAULT_VOICE = "default"
-START_TIMEOUT = 1800.0  # seconds a server may take to load before `start` gives up (provider key start_timeout)
 POLL_SECONDS = 2.0
 STOP_SECONDS = 30.0  # seconds `stop` waits for the main process, then again for the rest of its group
 STOP_POLL_SECONDS = 0.2
@@ -153,39 +153,21 @@ def overlay(base: Path, share: float) -> dict[str, Any]:
             "platforms": {"cuda": {"cuda_mps": False}}}
 
 
-# GB the server takes outside `memory` when the provider has no `overhead`: the host memory of the API server and
-# the stage processes, and device memory past the stages' budgets (CUDA contexts and, with the estimate off,
-# `INTEGRATED_ENV`, the CUDA graph pool). On the GB10, Drama 3 with `memory: 70` took 18.7 to 19.9 GB more than
-# `memory` at its peak over a start and two requests (docs/ai_models.md); the default adds 2 GB to the largest.
-OVERHEAD_GB = 22.0
-DRAMA3_MEMORY_GB = 70  # the `memory` the config template gives Fish Audio Drama 3
+# The default `overhead` of a provider (`VllmOmniProvider.overhead`, 22 GB): the GB the server takes outside
+# `memory`, the host memory of the API server and the stage processes, and device memory past the stages' budgets
+# (CUDA contexts and, with the estimate off, `INTEGRATED_ENV`, the CUDA graph pool). On the GB10, Drama 3 with
+# `memory: 70` took 18.7 to 19.9 GB more than `memory` at its peak over a start and two requests
+# (docs/ai_models.md); the default adds 2 GB to the largest.
 
 
-def gb_setting(spec: dict[str, Any], name: str, key: str, default: float | None = None) -> int:
-    """The provider's `key` in GB as bytes (`default` when absent and given); a `ConfigError` when it is not a
-    positive number."""
-    value = spec.get(key, default) if default is not None else required(spec, key, name)
-    try:
-        gb = float(value)
-    except (TypeError, ValueError) as e:
-        raise ConfigError(f"provider {name!r}: {key} must be a number of GB, got {value!r}") from e
-    if gb <= 0:
-        raise ConfigError(f"provider {name!r}: {key} must be positive GB, got {gb}")
-    return int(gb * local.GB)
+def memory_bytes(spec: VllmOmniProvider) -> int:
+    """The bytes the server's stages take together: the provider's `memory` in GB."""
+    return int(spec.memory * local.GB)
 
 
-def memory_bytes(spec: dict[str, Any], name: str) -> int:
-    """The bytes the server's stages take together: the provider's `memory` in GB. A config with the former
-    `memory_share` is a `ConfigError` that names its replacement."""
-    if "memory_share" in spec and "memory" not in spec:
-        raise ConfigError(f"provider {name!r}: `memory_share` was replaced by `memory`, the GB the server's stages "
-                          f"take together (Fish Audio Drama 3: {DRAMA3_MEMORY_GB})")
-    return gb_setting(spec, name, "memory")
-
-
-def overhead_bytes(spec: dict[str, Any], name: str) -> int:
-    """The bytes the server takes outside `memory`: the provider's `overhead` in GB, default `OVERHEAD_GB`."""
-    return gb_setting(spec, name, "overhead", OVERHEAD_GB)
+def overhead_bytes(spec: VllmOmniProvider) -> int:
+    """The bytes the server takes outside `memory`: the provider's `overhead` in GB."""
+    return int(spec.overhead * local.GB)
 
 
 def device_share(need: int, total: int, name: str) -> float:
@@ -208,11 +190,11 @@ def command(python: str, repo: str, deploy: Path, port: int, model: str, args: l
 INTEGRATED_ENV = {"VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS": "0"}
 
 
-def server_env(spec: dict[str, Any], shared: bool = False) -> dict[str, str]:
+def server_env(spec: VllmOmniProvider, shared: bool = False) -> dict[str, str]:
     """This process's environment, `INTEGRATED_ENV` when `shared` (an integrated GPU), then the provider's `env`
     mapping (variables vLLM reads)."""
     return {**os.environ, **(INTEGRATED_ENV if shared else {}),
-            **{str(k): str(v) for k, v in (spec.get("env") or {}).items()}}
+            **{k: str(v) for k, v in spec.env.items()}}
 
 
 def free_port() -> int:
@@ -281,19 +263,18 @@ def context_out_of_memory(repo: str) -> Iterator[None]:
         raise local.memory_error(repo, f"CUDA ran out of memory as this process started ({e})") from e
 
 
-def server(name: str, spec: dict[str, Any], model: str) -> Server:
+def server(name: str, spec: VllmOmniProvider, model: str) -> Server:
     """The server of provider `name`, started on the first call of the process."""
     if name in _servers and _servers[name].proc.poll() is None:
         return _servers[name]
     import httpx
     import torch
 
-    python = str(Path(str(required(spec, "python", name))).expanduser())
-    repo = str(required(spec, "repo", name))
-    base = deploy_path(python, str(required(spec, "deploy", name)))
+    python, repo = str(spec.python), spec.repo
+    base = deploy_path(python, spec.deploy)
     exit_on_sigterm()
-    need = memory_bytes(spec, name)
-    overhead = overhead_bytes(spec, name)
+    need = memory_bytes(spec)
+    overhead = overhead_bytes(spec)
     waited = local.hold_lock() or name in _servers
     started = time.monotonic()
     with context_out_of_memory(repo):
@@ -320,12 +301,12 @@ def server(name: str, spec: dict[str, Any], model: str) -> Server:
           f"outside it, of {free / local.GB:.1f} GB free, "
           f"log {log})", file=sys.stderr, flush=True)
     with log.open("wb") as out:
-        proc = subprocess.Popen(command(python, repo, deploy, port, model, spec.get("args") or []), stdout=out, stderr=subprocess.STDOUT,
+        proc = subprocess.Popen(command(python, repo, deploy, port, model, spec.args), stdout=out, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True, preexec_fn=die_with_parent,
                                 env=server_env(spec, shared))
     srv = Server(proc, f"http://127.0.0.1:{port}", log, model)
     atexit.register(srv.stop)
-    deadline = started + float(spec.get("start_timeout", START_TIMEOUT))
+    deadline = started + spec.start_timeout
     while True:
         if proc.poll() is not None:
             srv.stop()
@@ -364,11 +345,11 @@ def reference(voice: str) -> tuple[str, str] | None:
     return f"data:{mime};base64,{base64.b64encode(audio.read_bytes()).decode()}", text.read_text().strip()
 
 
-def styled(spec: dict[str, Any], name: str, text: str, instructions: str | None) -> str:
+def styled(spec: VllmOmniProvider, name: str, text: str, instructions: str | None) -> str:
     """`text` with `instructions` put in by the provider's `style` format; `text` alone without instructions."""
     if not instructions:
         return text
-    fmt = spec.get("style")
+    fmt = spec.style
     if not fmt:
         raise AIModelsError(f"provider {name!r} has no `style` format, so it takes no instructions")
     return fmt.format(instructions=instructions.strip(), text=text)
@@ -409,7 +390,7 @@ def keep_take(name: str, speaker: str | None, voice: str, wav: bytes, said: str)
         _takes.setdefault((name, speaker), (wav, said))
 
 
-async def aspeak(name: str, spec: dict[str, Any], model: str, text: str, voice: str, instructions: str | None,
+async def aspeak(name: str, spec: VllmOmniProvider, model: str, text: str, voice: str, instructions: str | None,
                  speed: float, speaker: str | None = None, params: dict[str, Any] | None = None) -> bytes:
     """A WAV file of `text` at the model's own rate from the provider's server (Drama 3 refuses `sample_rate`).
     With `DEFAULT_VOICE`, `speaker`'s first take is the reference of its later requests, so each speaker keeps one
@@ -425,7 +406,7 @@ async def aspeak(name: str, spec: dict[str, Any], model: str, text: str, voice: 
     said = styled(spec, name, text, instructions)
     body = request_body(model, said, voice, first_take(name, speaker) if voice == DEFAULT_VOICE else None, params)
     srv = server(name, spec, model)
-    async with httpx.AsyncClient(trust_env=False, timeout=float(spec.get("timeout", 600))) as client:
+    async with httpx.AsyncClient(trust_env=False, timeout=spec.timeout) as client:
         r = await client.post(f"{srv.url}/v1/audio/speech", json=body)
     if r.status_code != 200:
         raise AIModelsError(f"{name}:{model} answered {r.status_code}: {r.text[:500]}")

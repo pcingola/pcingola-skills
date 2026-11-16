@@ -32,21 +32,28 @@ LIBRARY_ENV.update(OPENAI_BASE_URL="http://from-env.example/v1", AZURE_OPENAI_EN
 ENV_HEADERS = ("OpenAI-Organization", "OpenAI-Project", "HTTP-Referer", "X-Title", "X-From-Env")
 AZURE = {"kind": "azure", "base_url": "https://gw.example/az", "api_version": "2025-04-01-preview"}
 PROVIDERS = {
-    "router": {"kind": "openrouter"},
     "router_k": {"kind": "openrouter", "api_key": "rk"},
-    "api": {"kind": "openai"},
     "keyed": {"kind": "openai", "api_key": "ok"},
     "compat": {"kind": "openai", "base_url": URL},
-    "az": AZURE,
     "az_k": {**AZURE, "api_key": "ak"},
-    "az_nover": {"kind": "azure", "base_url": "https://gw.example/az", "api_key": "k"},
-    "az_nourl": {"kind": "azure", "api_version": "2025-04-01-preview", "api_key": "k"},
-    "gg": {"kind": "google"},
-    "vx": {"kind": "google", "vertex": True, "predict_models": ["lyria-002"]},
     "vx_project": {"kind": "google", "vertex": True, "project": "p1", "location": "europe-west4",
-                   "predict_models": ["lyria-002"]},
+                   "models": {"lyria-002": {"predict": True}}},
     "ol": {"kind": "ollama"},
 }
+# Providers that lack a value their kind requires, and the error line of each (config.yaml fails at load).
+INVALID = [
+    ({"kind": "openrouter"}, "providers.p.api_key: required for kind openrouter"),
+    ({"kind": "openai"}, "providers.p.api_key: required for kind openai without base_url (the OpenAI API)"),
+    (AZURE, "providers.p.api_key: required for kind azure"),
+    ({"kind": "azure", "base_url": "https://gw.example/az", "api_key": "k"},
+     "providers.p.api_version: required for kind azure"),
+    ({"kind": "azure", "api_version": "2025-04-01-preview", "api_key": "k"},
+     "providers.p.base_url: required for kind azure"),
+    ({"kind": "google"}, "providers.p.api_key: required for kind google"),
+    ({"kind": "google", "vertex": True},
+     "providers.p.api_key: required for kind google (or credentials, project or location for Google Cloud "
+     "credentials)"),
+]
 
 
 @pytest.fixture
@@ -55,29 +62,26 @@ def env(tmp_path) -> dict[str, str]:
     return child_env({"HOME": str(tmp_path / "home"), "SKILLS_CONFIG": str(cfg), **LIBRARY_ENV})
 
 
-@pytest.mark.parametrize("name, kind, key", [
-    ("router", "openrouter", "api_key`"), ("api", "openai", "api_key`"), ("az", "azure", "api_key`"),
-    ("az_nover", "azure", "api_version`"), ("az_nourl", "azure", "base_url`"), ("gg", "google", "api_key`"),
-    ("vx", "google", "api_key` (or `project`, `location`, `credentials` for Google Cloud credentials)"),
-])
-def test_missing_value_is_a_config_error(env, name, kind, key):
+@pytest.mark.parametrize("spec, line", INVALID)
+def test_missing_value_fails_at_load(tmp_path, spec, line):
     """A provider that needs a key (openrouter, openai without base_url, azure, google; Vertex without Google
-    Cloud credentials) and has no `api_key`, or an azure provider without `base_url` or `api_version`, raises
-    ConfigError naming the provider and the key, although the client library's variable is exported. Guards
-    config.yaml as the only source (setup:settings, provider kinds)."""
-    done = run_python(f"{IMPORT}\nmodels.provider({name!r})", env)
+    Cloud credentials) and has no `api_key`, or an azure provider without `base_url` or `api_version`, makes
+    the export of a skill's start (`plugin_settings.export`) exit 1 with the YAML path of the missing value,
+    although the client library's variable is exported. Guards config.yaml as the only source (setup:settings,
+    provider kinds)."""
+    cfg = write_config(tmp_path / "config.yaml", providers={"p": spec})
+    done = run_python(IMPORT, child_env({"HOME": str(tmp_path / "home"), "SKILLS_CONFIG": str(cfg), **LIBRARY_ENV}))
     assert done.returncode == 1
-    assert f"ConfigError: provider {name!r} of kind {kind} needs `{key} in " in done.stderr
+    assert f"\n  {line}\n" in done.stderr, done.stderr
 
 
-@pytest.mark.parametrize("name", ["vx", "vx_project"])
-def test_music_predict_needs_a_key_before_any_request(env, name):
-    """A Vertex predict music model (Lyria) without `api_key` raises ConfigError before the request, also with
-    Google Cloud credentials, since the predict call authenticates with the key. Guards the Lyria call, which
-    sends the key in its own header."""
-    done = run_python(f"{IMPORT}\nasyncio.run(music.acompose('calm piano', model='{name}:lyria-002'))", env)
+def test_music_predict_needs_a_key_before_any_request(env):
+    """A Vertex predict music model (Lyria) with Google Cloud credentials and no `api_key` raises ConfigError
+    before the request, since the predict call authenticates with the key. Guards the Lyria call, which sends the
+    key in its own header."""
+    done = run_python(f"{IMPORT}\nasyncio.run(music.acompose('calm piano', model='vx_project:lyria-002'))", env)
     assert done.returncode == 1
-    assert f"ConfigError: provider {name!r}" in done.stderr and "`api_key`" in done.stderr
+    assert "ConfigError: provider 'vx_project'" in done.stderr and "`api_key`" in done.stderr
 
 
 @pytest.mark.parametrize("name, auth", [

@@ -6,6 +6,7 @@ import pytest
 
 from ai_models import ConfigError, weights
 from ai_models.weights import DownloadError, ensure_file
+from plugin_settings import KokoroProvider
 
 UNREACHABLE = "http://127.0.0.1:1/model.bin"
 
@@ -25,16 +26,21 @@ def test_existing_file_is_not_downloaded(tmp_path):
     assert ensure_file(UNREACHABLE, dest) == dest
 
 
+def kokoro(**kw) -> KokoroProvider:
+    return KokoroProvider(kind="kokoro", model_url="http://127.0.0.1:1/m", voices_url="http://127.0.0.1:1/v",
+                          langs={"af_": "en-us"}, **kw)
+
+
 def test_model_dir_from_the_provider_dir():
     """A model's files are in `<dir>/<model lowercased>`."""
-    assert weights.model_dir({"dir": "/w"}, "MMS_FA") == Path("/w/mms_fa")
+    assert weights.model_dir(kokoro(dir="/w"), "MMS_FA") == Path("/w/mms_fa")
 
 
 def test_with_dir_defaults_dir():
     """`with_dir` sets `dir` to the caller's default only when the provider has none, on a copy; without either,
     `root` asks for `dir`."""
-    spec = {"kind": "kokoro"}
-    assert weights.with_dir(spec, "/d") == {"kind": "kokoro", "dir": "/d"} and spec == {"kind": "kokoro"}
-    assert weights.with_dir({"kind": "kokoro", "dir": "/own"}, "/d")["dir"] == "/own"
+    spec = kokoro()
+    assert weights.with_dir(spec, "/d") == kokoro(dir="/d") and spec.dir is None
+    assert weights.with_dir(kokoro(dir="/own"), "/d").dir == Path("/own")
     with pytest.raises(ConfigError, match="set `dir`"):
         weights.root(weights.with_dir(spec, None))

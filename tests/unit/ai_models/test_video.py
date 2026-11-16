@@ -3,7 +3,7 @@
 import pytest
 
 from ai_models import AIModelsError, ConfigError, video
-
+from plugin_settings import DiffusersModel
 
 
 def test_frame_count_is_step_k_plus_1_and_covers_the_request():
@@ -27,7 +27,7 @@ def test_frame_size_rounds_to_multiple():
     assert video.frame_size(70, 100, 16) == (64, 96)
 
 
-SPEC = {"width": 512, "height": 320, "size_multiple": 32}
+SPEC = DiffusersModel(repo="r", width=512, height=320, size_multiple=32)
 
 
 def test_clip_size_defaults_to_the_model_size():
@@ -47,20 +47,20 @@ def test_clip_size_reshapes_the_model_size_to_the_aspect():
 
 def test_missing_video_keys_are_named(write_config):
     """A video model without one of the required keys is a ConfigError that names each missing key."""
-    write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {"video": "local:v"},
-                  "diffusers": {"v": {"repo": "r", "pipeline": "P", "width": 64, "height": 64}}})
-    with pytest.raises(ConfigError, match="lacks fps, size_multiple, frame_step, max_frames"):
-        video.video_spec("v")
+    write_config({"providers": {"local": {"kind": "diffusers", "models": {
+        "v": {"repo": "r", "pipeline": "P", "width": 64, "height": 64}}}}, "tasks": {"video": "local:v"}})
+    with pytest.raises(ConfigError, match="providers.local.models.v lacks fps, size_multiple, frame_step, max_frames"):
+        video.video_spec("local:v")
 
 
 def test_model_resolves_from_task_video(write_config):
     """animate takes the model of task `video`; a provider kind other than diffusers and a config without
     the task are a ConfigError."""
-    write_config({"providers": {"ollama": {"kind": "ollama"}}, "models": {"video": "ollama:x"}})
+    write_config({"providers": {"ollama": {"kind": "ollama"}}, "tasks": {"video": "ollama:x"}})
     with pytest.raises(ConfigError, match="no video models"):
         video.animate(b"", "p", seconds=1.0)
-    write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {}})
-    with pytest.raises(ConfigError, match="models.video"):
+    write_config({"providers": {"local": {"kind": "diffusers"}}, "tasks": {}})
+    with pytest.raises(ConfigError, match="tasks.video"):
         video.animate(b"", "p", seconds=1.0)
 
 
@@ -68,9 +68,9 @@ def test_model_failure_is_one_line(write_config):
     """A failure inside the video pipeline (here a `pipeline` class diffusers does not have) is an AIModelsError
     with a one-line message that names the model, not the library's exception. Guards the one-line error
     media:short-video and Studio report for an `Engine: video` scene."""
-    write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {"video": "local:v"},
-                  "diffusers": {"v": {"repo": "r", "pipeline": "NoSuchPipeline", "fps": 24, "size_multiple": 32,
-                                      "frame_step": 8, "width": 64, "height": 64, "max_frames": 9}}})
+    write_config({"providers": {"local": {"kind": "diffusers", "models": {
+        "v": {"repo": "r", "pipeline": "NoSuchPipeline", "fps": 24, "size_multiple": 32, "frame_step": 8, "width": 64,
+              "height": 64, "max_frames": 9}}}}, "tasks": {"video": "local:v"}})
     with pytest.raises(AIModelsError) as e:
         video.animate(b"", "p", seconds=1.0)
     assert type(e.value) is AIModelsError and "\n" not in str(e.value)
@@ -91,23 +91,23 @@ def test_bucket_is_nearest_aspect():
 
 def test_missing_presenter_keys_are_named(write_config):
     """A presenter model without a required key is a ConfigError that names each missing key; `buckets` that is
-    not a list of [width, height] is a ConfigError."""
-    write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {"presenter": "local:p"},
-                  "diffusers": {"p": {"repo": "r", "pipeline": "P", "fps": 25},
-                                "q": {"repo": "r", "pipeline": "P", "fps": 25, "buckets": [[512]], "audio_rate": 16000,
-                                      "output": "videos"}}})
+    not a list of [width, height] fails at load."""
+    p = {"repo": "r", "pipeline": "P", "fps": 25}
+    write_config({"providers": {"local": {"kind": "diffusers", "models": {"p": p}}}, "tasks": {"presenter": "local:p"}})
     with pytest.raises(ConfigError, match="lacks buckets, audio_rate, output"):
-        video.presenter_spec("p")
-    with pytest.raises(ConfigError, match="buckets"):
-        video.presenter_spec("q")
+        video.presenter_spec("local:p")
+    q = {**p, "buckets": [[512]], "audio_rate": 16000, "output": "videos"}
+    write_config({"providers": {"local": {"kind": "diffusers", "models": {"q": q}}}})
+    with pytest.raises(ConfigError, match=r"providers.local.models.q.buckets\[0\]"):
+        video.presenter_spec("local:q")
 
 
 def test_presenter_resolves_from_task_presenter(write_config):
     """present takes the model of task `presenter`; a provider kind other than diffusers and a config without the
     task are a ConfigError."""
-    write_config({"providers": {"ollama": {"kind": "ollama"}}, "models": {"presenter": "ollama:x"}})
+    write_config({"providers": {"ollama": {"kind": "ollama"}}, "tasks": {"presenter": "ollama:x"}})
     with pytest.raises(ConfigError, match="no presenter models"):
         video.present(b"", b"")
-    write_config({"providers": {"local": {"kind": "diffusers"}}, "models": {}})
-    with pytest.raises(ConfigError, match="models.presenter"):
+    write_config({"providers": {"local": {"kind": "diffusers"}}, "tasks": {}})
+    with pytest.raises(ConfigError, match="tasks.presenter"):
         video.present(b"", b"")

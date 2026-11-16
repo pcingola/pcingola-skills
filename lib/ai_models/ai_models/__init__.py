@@ -1,6 +1,7 @@
 """Models for the skills, set per task in `config.yaml` (`config`), reached through Pydantic-AI.
 
-    config   the config file, `provider:model` ids, `model_for(task)`
+    config   the typed config file (`plugin_settings.Config`), `provider:model` ids, `model_for(task)`,
+             `model_entry`, `diffusers_model`, `image_limits`
     routes   the model routes table (the user's `routes.md` beside the config file); the `routes` CLI command
     models   Pydantic-AI providers per kind; `chat_model`, `agent`, `embedder`
     images   `image_generator` (generation, edits with reference images, masks)
@@ -14,7 +15,7 @@
     music    `compose` (Google predict and stream models, local diffusers)
     video    `animate`, `aanimate` (image to video), `present`, `apresent` (portrait and speech to video), local diffusers
     local    diffusers image, music, video and presenter models (extra `ai-models[diffusers]`)
-    tls      certifi roots plus EXTRA_CA_CERT for remote clients
+    tls      certifi roots plus `network.extra_ca_cert` for remote clients
 
 Every error of this package is an `AIModelsError`.
 """

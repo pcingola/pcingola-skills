@@ -16,7 +16,7 @@ SYSTEM1 = "d3:4b"
 @pytest.fixture(autouse=True)
 def _config(write_config):
     write_config({"providers": {"ollama": {"kind": "ollama"}},
-                  "models": {"chat": f"ollama:{CHAT}", "embed": f"ollama:{EMBED}", "system1": f"ollama:{SYSTEM1}"}})
+                  "tasks": {"chat": f"ollama:{CHAT}", "embed": f"ollama:{EMBED}", "system1": f"ollama:{SYSTEM1}"}})
 
 
 def test_chat():

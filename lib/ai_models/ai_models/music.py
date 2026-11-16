@@ -1,6 +1,6 @@
 """Music (Pydantic-AI has no music call).
 
-    google      A model listed in the provider's `predict_models`:
+    google      A model with `predict: true` (`providers.<p>.models.<m>`):
                 `POST <base_url>/v1/publishers/google/models/<model>:predict` with the key as
                 `x-goog-api-key`; one WAV per sample (`sample_count` goes in the instance).
                 Other models: a `generate_content_stream` with AUDIO and
@@ -19,6 +19,8 @@ import asyncio
 import base64
 from collections.abc import Sequence
 from dataclasses import dataclass
+
+from plugin_settings import GoogleProvider, ProviderKind
 
 from . import config
 from .errors import AIModelsError, ConfigError, explained
@@ -62,27 +64,23 @@ def check_options(api: str, model_id: str, **options) -> None:
 def model_api(model_id: str) -> str:
     """The API of the music model `model_id` (`<provider>:<model>`): a key of TAKES. `ConfigError` for a provider
     kind without music models."""
-    name, bare = config.split_id(model_id)
-    spec = config.provider(name)
-    if spec["kind"] not in ("diffusers", "google"):
-        raise ConfigError(f"provider {name!r} of kind {spec['kind']!r} has no music models")
-    return spec["kind"] if spec["kind"] == "diffusers" else "predict" if bare in (spec.get("predict_models") or ()) else "stream"
+    name, _ = config.split_id(model_id)
+    kind = config.provider(name).kind
+    if kind == ProviderKind.DIFFUSERS:
+        return "diffusers"
+    if kind != ProviderKind.GOOGLE:
+        raise ConfigError(f"provider {name!r} of kind {kind!r} has no music models")
+    entry = config.model_entry(model_id)
+    return "predict" if entry is not None and entry.predict else "stream"
 
 
 def min_crest_db(model_id: str) -> float | None:
-    """The `min_crest_db` of the music model `model_id`'s config entry (`diffusers.<name>`): the crest factor (dB)
-    below which its tracks are loud and compressed. None when the entry has no such key, or the model has no entry
-    (remote kinds)."""
-    _, bare = config.split_id(model_id)
+    """The `min_crest_db` of the music model `model_id`'s entry (`providers.<p>.models.<m>` of a diffusers provider):
+    the crest factor (dB) below which its tracks are loud and compressed. None when the entry has no such key, or
+    the model is not a diffusers model (remote kinds)."""
     if model_api(model_id) != "diffusers":
         return None
-    value = ((config.load().get("diffusers") or {}).get(bare) or {}).get("min_crest_db")
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        raise ConfigError(f"diffusers model {bare!r}: min_crest_db {value!r} is not a number") from None
+    return config.diffusers_model(model_id).min_crest_db
 
 
 def takes(model_id: str) -> frozenset[str]:
@@ -102,14 +100,14 @@ def predict_instance(prompt: str, negative: str | None, seed: int | None, sample
     return instance
 
 
-async def _predict(spec: dict, name: str, model: str, prompt: str, negative: str | None, seed: int | None,
+async def _predict(spec: GoogleProvider, name: str, model: str, prompt: str, negative: str | None, seed: int | None,
                    samples: int | None) -> list[Track]:
     if uses_cloud_credentials(spec):
         raise ConfigError(f"provider {name!r}: predict models ({model}) need `api_key` in {config.path()}; "
                           "Google Cloud credentials serve its stream models only")
-    key = provider_key(spec, name)
+    key = provider_key(spec)
     instance = predict_instance(prompt, negative, seed, samples)
-    url = f"{(spec.get('base_url') or VERTEX_URL).rstrip('/')}/v1/publishers/google/models/{model}:predict"
+    url = f"{(spec.base_url or VERTEX_URL).rstrip('/')}/v1/publishers/google/models/{model}:predict"
     async with http_client(spec) as http:
         response = await http.post(url, json={"instances": [instance]},
                                    headers={"x-goog-api-key": key})
@@ -162,7 +160,7 @@ async def acompose(prompt: str, *, seconds: float | None = None, lyrics: str | N
                    seed: int | None = None, negative: str | None = None,
                    images: Sequence[tuple[bytes, str]] = (), samples: int | None = None,
                    model: str | None = None) -> list[Track]:
-    """The tracks for `prompt` by `model` (else `models.music`): WAV, or MP3 from a stream model. One
+    """The tracks for `prompt` by `model` (else `tasks.music`): WAV, or MP3 from a stream model. One
     track, or `samples` tracks from a predict model. `images` are (bytes, MIME type) pairs for stream
     models; `negative` (what to leave out) and `samples` are predict models'."""
     if not prompt.strip():
@@ -176,7 +174,7 @@ async def acompose(prompt: str, *, seconds: float | None = None, lyrics: str | N
     if api == "diffusers":
         from .local import DiffusersMusicModel
 
-        return [Track(await asyncio.to_thread(DiffusersMusicModel(bare).compose, prompt, seconds=seconds,
+        return [Track(await asyncio.to_thread(DiffusersMusicModel(model_id).compose, prompt, seconds=seconds,
                                               lyrics=lyrics, seed=seed))]
     with explained(model_id):
         if api == "predict":

@@ -23,8 +23,8 @@ NEEDS_GPU = requires(HAS_GPU, f"local diffusers models need a CUDA or MPS GPU; t
 @pytest.fixture(autouse=True)
 def _config(tmp_path):
     path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump({"diffusers": {
-        "klein": {"repo": FLUX2_KLEIN, "steps": 2, "guidance": 1.0, "inpaint": INPAINT}}}), encoding="utf-8")
+    path.write_text(yaml.safe_dump({"providers": {"local": {"kind": "diffusers", "models": {
+        "klein": {"repo": FLUX2_KLEIN, "steps": 2, "guidance": 1.0, "inpaint": INPAINT}}}}}), encoding="utf-8")
     config.use(path)
     yield
     config.use(None)
@@ -38,7 +38,7 @@ def png(img: Image.Image) -> bytes:
 
 @NEEDS_GPU
 def test_generation():
-    gen = ImageGenerator(local.DiffusersImageModel("klein"))
+    gen = ImageGenerator(local.DiffusersImageModel("local:klein"))
     result = gen.generate_sync("a cat", settings={"dimensions": (SIZE, SIZE), "extra_body": {"seed": 1}})
     assert Image.open(io.BytesIO(result.image.data)).size == (SIZE, SIZE)
     assert result.image.media_type == "image/png"
@@ -49,7 +49,7 @@ def test_masked_edit_runs_the_inpaint_pipeline():
     mask = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 255))
     mask.paste((0, 0, 0, 0), (0, 0, SIZE // 2, SIZE))  # transparent left half: the area to repaint
     ref = BinaryImage(data=png(Image.new("RGB", (SIZE, SIZE), "white")), media_type="image/png")
-    gen = ImageGenerator(local.DiffusersImageModel("klein", mask=png(mask)))
+    gen = ImageGenerator(local.DiffusersImageModel("local:klein", mask=png(mask)))
     result = gen.generate_sync("a hat", images=[ref], settings={"dimensions": (SIZE, SIZE)})
     assert Image.open(io.BytesIO(result.image.data)).size == (SIZE, SIZE)
     inpaint = local.pipeline(FLUX2_KLEIN, INPAINT)  # the cached pipeline

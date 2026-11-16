@@ -30,12 +30,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from plugin_settings import OPENAI_KINDS, Provider, ProviderKind
+
 from . import chatterbox, config, kokoro, omni, weights
 from .errors import AIModelsError, ConfigError, explained
 from .models import provider
 
 DEFAULT_PCM_RATE = 24_000
-OPENAI_KINDS = ("ollama", "openrouter", "openai", "azure")
 
 
 @dataclass(frozen=True)
@@ -55,9 +56,9 @@ class Traits:
 
 OPENAI_TRAITS = Traits("marin", (0.25, 4.0), True, params=True)
 TRAITS: dict[str, Traits] = {
-    **{k: OPENAI_TRAITS for k in ("openrouter", "openai", "azure")},
-    "ollama": Traits("default", (0.25, 4.0), True, params=True),
-    "google": Traits("Kore", None, True),
+    **{k: OPENAI_TRAITS for k in (ProviderKind.OPENROUTER, ProviderKind.OPENAI, ProviderKind.AZURE)},
+    ProviderKind.OLLAMA: Traits("default", (0.25, 4.0), True, params=True),
+    ProviderKind.GOOGLE: Traits("Kore", None, True),
     omni.KIND: Traits(omni.DEFAULT_VOICE, None, False, clones=True, tags=True, params=True),
     kokoro.KIND: Traits("af_heart", (0.5, 2.0), False),
     chatterbox.KIND: Traits(chatterbox.DEFAULT_VOICE, None, False, clones=True),
@@ -70,12 +71,12 @@ class SpeechModel:
 
     id: str
     provider: str
-    spec: dict[str, Any]
+    spec: Provider
     bare: str
 
     @property
     def kind(self) -> str:
-        return self.spec["kind"]
+        return self.spec.kind
 
     @property
     def traits(self) -> Traits:
@@ -86,31 +87,40 @@ class SpeechModel:
 
     @property
     def default_voice(self) -> str:
-        return str(self.spec.get("voice") or self.traits.voice)
+        return getattr(self.spec, "voice", None) or self.traits.voice
+
+    @property
+    def voices(self) -> list[str] | None:
+        """The provider's `voices`, None when it lists none."""
+        return getattr(self.spec, "voices", None)
 
     @property
     def instructions(self) -> bool:
-        return bool(self.spec.get("style")) if self.kind == omni.KIND else self.traits.instructions
+        return bool(self.spec.style) if self.kind == omni.KIND else self.traits.instructions
 
 
 def model_of(model: str | None = None, weights_dir: str | Path | None = None) -> SpeechModel:
-    """`model` (else `models.speech`) as a `SpeechModel`, its provider's `dir` defaulting to `weights_dir`
+    """`model` (else `tasks.speech`) as a `SpeechModel`, its provider's `dir` defaulting to `weights_dir`
     (`weights.with_dir`); `ConfigError` for a kind without speech models."""
     model_id = config.resolve(model, "speech")
     name, bare = config.split_id(model_id)
-    m = SpeechModel(model_id, name, weights.with_dir(config.provider(name), weights_dir), bare)
+    spec = config.provider(name)
+    m = SpeechModel(model_id, name, spec, bare)
     m.traits  # noqa: B018 - refuses a kind without speech models
+    if spec.kind in (kokoro.KIND, chatterbox.KIND):
+        m = SpeechModel(model_id, name, weights.with_dir(spec, weights_dir), bare)
     return m
 
 
 def model_of_kind(kind: str) -> str | None:
-    """The configured speech model of provider kind `kind`: `models.speech` when its provider has that kind, else
+    """The configured speech model of provider kind `kind`: `tasks.speech` when its provider has that kind, else
     the first `speech` row of the routes (`routes.table`) whose provider has it; None when there is none."""
     from . import routes
 
+    cfg = config.load()
     for r in routes.table(["speech"]):
-        name, _ = config.split_id(r.model)
-        if (config.load().get("providers") or {}).get(name, {}).get("kind") == kind:
+        p = cfg.provider(config.split_id(r.model)[0])
+        if p is not None and p.kind == kind:
             return r.model
     return None
 
@@ -137,12 +147,12 @@ def check(model: str | None = None, *, speed: float = 1.0, instructions: str | N
 
 
 def voices(model: str | None = None, weights_dir: str | Path | None = None) -> list[str]:
-    """The voices of `model` (else `models.speech`): the provider's `voices`, else a Kokoro model's voices (loading
+    """The voices of `model` (else `tasks.speech`): the provider's `voices`, else a Kokoro model's voices (loading
     it from `weights_dir` when the provider has no `dir`), else the default voice. A model whose kind `clones` also
     takes a reference recording, which is not listed."""
     m = model_of(model, weights_dir)
-    if m.spec.get("voices"):
-        return [str(v) for v in m.spec["voices"]]
+    if m.voices:
+        return list(m.voices)
     if m.kind == kokoro.KIND:
         return kokoro.voices(m.spec, m.provider, m.bare)
     return [m.default_voice]
@@ -153,9 +163,9 @@ def fetch(model: str | None = None, weights_dir: str | Path | None = None) -> No
     `dir`, else `weights_dir`; other kinds have none."""
     m = model_of(model, weights_dir)
     if m.kind == kokoro.KIND:
-        kokoro.files(m.spec, m.provider, m.bare)
+        kokoro.files(m.spec, m.bare)
     elif m.kind == chatterbox.KIND:
-        chatterbox.fetch(m.spec, m.provider, m.bare)
+        chatterbox.fetch(m.spec, m.bare)
 
 
 def wav(pcm: bytes, rate: int) -> bytes:
@@ -203,7 +213,7 @@ async def aspeak(text: str, *, voice: str | None = None, model: str | None = Non
                  instructions: str | None = None, response_format: str = "wav", speed: float = 1.0,
                  speaker: str | None = None, params: dict[str, Any] | None = None,
                  weights_dir: str | Path | None = None) -> bytes:
-    """The audio of `text` by `model` (else `models.speech`) in `voice` (else the model's default voice).
+    """The audio of `text` by `model` (else `tasks.speech`) in `voice` (else the model's default voice).
     `instructions` set the style, `speed` the pace, `params` more request fields sent as they are (kinds with
     `Traits.params`), as far as `check` allows. `speaker` names who speaks, for a vllm-omni model with the voice
     `default` (`omni.aspeak`). `weights_dir` is where a local model's weights are when its provider has no `dir`.
