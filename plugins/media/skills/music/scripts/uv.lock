@@ -35,9 +35,10 @@ wheels = [
 [[package]]
 name = "ai-models"
 version = "0.1.0"
-source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fai_models&branch=main#725a9d7e983eebab2cec472e73fff8a9e9e156f4" }
+source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fai_models&branch=main#9c871293ad2aaad5f77c5e5431634bc4438719b6" }
 dependencies = [
     { name = "certifi" },
+    { name = "filelock" },
     { name = "plugin-settings" },
     { name = "pydantic-ai-slim", extra = ["google", "openai"] },
     { name = "pyyaml" },
@@ -1951,7 +1952,7 @@ wheels = [
 [[package]]
 name = "plugin-settings"
 version = "0.1.0"
-source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main#725a9d7e983eebab2cec472e73fff8a9e9e156f4" }
+source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main#9c871293ad2aaad5f77c5e5431634bc4438719b6" }
 dependencies = [
     { name = "pyyaml" },
 ]
