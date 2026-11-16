@@ -195,6 +195,7 @@ label.f { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4
 .src .x { border: 0; background: none; color: var(--muted); font-size: 15px; cursor: pointer; padding: 0 2px; }
 .card .foot { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 .card h2 .right { margin-left: auto; font-weight: 400; }
+a.mini { color: var(--text); text-decoration: none; }
 .mini { border: 1px solid var(--line); background: var(--panel); border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 12.5px; cursor: pointer; }
 .mini:hover { background: var(--hover); }
 .mini.danger, .secondary.danger { color: var(--err); border-color: var(--err); font-weight: 600; }
@@ -400,8 +401,8 @@ details.adv-in[open] summary::before { content: "▾"; }
 .srow .thumb .noimg.drawn b, .rrow .thumb .noimg.drawn b { display: flex; align-items: center; gap: 2px; font-size: 10.5px; color: var(--accent); white-space: nowrap; }
 .srow .thumb .noimg.drawn .ico, .rrow .thumb .noimg.drawn .ico { width: 11px; height: 11px; flex: none; }
 .strip div.drawn .ico { position: absolute; left: 20px; top: 50%; width: 15px; height: 15px; transform: translateY(-50%); color: var(--accent); }
-.card.drawn-note { display: flex; align-items: center; gap: 10px; color: var(--text); }
-.card.drawn-note .ico { width: 20px; height: 20px; flex: none; color: var(--accent); }
+.drawn-note { display: flex; align-items: center; gap: 10px; color: var(--text); }
+.drawn-note .ico { width: 20px; height: 20px; flex: none; color: var(--accent); }
 .srow .thumb .noimg.drawn span, .rrow .thumb .noimg.drawn span { font-size: 10.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .srow.pending .spin { width: 20px; height: 20px; border-width: 2px; }
 .srow[draggable="true"] { cursor: grabbing; }
@@ -519,3 +520,18 @@ body.resizing { user-select: none; cursor: col-resize; }
 .film .made .note { color: var(--text); }
 .track.pending .run-status, .srow.pending .run-status { margin-top: 2px; }
 .notice .run-status { margin-top: 6px; }
+
+/* Scene player: an HTML scene's page in a sandboxed iframe, with a mark overlay while paused. */
+.sp-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 70vh; background: #000; border-radius: 6px; overflow: hidden; margin: 0 auto; }
+.sp-stage.tall { aspect-ratio: 9 / 16; width: auto; height: 70vh; }
+.sp-stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.sp-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.sp-overlay.on { pointer-events: auto; cursor: crosshair; }
+.sp .line { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.sp h2 { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.sp-scrub { flex: 1; min-width: 120px; }
+.sp-time { font-variant-numeric: tabular-nums; }
+.sp-ids { margin-top: 8px; font-size: 13px; overflow-wrap: anywhere; }
+.sp-text { width: 100%; box-sizing: border-box; margin-top: 8px; }
+.sp-comment { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.sp-comment > span:first-child { flex: 1; overflow-wrap: anywhere; }

@@ -38,9 +38,11 @@ def voice_durations(project: Path, data: dict) -> list[float]:
 
 
 def clip_durations(project: Path, data: dict) -> list[float]:
-    """The length of each clip scene without narration that has an imported clip."""
-    found = (storyboard.clip_seconds(project, s) for s in storyboard.scenes(data)
-             if storyboard.is_clip(s) and not storyboard.narrated(s))
+    """The length of each silent scene: a clip scene without narration that has an imported clip, or an HTML
+    scene's `length`."""
+    found = (storyboard.length_seconds(s) if storyboard.length_seconds(s) is not None
+             else storyboard.clip_seconds(project, s)
+             for s in storyboard.scenes(data) if not storyboard.narrated(s))
     return [t for t in found if t is not None]
 
 

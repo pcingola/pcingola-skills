@@ -1693,6 +1693,212 @@
      }
     ]
    }
+  },
+  {
+   "case": "silent world",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b",
+      "length": 2,
+      "world": "w"
+     },
+     {
+      "id": "b",
+      "brief": "b",
+      "length": 1.5,
+      "world": "w"
+     },
+     {
+      "id": "c",
+      "brief": "b",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "narrated world",
+   "valid": true,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b",
+      "world": "w",
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     },
+     {
+      "id": "b",
+      "brief": "b",
+      "length": 3,
+      "world": "w"
+     }
+    ]
+   }
+  },
+  {
+   "case": "world not consecutive",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b",
+      "length": 2,
+      "world": "w"
+     },
+     {
+      "id": "b",
+      "brief": "b",
+      "length": 2
+     },
+     {
+      "id": "c",
+      "brief": "b",
+      "length": 2,
+      "world": "w"
+     }
+    ]
+   }
+  },
+  {
+   "case": "world scene with image",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b",
+      "length": 2,
+      "world": "w",
+      "image": "a.png"
+     }
+    ]
+   }
+  },
+  {
+   "case": "world scene with template",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "template": "title",
+      "world": "w",
+      "narration": [
+       "Hi."
+      ],
+      "beats": [
+       "Hi"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "world invalid name",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b",
+      "length": 2,
+      "world": "W-1"
+     }
+    ]
+   }
+  },
+  {
+   "case": "length with narration",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b",
+      "length": 2,
+      "narration": [
+       "One."
+      ],
+      "beats": [
+       "one"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "length zero",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b",
+      "length": 0
+     }
+    ]
+   }
+  },
+  {
+   "case": "length on manim",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b",
+      "length": 2,
+      "engine": "manim"
+     }
+    ]
+   }
+  },
+  {
+   "case": "html without narration or length",
+   "valid": false,
+   "storyboard": {
+    "title": "T",
+    "topic": "t",
+    "scenes": [
+     {
+      "id": "a",
+      "brief": "b"
+     }
+    ]
+   }
   }
  ]
 }

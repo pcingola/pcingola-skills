@@ -106,7 +106,7 @@ class TestJson(unittest.TestCase):
         self.assertEqual((scene["narration"], scene["beats"]), ([], []))
         del data["scenes"][1]["narration"]
         self.assertEqual(_json_error(data), "storyboard.json: scene 'talk': missing sentences in `narration` "
-                                            "(only a scene with `engine` clip may have none)")
+                                            "(only a scene with `engine` clip or with `length` may have none)")
 
     def test_markdown_bad_header_one_error(self) -> None:
         """storyboard.parse_markdown reports a repeated or unknown voice column once, naming it, with no errors
@@ -152,7 +152,7 @@ class TestJson(unittest.TestCase):
             (changed(lambda d: d["scenes"][0].update(id="Title")), "invalid scene id 'Title'"),
             (changed(lambda d: d["scenes"][1].update(id="title")), "duplicate scene id 'title'"),
             (changed(lambda d: d["scenes"][1].update(narration=[], beats=[], speakers=[], voices=[])),
-             "scene 'talk': missing sentences in `narration` (only a scene with `engine` clip may have none)"),
+             "scene 'talk': missing sentences in `narration` (only a scene with `engine` clip or with `length` may have none)"),
         ]
         for data, fragment in cases:
             with self.subTest(fragment=fragment):
@@ -316,7 +316,7 @@ class TestStatus(Project):
         self.assertEqual(self.entry("a"), {
             "id": "a", "narrated": True, "voice_version": None, "needs_voice": True,
             "voice_reasons": ["no voice version"], "scene_version": None, "needs_render": True,
-            "render_reasons": ["no rendered version"]})
+            "render_reasons": ["no page version; run scaffold"], "rendered": False})
 
     def test_up_to_date(self) -> None:
         """status after every scene is voiced and rendered from the current storyboard needs nothing. Guards

@@ -170,7 +170,8 @@ def test_video_details(client, studio):
                                       "created": "b"}
     assert injection["clip"] == {"n": 1, "path": str(p / "scenes" / "injection" / "v1" / "scene.mp4"),
                                  "contact": str(p / "scenes" / "injection" / "v1" / "contact.png"), "duration": 5.2,
-                                 "created": "c"}
+                                 "created": "c", "page": None, "page_url": None, "start": 0, "world": None,
+                                 "narration": None}
     assert opening["recording"] is None and opening["clip"] is None
     assert [(m["n"], m["source"]) for m in v["music"]] == [(3, None), (2, "own"), (1, "made")]
     assert v["music"][2] == {"n": 1, "path": str(p / "music" / "v1" / "track.mp3"), "source": "made",
@@ -377,8 +378,8 @@ def test_storyboard_write_refused(client, studio):
 # Film settings and scene styles
 
 def test_film(client, studio):
-    """/api/film replaces each given key whole and answers the whole film settings. Guards the voice and music
-    controls."""
+    """/api/film replaces each given key whole and answers the whole film settings; `silent` defaults to false.
+    Guards the voice, music and silent-film controls."""
     p = make_video(studio.root, storyboard=None)
     voice = {"model": "oai:tts", "name": "marin", "speed": 1.1, "style": "warm"}
     status, body = client.post("/api/film", {"project": str(p), "film": {"voice": voice, "length": 30}})
@@ -388,6 +389,8 @@ def test_film(client, studio):
                                                                      "brand": "acme"}})
     assert body["film"]["shape"] == "9:16" and body["film"]["voice"] == voice and body["film"]["brand"] == "acme"
     assert client.post("/api/film", {"project": str(p), "film": {"brand": None}})[1]["film"]["brand"] is None
+    assert default_film()["silent"] is False
+    assert client.post("/api/film", {"project": str(p), "film": {"silent": True}})[1]["film"]["silent"] is True
 
 
 def test_film_voice_of_the_earlier_form_maps_its_backend(tmp_path):
@@ -442,6 +445,7 @@ BAD_FILMS = [
     {"author": "Ada"}, {"author": ["Ada", " "]},
     {"brand": ""}, {"brand": 3},
     {"review": None}, {"review": "yes"}, {"review": 1},
+    {"silent": None}, {"silent": "yes"}, {"silent": 0},
 ]
 
 
@@ -693,8 +697,8 @@ def test_video_version_actions(client, studio):
 
 def test_use_style_and_samples(client, studio):
     """use-style takes exactly one of version (one of samples.versions, while samples.scene is in the storyboard)
-    and style; style-samples takes auto or invent and needs a scene with a picture (an image or a template).
-    Guards the style step and a film of drawn scenes only."""
+    and style; style-samples takes auto or invent and needs a scene with a picture (an image or a template) or a
+    drawn scene, whose samples are stills of its page. Guards the style step and a film of drawn scenes only."""
     p = make_video(studio.root, meta={"samples": {"scene": "injection", "versions": [3, 4, 5], "style": "auto"}})
     ok = [vreq(p, "use-style", version=4), vreq(p, "use-style", style="ink"), vreq(p, "style-samples", style="auto"),
           vreq(p, "style-samples", style="invent")]
@@ -713,7 +717,11 @@ def test_use_style_and_samples(client, studio):
     drawn = {**STORYBOARD, "scenes": [{"id": "chart", "brief": "A bar chart grows.", "narration": ["Cases fell."],
                                        "beats": ["bars"]}, {"id": "morph", "engine": "clip"}]}
     only_drawn = make_video(studio.root, "drawn", storyboard=drawn, pictures={})
-    assert client.post("/api/request", vreq(only_drawn, "style-samples", style="auto"))[0] == 400
+    assert client.post("/api/request", vreq(only_drawn, "style-samples", style="auto"))[0] == 202
+    clips = make_video(studio.root, "clips", storyboard={**drawn, "scenes": [{"id": "morph", "engine": "clip"},
+                                                                             {"id": "proof", "engine": "manim"}]},
+                       pictures={})
+    assert client.post("/api/request", vreq(clips, "style-samples", style="auto"))[0] == 400
     titled = make_video(studio.root, "titled", storyboard={**drawn, "scenes": [STORYBOARD["scenes"][0], *drawn["scenes"]]},
                         pictures={})
     assert client.post("/api/request", vreq(titled, "style-samples", style="invent"))[0] == 202
@@ -1013,3 +1021,52 @@ def test_storyboard_request_make_film(client, studio, emitted):
     assert client.post("/api/request", vreq(None, "storyboard", brief="Vaccines two", film=film, make_film="yes"))[0] == 400
     assert client.post("/api/request", vreq(None, "storyboard", brief="Vaccines three",
                                             film={**film, "author": []}, make_film=True))[0] == 202
+
+
+def test_export_mp4(client, studio, emitted):
+    """export-mp4 gets film added and is refused as make-film is: no scene, samples waiting. Guards the films step's
+    Export MP4 button."""
+    p = make_video(studio.root)
+    assert client.post("/api/request", vreq(p, "export-mp4"))[0] == 202
+    assert emitted[-1]["request"]["film"] == default_film()
+    for c in (make_video(studio.root, "a", storyboard=None),
+              make_video(studio.root, "b", meta={"samples": {"scene": "injection", "versions": [1]}})):
+        assert client.post("/api/request", vreq(c, "export-mp4"))[0] == 400, c.name
+
+
+def test_reference_video(client, studio):
+    """/api/refs takes an MP4, MOV or WebM in a short-video project, up to REF_VIDEO_MAX, and lists only pictures
+    and videos of refs/ (not refs.json of media:short-video's `refs`); an image project takes no video. Guards the
+    reference video upload of step 1."""
+    from studio_server.video import REF_VIDEO_MAX
+
+    from .conftest import make_project
+    p = make_video(studio.root)
+    post = lambda proj, name, mime, data=b"\x00\x00\x00\x18ftypmp42": client.post(  # noqa: E731
+        "/api/refs", {"project": str(proj), "name": name, "data": data_url(data, mime)})
+    assert post(p, "clip.mp4", "video/mp4") == (200, {"path": str(p / "refs" / "clip.mp4")})
+    assert post(p, "take.MOV", "video/quicktime")[1]["path"] == str(p / "refs" / "take.MOV")
+    assert post(p, "loop", "video/webm")[1]["path"] == str(p / "refs" / "loop.webm")
+    assert post(p, "big.mp4", "video/mp4", b"\x00" * (REF_VIDEO_MAX + 1))[0] == 413
+    assert post(p, "x.mkv", "video/x-matroska")[0] == 400
+    assert post(make_project(studio.root), "clip.mp4", "video/mp4")[0] == 400
+    (p / "refs" / "refs.json").write_text("{}")
+    (p / "refs" / "clip").mkdir()
+    assert video_of(client, p)["refs"] == sorted(str(p / "refs" / n) for n in ("clip.mp4", "take.MOV", "loop.webm"))
+
+
+def test_html_film_scenes(client, studio):
+    """html_films lists per scene the source its manifest plays, and changes and created from studio.json; a scene
+    page carries its index.html time. Guards what the films step says changed since the newest HTML film."""
+    p = make_video(studio.root)
+    version(p, "scenes", "injection", "v2", files=("index.html",))
+    v = version(p, "film", "html", "v1", meta_name="manifest.json", files=("film.html",), meta={"segments": [
+        {"kind": "page", "start": 0, "duration": 3.0, "scenes": ["opening"], "source": "scenes/opening/v1"},
+        {"kind": "missing", "start": 3.0, "duration": 2.0, "scenes": ["injection"], "source": None}]})
+    (v / "studio.json").write_text(json.dumps({"changes": "first film", "created": "2026-11-15T10:00:00+00:00"}))
+    d = video_of(client, p)["video"]
+    [f] = d["html_films"]
+    assert f["scenes"] == [{"id": "opening", "source": "scenes/opening/v1"}, {"id": "injection", "source": None}]
+    assert (f["changes"], f["created"], f["duration"]) == ("first film", "2026-11-15T10:00:00+00:00", 5.0)
+    page = next(s for s in d["scenes"] if s["id"] == "injection")["page"]
+    assert page["n"] == 2 and isinstance(page["created"], str)

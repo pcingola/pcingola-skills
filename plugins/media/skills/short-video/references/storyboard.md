@@ -90,6 +90,23 @@ The keys of a scene:
   who speaks), required, and an optional `Brief:` (see "Presenter scenes").
 - Clip scene: `Engine: clip`, an optional `Brief:` and an optional `Image:`
   (see "Clip scenes").
+- Silent HTML scene: an HTML scene with `Length: <seconds>` and no table
+  (see "Silent HTML scenes").
+
+An HTML scene's `Brief:` is a shot list precise enough to build the page
+without guessing: the palette as hex colours, the fonts (font families
+under the SIL Open Font License installed on this machine, which the page
+embeds: `references/scenes.md`, Fonts), the light over time, camera keyframes (time, position or framing, target, easing), and
+for each element where it sits and when it enters, moves and leaves, keyed
+to sentences or words. The agent writes this detail from the user's short
+request; the user need not give it. Inside a Brief, a line that starts with
+a capitalised word and a colon starts a new field and fails as an unknown
+key: write such labels in lowercase (`palette: #0f1420 ...`) or inside a
+sentence (`The palette is ...`).
+
+Any HTML scene without `Template:` and without `Image:` may have
+`World: <name>`, which joins it to the consecutive scenes with the same name
+in one page (see "Shared worlds").
 
 Below the keys and above the table, a scene with an image has a preview line:
 `<a href="images/1_vaccine.png"><img src="images/1_vaccine.png" width="30%"></a>`
@@ -99,7 +116,8 @@ file; commands ignore it otherwise.
 
 Then the table: the header `| Narration | On screen |`, the line `|---|---|`,
 and one row per sentence, spoken in row order. Every scene has a table
-except a clip scene, which may have none. No blank line inside the
+except a clip scene, which may have none, and a silent HTML scene, which has
+none. No blank line inside the
 table, one table per scene, nothing after it in the section. Neither cell may
 be empty; a literal `|` in a cell is written `\|`. On screen says what
 moves or changes on screen while that sentence plays, as actions: the camera
@@ -113,7 +131,8 @@ movement there too.
 
 A field's value continues on the following lines up to a blank line. A line
 that starts with a capitalised word and a colon (`Note: ...`) starts a new
-field. Headings other than `#` and `##`, YAML front matter and text outside a
+field. A heading is `# ` or `## ` with the space; a line such as `#0f1420`
+is text. Headings other than `#` and `##`, YAML front matter and text outside a
 field are errors. Whitespace inside a value collapses to one space, so
 reflowing the text changes nothing.
 
@@ -201,7 +220,9 @@ its sentences' resolved voice.
 - A scene: `id`; `template`, `image`, `brief`, `engine` as the `Template:`,
   `Image:`, `Brief:`, `Engine:` keys, under the same rules; `narration` and
   `beats` (the On screen cells), lists of one string per sentence (a clip
-  scene may leave both out, which makes it silent); optional
+  scene may leave both out, which makes it silent, and a scene with `length`
+  leaves both out); `length` (a number of seconds) and `world` (a name) as
+  the `Length:` and `World:` keys; optional
   `speakers` (a speaker name or null per sentence), `voices` (null or an
   object with any of `model`, `name`, `speed`, `style` per sentence) and
   `preview` (the image preview path of a storyboard.md; unused otherwise).
@@ -262,28 +283,6 @@ what moves during each sentence without keying an event to a word. A
 template scene takes no `Engine:`.
 
 ```markdown
-
-## Presenter scenes
-
-`Engine: presenter` makes the scene the person in the scene's image speaking
-the scene's narration recording, made by a presenter model
-(`references/video-model.md`, "Presenter scenes"). `Image:` is a portrait,
-made with `media:image-gen`; `Brief:` is optional and, when given, replaces
-the model's own prompt. In `storyboard.json` the scene has `"engine":
-"presenter"` and `image`, and `brief` only when given. A template scene takes
-no `Engine:`; a presenter scene takes no `Ambience:`.
-
-```markdown
-## host
-
-Engine: presenter
-Image: 1_host.png
-
-| Narration | On screen |
-|---|---|
-| Welcome to the harbour at night. | The host speaks to the camera |
-```
-
 ## culture
 
 Engine: video
@@ -305,6 +304,27 @@ track as ambience under the narration (`references/video-model.md`,
 "Ambience"). `Ambience: off` above the table keeps it out; `Ambience: on`
 is the default. Only a video scene takes `Ambience:`. In `storyboard.json`
 the key is `"ambience": false` (or `true`).
+
+## Presenter scenes
+
+`Engine: presenter` makes the scene the person in the scene's image speaking
+the scene's narration recording, made by a presenter model
+(`references/video-model.md`, "Presenter scenes"). `Image:` is a portrait,
+made with `media:image-gen`; `Brief:` is optional and, when given, replaces
+the model's own prompt. In `storyboard.json` the scene has `"engine":
+"presenter"` and `image`, and `brief` only when given. A template scene takes
+no `Engine:`; a presenter scene takes no `Ambience:`.
+
+```markdown
+## host
+
+Engine: presenter
+Image: 1_host.png
+
+| Narration | On screen |
+|---|---|
+| Welcome to the harbour at night. | The host speaks to the camera |
+```
 
 ## Clip scenes
 
@@ -347,6 +367,58 @@ clip scene.
 of its narration and its imported clip; a clip scene without a table and
 without an imported clip counts as `length.clip_seconds`.
 
+## Silent HTML scenes
+
+`Length: <seconds>` (a number above 0, `6` or `6s`) on an HTML scene without
+a table makes it silent: it lasts that long, `script` and `voice` skip it, and
+`render` gives it a silent sound track. Only an HTML scene without a template
+takes `Length:`; a scene with a table lasts its narration and takes none. The
+page keys its tweens to plain seconds; it has no sentences, so `S(1)` fails
+the static check. In `storyboard.json` the key is `"length": 6`.
+
+```markdown
+## opening
+
+Brief: Night over the harbour; the lights of the ships come on one by one.
+Length: 6
+```
+
+A silent film (no narration at all) makes its title and end cards this
+way, as plain HTML scenes with `Length:`, starting from
+`assets/techniques/title/`: the `title`, `summary` and `end` templates need a
+narration table.
+
+## Shared worlds
+
+`World: <name>` (`[a-z0-9_]+`) on consecutive HTML scenes puts them in one
+world: one page, `worlds/<name>/v<N>/index.html`, that the HTML film plays
+once across the scenes (and that `render`, for an MP4, renders once and cuts
+into one clip per scene at the scene boundaries). The camera and the light then run
+on from scene to scene without a cut. Each scene keeps its own narration,
+`brief.md` entry, stills, review and comments (and, when rendered,
+`scene.mp4`, frames and contact sheet), in scene time. A world scene may be narrated or silent (`Length:`).
+
+```markdown
+## harbour
+
+Brief: The camera drifts over the harbour at dusk toward the cranes.
+World: port
+
+| Narration | On screen |
+|---|---|
+| Every container starts here. | the camera glides toward the cranes on "starts" |
+
+## cranes
+
+Brief: The camera rises along a crane as the light turns to night.
+World: port
+Length: 4
+```
+
+`validate` refuses a world whose scenes are not consecutive, and a world scene
+with `Template:`, `Image:` or an engine other than html. It warns about a
+world of one scene. In `storyboard.json` the key is `"world": "port"`.
+
 ## Suggested structure
 
 `init` writes a conclusion-first film for a busy senior audience:
@@ -379,7 +451,7 @@ end scene. `validate` only warns about the structure.
   storyboard's text, the spoken words of each written word merged into one
   word, so `W(n, "ACME-AI")` finds it.
 - `validate` estimates the length from the word count, plus the clip scenes
-  without a table, and warns outside `length:` in the settings. The real
+  without a table and the `Length:` of silent HTML scenes, and warns outside `length:` in the settings. The real
   length is known after `voice` and `clip`.
 
 ## Scene status
@@ -387,7 +459,8 @@ end scene. `validate` only warns about the structure.
 `status` prints, as JSON, `{"scenes": [...]}` with one object per scene in
 film order:
 
-- `id`: the scene id. `narrated`: false for a clip scene without a table.
+- `id`: the scene id. `narrated`: false for a scene without a table (a
+  clip scene, or a silent HTML scene).
 - `voice_version`: the latest voice version (`v3`), or null.
 - `needs_voice`: true when a narrated scene has no voice version, or the
   latest one does not match the storyboard: a sentence differs, or a
@@ -395,7 +468,14 @@ film order:
   speaker's, or `voice:`, with its own settings over it). `voice_reasons`:
   one line per mismatch.
 - `scene_version`: the latest rendered scene version, or null.
-- `needs_render`: true when the scene has no rendered version; a newer
+- `needs_render`: for an HTML scene, judged on its latest page version
+  (the version the HTML film plays), rendered or not: true when it has no
+  page version, or that version differs from the storyboard as listed below
+  (voice version, image, `brief.md`, `card.js`). A page with no render is not
+  stale for lack of a render. For a world scene: true when the world has no
+  version, or the world's scenes, voice versions, lengths, Briefs or On
+  screen text changed since its latest world version; every scene of the
+  world is then stale. For any other scene: true when it has no rendered version; a newer
   version is scaffolded and not rendered; the render used another engine,
   or another voice version than the latest; the image differs from the
   rendered `background.png`, or the render has a `background.png` and the
@@ -404,18 +484,24 @@ film order:
   for a template scene, `card.js` differs (On screen text, author). For a
   clip scene: any of the `validate` warnings under "Clip scenes".
   `render_reasons`: one line per cause.
+- `rendered`: true when the scene's current version has a render: for an
+  HTML scene its latest page version (a world scene: the latest world
+  version) has a `scene.mp4`. Before `assemble`, `render` every scene whose
+  `rendered` is false.
 
 A scene that needs a voice needs a render only once the new voice version is
 imported; the two are reported separately.
 
 ## What an edit needs
 
-`status` reports the scenes that need a new voice or render. Compare each
+`status` reports the scenes that need a new voice or a new version. Compare each
 scene with its latest `voice/<scene>/v<N>/script.txt`,
 `voice/<scene>/v<N>/meta.json` (`speakers`: each sentence's speaker and voice)
-and `scenes/<scene>/v<N>/brief.md`. Every scene rendered or imported again
-gets the motion check of `references/scenes.md` (`references/manim.md` for a
-manim scene, `references/video-model.md` for a video scene).
+and `scenes/<scene>/v<N>/brief.md`. Every scene made again gets the motion
+check of `references/scenes.md` (`references/manim.md` for a manim scene,
+`references/video-model.md` for a video scene). Below, `render` applies to an
+HTML scene only when the film is made as an MP4; otherwise the HTML scene is
+checked with `check` and `stills`. After the edits, run `html` again.
 
 - Narration, a Speaker cell, a voice settings cell, a speaker's row or `voice:` changed: `script
   --scene ID`, voice it with `media:voiceover`, `voice --scene ID`, then

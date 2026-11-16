@@ -77,6 +77,14 @@ class TestFilterGraph(unittest.TestCase):
         with self.assertRaises(mix.AssembleError):
             mix.parse_loudnorm("no json here")
 
+    def test_silent_mix_skips_normalisation(self) -> None:
+        """mix.build_filter_graph second pass with a measured loudness of -inf (a film where no scene has sound)
+        passes the audio through with no loudnorm. Guards assembling a silent film."""
+        silent = mix.Loudness("-inf", "-inf", "0.00", "-70.00", "inf")
+        graph = mix.build_filter_graph([2.0, 3.0], None, silent)
+        self.assertNotIn("loudnorm", graph)
+        self.assertIn(",anull,", graph)
+
 
 class TestCaption(unittest.TestCase):
 

@@ -17,6 +17,12 @@ class TestPlay(unittest.TestCase):
             ["open", "-a", "VLC", "film.mp4", "music.mp3"],
         ])
 
+    def test_html_in_default_browser(self) -> None:
+        """cli.play_commands opens film.html with a bare `open` (the default browser) on macOS, not in play.app.
+        Guards `play` on the HTML film."""
+        self.assertEqual(cli.play_commands([Path("film.html"), Path("a.png")], "Darwin"),
+                         [["open", "-a", "Preview", "a.png"], ["open", "film.html"]])
+
     def test_one_command_per_application_used(self) -> None:
         """cli.play_commands gives no command for an application with no files. Guards `open -a` being run
         without files."""

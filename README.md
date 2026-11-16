@@ -5,7 +5,7 @@ A Claude Code marketplace, `pcingola-skills`, of Agent Skills grouped into the p
 | Plugin | Skills | Depends on |
 | --- | --- | --- |
 | docs | pptx, revealjs-slideshow | brand, setup |
-| media | html-animation, image-gen, infographic, music, pptx-author, short-video, video-effects, voiceover | ai, brand, docs, setup |
+| media | image-gen, infographic, music, pptx-author, short-video, video-effects, voiceover | ai, brand, docs, setup |
 | dev | plan, skill-author | setup |
 | brand | brand, style | setup |
 | ai | classify, second-opinion | setup |
@@ -42,7 +42,7 @@ The CLI tools need `uv` on `PATH`. uv builds each skill's environment on first u
 
 ## Uninstall
 
-`claude plugin uninstall` deletes the plugin's data directory unless `--keep-data` is passed. That directory holds the plugin's environments. The media data directory also holds the voiceover weights, the cloned voices, the image-gen and music environments (with torch and diffusers when `config.yaml` has a `diffusers` provider), and html-animation's pinned JavaScript libraries and headless Chromium.
+`claude plugin uninstall` deletes the plugin's data directory unless `--keep-data` is passed. That directory holds the plugin's environments. The media data directory also holds the voiceover weights, the cloned voices, and the image-gen and music environments (with torch and diffusers when `config.yaml` has a `diffusers` provider).
 
 The settings file `config.yaml` and the weights of local `diffusers` models (Hugging Face cache, `HF_HOME`, default `~/.cache/huggingface`) are outside every plugin data directory, so an uninstall keeps them.
 

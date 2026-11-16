@@ -114,8 +114,9 @@ class TestBackgroundVideo(unittest.TestCase):
             self.assertIn("tpad", errors[0])
 
     def test_scaffold_carries_the_video_forward(self) -> None:
-        """scenes.scaffold copies the previous version's background video into the next version. Guards a re-
-        scaffold losing the scene's background video."""
+        """scenes.scaffold copies the previous version's background video, and every file and subdirectory the
+        author added (fonts/), into the next version, and leaves generated ones (stills/) behind
+        (references/scenes.md, "Procedure"). Guards a re-scaffold losing the scene's background video or fonts."""
         with tempfile.TemporaryDirectory() as tmp:
             project, node_dir = Path(tmp, "p"), Path(tmp, "node")
             voice = project / "voice" / "s" / "v1"
@@ -128,8 +129,14 @@ class TestBackgroundVideo(unittest.TestCase):
             first = scenes.scaffold(project, scene, node_dir)
             self.assertFalse((first / scenes.BACKGROUND_VIDEO).exists())
             (first / scenes.BACKGROUND_VIDEO).write_bytes(b"clip")
+            (first / "fonts").mkdir()
+            (first / "fonts" / "Barlow.ttf").write_bytes(b"font")
+            (first / "stills").mkdir()
+            (first / "stills" / "at_000.000.png").write_bytes(b"png")
             second = scenes.scaffold(project, scene, node_dir)
             self.assertEqual((second / scenes.BACKGROUND_VIDEO).read_bytes(), b"clip")
+            self.assertEqual((second / "fonts" / "Barlow.ttf").read_bytes(), b"font")
+            self.assertFalse((second / "stills").exists())
 
 
 def _project(tmp: str) -> tuple[Path, Path]:
@@ -212,3 +219,42 @@ class TestNodeReady(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEstimate(unittest.TestCase):
+
+    SCENE = {"id": "s", "brief": "A bar chart grows.", "narration": ["Sales grew fast.", "Then they fell back."],
+             "beats": ["bar", "fall"]}
+
+    def test_scaffold_from_the_words(self) -> None:
+        """scenes.scaffold with estimate times a narrated scene from its words at length.words_per_second (2.5)
+        without a voice version: timing.json holds `estimated`, the words follow one another, brief.md says the
+        narration is not recorded, the version has no voice_version, render refuses it and status gives a render
+        reason; a silent scene is refused. A plain scaffold after the voice is timed from the recording. Guards a
+        drawn scene's first page built before the storyboard is voiced."""
+        from short_video_tool import status
+        with tempfile.TemporaryDirectory() as tmp:
+            project, node_dir = _project(tmp)
+            shutil.rmtree(project / "voice")
+            out = scenes.scaffold(project, self.SCENE, node_dir, estimate=True)
+            timing = json.loads((out / "timing.json").read_text(encoding="utf-8"))
+            self.assertEqual(timing["estimated"], 2.5)
+            self.assertEqual(timing["duration"], 2.8)
+            self.assertEqual([s["start"] for s in timing["sentences"]], [0.0, 1.2])
+            self.assertEqual(timing["sentences"][1]["words"][0], {"text": "Then", "start": 1.2, "end": 1.6})
+            self.assertIn("2.5 words per second", (out / "timing.js").read_text(encoding="utf-8"))
+            self.assertIn("not recorded", (out / "brief.md").read_text(encoding="utf-8"))
+            self.assertFalse((out / "voice_version").exists())
+            with self.assertRaisesRegex(scenes.SceneError, "estimate"):
+                scenes.render(project, self.SCENE, node_dir)
+            self.assertTrue(any("estimate" in r for r in status.render_reasons(project, self.SCENE)))
+            with self.assertRaisesRegex(scenes.SceneError, "narrated"):
+                scenes.scaffold(project, {"id": "s", "brief": "b", "length": 3}, node_dir, estimate=True)
+            voice = project / "voice" / "s" / "v1"
+            voice.mkdir(parents=True)
+            (voice / "timing.json").write_text(json.dumps(TIMING), encoding="utf-8")
+            (voice / "meta.json").write_text("{}", encoding="utf-8")
+            second = scenes.scaffold(project, self.SCENE, node_dir)
+            self.assertNotIn("estimated", json.loads((second / "timing.json").read_text(encoding="utf-8")))
+            self.assertEqual((second / "voice_version").read_text().strip(), "v1")
+            self.assertFalse(any("estimate" in r for r in status.render_reasons(project, self.SCENE)))

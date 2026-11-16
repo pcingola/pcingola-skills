@@ -3,7 +3,8 @@
 stdout carries one JSON object per line to the mod (`ready`, `request`, `stop`); stderr is a log.
 Requests are accepted only with a `Host` of this server, and POSTs only without an `Origin` (the mod) or with this
 server's own origin (the page), so another web page in the browser can neither read project files through a
-rebound host name nor send requests.
+rebound host name nor send requests. The sandboxed scene player (origin `null`) may only GET files under
+`/scene/<token>/`, with a token random per server run that only /api/project gives out.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from typing import Callable
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .catalogue import read_catalogue
+from .comments import CommentState, CommentStore
 from .deck import ASSEMBLY, slide_images, versions_of
 from .models import read_models
 from .paths import (IMAGE_SUFFIXES, HttpError, decode_data_url, inside, log, png_size, positive, read_json,
@@ -33,10 +35,11 @@ from .trash import move_to_trash
 from .projects import (AUTONOMY, NAME_MAX, KIND_BY_ID, KINDS, PROJECT_FILE, PROJECT_LOCK, create_phone, create_project,
                        files_of, is_deck, kind_named, list_projects, name_untitled, prepare_root, project_details,
                        project_dirs, project_path, subdir, update_project)
+from .scene_page import PAGE, PLAYER, PREFIX, ROUTE, scene_file, with_player
 from .validate import check_request
-from .video import (PHONE_LENGTH, PHONE_SHAPE, SOURCE_SUFFIXES, STORYBOARD, check_film, check_storyboard, default_film,
-                    film_of, is_video, next_picture, read_storyboard, refuse_markdown, scene_images, scene_named,
-                    storyboard_mtime, writes_pictures)
+from .video import (COMMENTS, PHONE_LENGTH, PHONE_SHAPE, REF_VIDEO_MAX, SOURCE_SUFFIXES, STORYBOARD, VIDEO_SUFFIXES,
+                    check_film, check_storyboard, default_film, film_of, is_html_film, is_video, next_picture, page_of_scene, picture_file, read_storyboard,
+                    refuse_markdown, scene_images, scene_named, storyboard_mtime, writes_pictures)
 
 PAGE_DIR = Path(__file__).resolve().parents[1] / "page"
 HEARTBEAT_TIMEOUT = 20.0
@@ -46,7 +49,7 @@ MAX_BODY = 64 * 1024 * 1024
 # Events kept for pages that connect later, and how many: a request's log has an event per turn, subagent, tool
 # call start and end, ask, answer and text block, so a long session sends thousands.
 HISTORY_KINDS = ("request", "agent", "note", "text", "turn-start", "turn-end", "agent-start", "tool", "tool-end",
-                 "ask", "answer", "stopped", "ended")
+                 "ask", "answer", "stopped", "ended", "done")
 HISTORY_MAX = 20000
 # Seconds a request no `state` has named stays pending (the mod may send a `state` before it reads the request; a
 # `state` it could not send while the server counted as down never names one that ran meanwhile).
@@ -64,6 +67,8 @@ CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".json": "application/json",
     ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
     ".wav": "audio/wav",
     ".mp3": "audio/mpeg",
     ".m4a": "audio/mp4",
@@ -73,7 +78,17 @@ CONTENT_TYPES = {
     ".txt": "text/plain; charset=utf-8",
     ".md": "text/plain; charset=utf-8",
     ".pdf": "application/pdf",
+    ".gif": "image/gif",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
 }
+# Headers of a file of a scene version: served as its own type only, in a sandbox that runs scripts. The sandboxed
+# page has an opaque origin, so its CORS-mode loads (@font-face, three.js textures) need
+# `access-control-allow-origin: *`; the token in the URL keeps other sites from naming the files.
+SCENE_HEADERS = {"x-content-type-options": "nosniff", "content-security-policy": "sandbox allow-scripts",
+                 "access-control-allow-origin": "*"}
 # A Range header of one byte range.
 RANGE = re.compile(r"^bytes=(\d*)-(\d*)$")
 COPY_CHUNK = 1 << 20
@@ -159,13 +174,20 @@ class Studio:
         self.httpd: ThreadingHTTPServer | None = None
         # Where deleted projects go; None: the user's Trash (trash.trash_dir).
         self.trash_root: Path | None = None
+        # The comments of mark-scene requests (comments/<scene>/comments.json).
+        self.comments = CommentStore(self.root)
 
     # Events
 
     def broadcast(self, event: dict) -> None:
         """Send an event to every page. The session's events (HISTORY_KINDS, the last HISTORY_MAX), the last
         `state` and the open `ask` are kept for pages that connect later; the update and the sending hold one lock,
-        so a connecting page gets each event once."""
+        so a connecting page gets each event once. `done` (the mod: the request's turn ended with the agent's answer)
+        and `stopped` (the user stopped it) set the state of its comment in comments.json."""
+        if event.get("kind") == "done":
+            self.comments.mark(event.get("id"), CommentState.DONE)
+        elif event.get("kind") == "stopped":
+            self.comments.mark(event.get("id"), CommentState.STOPPED)
         with self.lock:
             kind = event.get("kind")
             if kind in HISTORY_KINDS:
@@ -344,12 +366,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not self.own_host():
                 raise HttpError(403, "unknown host")
-            if self.headers.get("sec-fetch-site", "same-origin") not in ("same-origin", "none"):
+            # The sandboxed scene page has an opaque origin, so its own files load as `cross-site`; only a path with
+            # this run's token is one of them.
+            if url.path.startswith(ROUTE) and not url.path.startswith(PREFIX):
+                raise HttpError(404, "no such scene file")
+            scene = self.command in ("GET", "HEAD") and url.path.startswith(PREFIX)
+            if not scene and self.headers.get("sec-fetch-site", "same-origin") not in ("same-origin", "none"):
                 raise HttpError(403, "cross-site request")
             if self.command == "POST" and not self.own_origin():
                 raise HttpError(403, "cross-origin request")
             if self.command == "GET" and url.path.startswith("/static/"):
                 return self.static(url.path[len("/static/"):])
+            if scene:
+                return self.scene(url.path)
             route = routes.get(url.path)
             if route is None:
                 raise HttpError(404, f"no {url.path}")
@@ -379,6 +408,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/request": self.post_request,
             "/api/stop": self.post_stop,
             "/api/marked": self.post_marked,
+            "/api/scene-marked": self.post_scene_marked,
             "/api/refs": self.post_refs,
             "/api/new": self.post_new,
             "/api/autonomy": self.post_autonomy,
@@ -406,6 +436,14 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(404, f"no page file {rel}")
         self.reply(200, target.read_bytes(), content_type(target))
 
+    def scene(self, raw: str) -> None:
+        """A file of a scene or world version; index.html with the scene player inlined."""
+        path = scene_file(self.studio.root, raw)
+        if path.name == PAGE:
+            player = (self.studio.page_dir / PLAYER).read_bytes()
+            return self.reply(200, with_player(path.read_bytes(), player), content_type(path), SCENE_HEADERS)
+        self.send_ranged(path, SCENE_HEADERS)
+
     def get_config(self, q: dict) -> None:
         self.reply_json(200, {
             "root": str(self.studio.root),
@@ -422,17 +460,27 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(403, "not a file of the projects root or the catalogue")
         if not p.is_file():
             raise HttpError(404, f"no file {p}")
-        headers = {"x-content-type-options": "nosniff", "content-security-policy": "sandbox", "accept-ranges": "bytes"}
+        # An HTML film runs its player's scripts, in a sandbox without Studio's origin.
+        film = len(p.parents) > 3 and is_video(p.parents[3]) and is_html_film(p.parents[3], p)
+        headers = {"x-content-type-options": "nosniff",
+                   "content-security-policy": "sandbox allow-scripts" if film else "sandbox"}
         if q.get("download") == "1":
             headers["content-disposition"] = f'attachment; filename="{safe_name(p.name, "file")}"'
-        size = p.stat().st_size
+        self.send_ranged(p, headers)
+
+    def send_ranged(self, path: Path, headers: dict[str, str]) -> None:
+        """`path` with `accept-ranges: bytes`: whole (200), the one byte range of a Range header (206), or 416 for a
+        range outside the file. A browser seeks a media element only in a response that supports ranges."""
+        headers = {**headers, "accept-ranges": "bytes"}
+        size = path.stat().st_size
         rng = byte_range(self.headers.get("range"), size)
         if rng is False:
-            return self.reply(416, b"", content_type(p), {**headers, "content-range": f"bytes */{size}"})
+            return self.reply(416, b"", content_type(path), {**headers, "content-range": f"bytes */{size}"})
         if rng is None:
-            return self.send_file(200, p, 0, size, headers)
+            return self.send_file(200, path, 0, size, headers)
         first, last = rng
-        self.send_file(206, p, first, last - first + 1, {**headers, "content-range": f"bytes {first}-{last}/{size}"})
+        self.send_file(206, path, first, last - first + 1,
+                       {**headers, "content-range": f"bytes {first}-{last}/{size}"})
 
     def send_file(self, status: int, path: Path, start: int, length: int, headers: dict[str, str]) -> None:
         """`length` bytes of `path` from `start`, read in chunks."""
@@ -494,6 +542,8 @@ class Handler(BaseHTTPRequestHandler):
             name_untitled(Path(req["project"]), req["brief"])
             if action == "storyboard":
                 update_project(Path(req["project"]), lambda meta: meta.update(film=req["film"]))
+        elif action == "mark-scene":  # the comments directory, made before the request leaves
+            comments_dir = subdir(subdir(Path(req["project"]), COMMENTS), req["scene"])
         elif action == "phone":
             created = create_phone(Path(req["project"]), req["version"], req["time"], PHONE_SHAPE, PHONE_LENGTH)
             req["target"] = str(created)
@@ -504,6 +554,8 @@ class Handler(BaseHTTPRequestHandler):
             if created is not None:  # no agent will fill it, so the page does not list an empty project
                 shutil.rmtree(created, ignore_errors=True)
             raise HttpError(503, "the request could not be passed to Claude Code") from None
+        if action == "mark-scene":
+            self.studio.comments.append(comments_dir, req)
         self.studio.broadcast({"kind": "request", "request": req})
         answer = {"id": req["id"], "project": req["project"]}
         if "target" in req:
@@ -564,11 +616,12 @@ class Handler(BaseHTTPRequestHandler):
         return slide_images(project, body)
 
     def post_marked(self, q: dict) -> None:
-        body, project = self._body_project()
-        project = self._images_dir(body, project)
+        body, root = self._body_project()
+        project = self._images_dir(body, root)
         n = positive(body, "version")
-        image = project / f"v{n}.png"
-        if not image.is_file():
+        # A scene's version may be a still of its page, whose PNG is in the page version.
+        image = picture_file(root, project, n) if is_video(root) else project / f"v{n}.png"
+        if image is None or not image.is_file():
             raise HttpError(400, f"version {n} has no image in {project}")
         _, data = decode_data_url(body.get("png"), ("image/png",))
         mask = None
@@ -592,17 +645,40 @@ class Handler(BaseHTTPRequestHandler):
         write_atomic(mask_path, mask)
         self.reply_json(200, {"path": str(target), "mask": str(mask_path)})
 
+    def post_scene_marked(self, q: dict) -> None:
+        """Writes the marked still of a paused scene (the frame of the render of its latest page version `N` at scene
+        time `t`, with the mark) to `comments/<scene>/v<N>-t<t>-<k>.png`."""
+        body, project = self._body_video()
+        scene = scene_named(project, body)
+        n = positive(body, "version")
+        page = page_of_scene(project, scene)
+        if page is None or page["n"] != n or page["video"] is None:
+            raise HttpError(400, f"version {n} is not the latest page version of scene {scene} with a render")
+        t = body.get("t")
+        if not isinstance(t, (int, float)) or isinstance(t, bool) or not 0 <= t <= (page["duration"] or t):
+            raise HttpError(400, "t must be a time in seconds within the scene")
+        _, data = decode_data_url(body.get("png"), ("image/png",))
+        if png_size(data) is None:
+            raise HttpError(400, "the still is not a PNG")
+        target = write_new(subdir(subdir(project, COMMENTS), scene), f"v{n}-t{t:.2f}.png", data, numbered=True)
+        self.reply_json(200, {"path": str(target)})
+
     def post_refs(self, q: dict) -> None:
+        """Writes a reference picture to `refs/`; in a short-video project also a reference video (MP4, MOV, WebM)
+        of at most REF_VIDEO_MAX bytes."""
         body, project = self._body_project()
         name = body.get("name")
         if not isinstance(name, str):
             raise HttpError(400, "name must be a string")
-        mime, data = decode_data_url(body.get("data"), tuple(IMAGE_SUFFIXES))
+        types = {**IMAGE_SUFFIXES, **VIDEO_SUFFIXES} if is_video(project) else IMAGE_SUFFIXES
+        mime, data = decode_data_url(body.get("data"), tuple(types))
+        if mime in VIDEO_SUFFIXES and len(data) > REF_VIDEO_MAX:
+            raise HttpError(413, f"a reference video is at most {REF_VIDEO_MAX // (1024 * 1024)} MB")
         fname = safe_name(name)
         stem, suffix = os.path.splitext(fname)
-        if suffix.lower() not in IMAGE_SUFFIXES[mime]:
-            known = any(suffix.lower() in s for s in IMAGE_SUFFIXES.values())
-            fname = (stem if known else fname) + IMAGE_SUFFIXES[mime][0]
+        if suffix.lower() not in types[mime]:
+            known = any(suffix.lower() in s for s in types.values())
+            fname = (stem if known else fname) + types[mime][0]
         target = write_new(subdir(project, "refs"), fname, data)
         self.reply_json(200, {"path": str(target)})
 

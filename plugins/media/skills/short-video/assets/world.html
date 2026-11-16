@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=__WIDTH__, height=__HEIGHT__" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden; background: #0b1320; }
+  #root { position: relative; width: __WIDTH__px; height: __HEIGHT__px; overflow: hidden;
+          font-family: Inter, "Helvetica Neue", Arial, sans-serif; color: #fff; }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* One world for several consecutive scenes: a place the camera and the light
+     travel through without a cut (a placeholder; restyle it to match the film). */
+  #bg-fill { background: radial-gradient(ellipse at 30% 20%, #1f3a5f 0%, #0b1320 70%); }
+  /* The world is drawn inside #anchored, the full-frame layer the camera moves. */
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="__SCENE_ID__" data-start="0" data-duration="__DURATION__"
+     data-full-length data-width="__WIDTH__" data-height="__HEIGHT__" data-fps="__FPS__">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="__DURATION__" data-full-length
+       data-track-index="0"></div>
+  <div id="anchored" class="bg">
+    <!-- the world's elements here -->
+  </div>
+  <!-- overlays fixed to the frame here -->
+</div>
+<script>
+  // Times come from timing.js, in world time. Every helper names the scene first,
+  // its id as a string literal:
+  // ST(id) / STE(id) = start / end of a scene,
+  // S(id, n) / SE(id, n) = start / end of sentence n of that scene,
+  // W(id, n, "word", k) / WE(id, n, "word", k) = start / end of the k-th "word".
+  // A silent scene (Length:) has no sentences: key its tweens to ST and STE.
+  // The camera keeps moving across scene boundaries; a cut between scenes is
+  // what a world exists to avoid.
+  const tl = gsap.timeline({ paused: true });
+  // Example, the camera travels to the next part of the world during scene id:
+  // tl.to("#anchored", { xPercent: -30, duration: STE(id) - ST(id), ease: "sine.inOut" }, ST(id));
+  window.__timelines = window.__timelines || {};
+  window.__timelines["__SCENE_ID__"] = tl;
+</script>
+</body>
+</html>

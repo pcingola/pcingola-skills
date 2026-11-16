@@ -10,6 +10,7 @@ Without music the film carries the voice only.
 from __future__ import annotations
 
 import json
+import math
 import re
 import tempfile
 from dataclasses import dataclass
@@ -44,12 +45,19 @@ class Loudness:
     input_thresh: str
     target_offset: str
 
+    @property
+    def silent(self) -> bool:
+        """The mix has no sound (`input_i` is `-inf`): the second pass cannot normalise it."""
+        return not math.isfinite(float(self.input_i))
+
 
 def loudnorm_filter(measured: Loudness | None) -> str:
     m = _m()
     base = f"loudnorm=I={num(m['loudness_i'])}:TP={num(m['loudness_tp'])}:LRA={num(m['loudness_lra'])}"
     if measured is None:
         return base + ":print_format=json"
+    if measured.silent:
+        return "anull"  # a silent mix stays silent; loudnorm refuses measured_I=-inf
     return (
         f"{base}:measured_I={measured.input_i}:measured_TP={measured.input_tp}"
         f":measured_LRA={measured.input_lra}:measured_thresh={measured.input_thresh}"
@@ -184,7 +192,7 @@ def mix(scene_files: list[Path], music_file: Path | None, out: Path, music_db: f
             "measured_input_i": measured.input_i}
 
 
-def _music(project: Path, music_version: str | None) -> tuple[Path | None, Path | None]:
+def music_source(project: Path, music_version: str | None) -> tuple[Path | None, Path | None]:
     """(version dir, file) of the music `assemble` uses; (None, None) for a voice-only film."""
     spec = settings.get()["music"]
     if not (music_version or spec.get("file")):
@@ -205,7 +213,7 @@ def sources(project: Path, data: dict, music_version: str | None = None) -> list
         voice = state.read_meta(sdir).get("voice_version") if sdir is not None else None
         if voice:
             files.append(state.voice_root(project, s["id"]) / voice / "narration.wav")
-    mfile = _music(project, music_version)[1]
+    mfile = music_source(project, music_version)[1]
     return files + ([mfile] if mfile else [])
 
 
@@ -242,7 +250,7 @@ def assemble(project: Path, data: dict, music_version: str | None = None,
         raise AssembleError("no rendered version of scene(s): " + ", ".join(unrendered)
                             + "; run `render` first (a clip scene: `clip`)")
 
-    mdir, mfile = _music(project, music_version)
+    mdir, mfile = music_source(project, music_version)
 
     entries, files = [], []
     for s in storyboard.scenes(data):

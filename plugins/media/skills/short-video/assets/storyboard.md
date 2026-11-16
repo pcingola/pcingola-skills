@@ -13,9 +13,19 @@
   point arriving with a drawn element tied to it.
 
   A scene picks its engine with `Engine:`: html (the default, a HyperFrames
-  page), manim (a Manim animation for mathematics and plots) or video (a
+  page), manim (a Manim animation for mathematics and plots), video (a
   video model animates the scene's Image from its Brief; Image and Brief
-  are required).
+  are required), presenter (the person in the scene's Image, a portrait,
+  speaks the narration; only when the user asks for a talking presenter) or
+  clip (a video imported with `clip`, such as a morph between two images;
+  without a table it is silent and lasts its clip).
+
+  An HTML scene without a template may have `Length: <seconds>` and no
+  table: it is silent and lasts that long. A silent film uses such scenes
+  for its title and end cards, since the title and end templates need a
+  narration table. Consecutive HTML scenes without Image or Template may
+  share `World: <name>`: one page, rendered once and cut into one clip per
+  scene, with no cut between them.
 
   Every scene moves the whole time: each On screen cell of a scene
   says what moves or changes during its sentence, and its Brief says how

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<script src="three.min.js"></script>
+<script src="kit/camera.js"></script>
+<script src="kit/glow.js"></script>
+<script src="kit/labels3d.js"></script>
+<script src="kit/shadow.js"></script>
+<script src="kit/tiltshift.js"></script>
+<style>
+  :root {
+    --bg: #e4ebe9;          /* sky and fog */
+    --ground: #d9dcd3;      /* pavement */
+    --road: #c4c8c2;
+    --building: #eeece6;
+    --hero: #ffffff;        /* the hero object's body */
+    --hero-trim: #096669;   /* its pad and frame */
+    --accent: #fba200;      /* the glowing bands */
+    --label-bg: #fbfbfb;
+    --text: #111111;
+    --font: "Barlow", Inter, "Helvetica Neue", Arial, sans-serif;
+    --font-num: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: var(--font); color: var(--text); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: var(--bg); }
+  #gl { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+  #pin { position: absolute; left: 0; top: 0; opacity: 0; }
+  #pin .box { background: var(--label-bg); padding: 16px 26px 18px; border-radius: 8px; border-top: 6px solid var(--accent);
+              box-shadow: 0 10px 30px rgba(0,0,0,0.18); }
+  #pin .name { font-size: 36px; font-weight: 600; }
+  #pin .val { font-family: var(--font-num); font-size: 64px; font-weight: 700; line-height: 1; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="street_hero" data-start="0" data-duration="8"
+     data-full-length data-width="1920" data-height="1080" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="8" data-full-length data-track-index="0"></div>
+  <div id="anchored" class="bg">
+    <canvas id="gl" width="1920" height="1080"></canvas>
+    <div id="pin"><div class="box"><div class="name">Fernhill</div><div class="val">Empty at 8:15</div></div></div>
+  </div>
+  <!-- overlays fixed to the frame here -->
+</div>
+<script>
+  // Street-level hero object. The camera sits at eye height, looks across the object at an oblique angle, and
+  // pushes in slowly while drifting sideways; depth blur softens the street behind it. One clock tween drives draw(t).
+  const D = 8, FW = 1920, FH = 1080;
+  const css = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const C = (k) => new THREE.Color(css(k));
+  let seed = 11;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("gl"), antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(FW, FH, false);
+  const scene = new THREE.Scene();
+  scene.background = C("--bg");
+  scene.fog = new THREE.Fog(C("--bg"), 14, 45);
+  const camera = new THREE.PerspectiveCamera(38, FW / FH, 0.1, 80);
+  const light = Kit.lights(scene, renderer, { sky: 0xffffff, ground: 0xa8a294, fill: 0.7, intensity: 0.75,
+    elevation: 34, azimuth: 35, extent: 5, radius: 6, mapSize: 2048 });
+  const lam = (k) => new THREE.MeshLambertMaterial({ color: C(k) });
+
+  // Street: pavement, a road strip, building blocks behind.
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 120).rotateX(-Math.PI / 2), lam("--ground"));
+  ground.receiveShadow = true;
+  scene.add(ground);
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(120, 5).rotateX(-Math.PI / 2), lam("--road"));
+  road.position.set(0, 0.004, -6);
+  road.receiveShadow = true;
+  scene.add(road);
+  for (let i = -8; i <= 8; i++) {
+    const h = 2 + rand() * 5, w = 2.2 + rand() * 1.2;
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 3), lam("--building"));
+    b.position.set(i * 3.4, h / 2, -12 - rand() * 2);
+    Kit.shadows(b, true, true);
+    scene.add(b);
+  }
+
+  // The hero: a dock platform, a row of bollards with glowing bands, a sign on a pole.
+  const hero = new THREE.Group();
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 0.06, 64), lam("--hero-trim"));
+  pad.position.y = 0.03;
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(2.55, 2.55, 0.04, 64), lam("--hero"));
+  rim.position.y = 0.02;
+  hero.add(rim, pad);
+  const bands = [];
+  for (let i = 0; i < 6; i++) {
+    const x = -1.5 + i * 0.6;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.9, 24), lam("--hero"));
+    post.position.set(x, 0.48, 0.2);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.096, 0.096, 0.08, 24),
+      new THREE.MeshBasicMaterial({ color: C("--accent") }));
+    band.position.set(x, 0.76, 0.2);
+    const halo = Kit.glow({ color: C("--accent"), size: 0.7, position: [x, 0.76, 0.2] });
+    bands.push(halo);
+    hero.add(post, band, halo);
+  }
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.4, 16), lam("--hero"));
+  pole.position.set(1.9, 1.2, -0.6);
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.06), lam("--hero-trim"));
+  sign.position.set(1.9, 2.2, -0.56);
+  hero.add(pole, sign);
+  Kit.shadows(hero, true, true);
+  hero.traverse((o) => { if (o.isSprite) o.castShadow = false; });
+  scene.add(hero);
+
+  // Camera: low (pitch 4 to 7 degrees), 30 degrees off the row's axis, a slow push with a lateral drift.
+  const cam = Kit.camera.path([
+    { t: 0, tx: 0, ty: 0.7, tz: 0, d: 8.2, pitch: 7, yaw: 32, fov: 38 },
+    { t: 8, tx: -0.3, ty: 0.65, tz: 0.1, d: 6.0, pitch: 4.5, yaw: 22, ease: "sineInOut" }
+  ]);
+  const post = Kit.tiltShift(renderer, { tilt: 0, dof: 0.9, focus: 7, range: 10, vignette: 0.4 });
+
+  const pin = document.getElementById("pin");
+  function draw(t) {
+    cam.apply(camera, t);
+    post.set({ focus: camera.position.distanceTo(hero.position) });
+    bands.forEach((b, i) => { b.material.opacity = Kit.pulse(t, 1.5, 0.35, 1, i * 0.08); });
+    Kit.anchor(pin, camera, [-1.6, 1.25, 0.2], { width: FW, height: FH, anchor: [1, 1], offset: [-10, -10] });
+    post.render(scene, camera);
+  }
+
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: D, duration: D, ease: "none", onUpdate: () => draw(clock.t) }, 0);
+  tl.fromTo("#pin", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" }, 0.8);
+  draw(0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["street_hero"] = tl;
+</script>
+</body>
+</html>

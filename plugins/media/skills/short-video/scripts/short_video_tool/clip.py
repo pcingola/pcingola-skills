@@ -23,7 +23,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from . import config, media, settings, state, storyboard, versions
-from .scenes import SceneError, brief_head, brief_sentences, finish
+from .scenes import SceneError, brief_head, brief_sentences, finish, silent_audio
 
 ENGINE = storyboard.CLIP
 CLIP_STEM = "clip"
@@ -78,12 +78,6 @@ def video_filter(clip_seconds: float, scene_seconds: float) -> str:
     if hold > 0:
         vf.append(f"tpad=stop_mode=clone:stop_duration={media.num(hold)}")
     return ",".join(vf)
-
-
-def silent_audio() -> list[str]:
-    """FFmpeg input arguments of silence in the films' sample rate and channel layout."""
-    sr = settings.get()["mix"]["sample_rate"]
-    return ["-f", "lavfi", "-i", f"anullsrc=r={sr}:cl={settings.encode()['channel_layout']}"]
 
 
 def sha256(path: Path) -> str:

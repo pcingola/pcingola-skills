@@ -19,6 +19,13 @@ Commands:
                with the video model); mux its narration; contact sheet.
     clip       Import a video made elsewhere as the next version of a clip scene.
     frames     Extract full-size frames of a rendered scene at given times.
+    stills     PNGs of an HTML scene's page at given times, from the page in the
+               render browser (no render needed); a marked copy, a contact sheet.
+    check      Run the static checks of `render` on an HTML scene's page.
+    html       Write the film as one standalone film.html that plays every
+               scene's latest page: film/html/v<N>/film.html.
+    refs       Extract frames, contact sheets, palette and motion curve of
+               reference videos and images into refs/.
     music      Import music.file (made with the music skill) as the next
                music version.
     length     Print the narration length and the music length to request.
@@ -49,6 +56,10 @@ scene with `Engine: presenter` (`presenter_scene`) copy its picture, and
 and presenter tasks (`ai_models.routes`). A scene with
 `Engine: clip` has no page: `clip` imports its video (`clip`), and
 `scaffold` and `render` refuse it.
+
+`scaffold` and `render` of a scene with `World:` act on its whole world
+(`world`): `scaffold` writes the next `worlds/<name>/v<N>/`, `render` renders
+it once and writes the next version of every scene of the world.
 """
 
 from __future__ import annotations
@@ -64,7 +75,7 @@ from pathlib import Path
 from ai_models import routes
 
 from . import audiocheck, brand, clip, config, credit, media, mix, music, narration, scenes, settings, speakers, state
-from . import manim_scene, presenter_scene, status, storyboard, video_scene
+from . import film_html, manim_scene, pages, presenter_scene, refs, status, stills, storyboard, video_scene, world
 
 # The tasks of video and presenter scenes; `routes` prints their rows.
 ROUTE_TASKS = ("video", "presenter")
@@ -159,7 +170,9 @@ def _cmd_init(args: argparse.Namespace) -> int:
     title = project.name.replace("-", " ").replace("_", " ").capitalize()
     name, make = ((storyboard.JSON_FILE, storyboard.json_template) if args.json
                   else (storyboard.MD_FILE, storyboard.template))
-    (project / name).write_text(make(title, [p.name for p in pngs]), encoding="utf-8")
+    if args.length is not None:
+        settings.set_length(project / settings.PROJECT_FILE, args.length)
+    (project / name).write_text(make(title, [p.name for p in pngs], args.silent, args.length), encoding="utf-8")
     _load(project)
     print(project)
     print(f"  {settings.PROJECT_FILE}")
@@ -213,7 +226,7 @@ def _targets(data: dict, ids: list[str] | None, pending) -> list[dict]:
         named = [_scene(data, sid) for sid in ids]
         silent = [s["id"] for s in named if not storyboard.narrated(s)]
         if silent:
-            config.error(f"scene(s) {', '.join(silent)} have no narration table (a silent clip scene)")
+            config.error(f"scene(s) {', '.join(silent)} have no narration table (a silent scene)")
         return named
     return [s for s in storyboard.scenes(data) if storyboard.narrated(s) and pending(s)]
 
@@ -328,20 +341,54 @@ def _render_presenter(project: Path, scene: dict, seed: int | None, model: str |
     return 0
 
 
+def _scaffold_world(project: Path, data: dict, name: str, refresh: bool) -> int:
+    _ensure_node()
+    try:
+        out = world.scaffold(project, data, name, config.NODE_DIR, refresh)
+    except scenes.SceneError as e:
+        config.error(str(e))
+    print(out / "index.html")
+    print(out / "brief.md")
+    return 0
+
+
+def _render_world(project: Path, data: dict, name: str) -> int:
+    _ensure_node()
+    try:
+        outs = world.render(project, data, name, config.NODE_DIR)
+    except (scenes.SceneError, media.ToolError) as e:
+        config.error(str(e))
+    for out in outs:
+        print(out)
+        print(out.parent / "contact.png")
+    return 0
+
+
 def _cmd_scaffold(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
     if storyboard.is_clip(_scene(data, args.scene)):
         config.error(clip.refuse(args.scene, "scaffold"))
+    scene = _scene(data, args.scene)
+    if getattr(args, "refresh", False) and (manim_scene.is_manim(scene) or storyboard.is_video(scene)
+                                            or storyboard.is_presenter(scene)):
+        config.error("--refresh applies to HTML scenes and worlds only")
     if manim_scene.is_manim(_scene(data, args.scene)):
         return _scaffold_manim(project, _scene(data, args.scene))
     if storyboard.is_video(_scene(data, args.scene)):
         return _scaffold_video(project, _scene(data, args.scene))
     if storyboard.is_presenter(_scene(data, args.scene)):
         return _scaffold_presenter(project, _scene(data, args.scene))
+    refresh = getattr(args, "refresh", False)
+    estimate = getattr(args, "estimate", False)
+    if estimate and (manim_scene.is_manim(scene) or storyboard.is_video(scene) or storyboard.is_presenter(scene)
+                     or storyboard.world_name(scene)):
+        config.error("--estimate applies to an HTML scene without a world only")
+    if name := storyboard.world_name(_scene(data, args.scene)):
+        return _scaffold_world(project, data, name, refresh)
     _ensure_node()
     try:
-        out = scenes.scaffold(project, _scene(data, args.scene), config.NODE_DIR)
+        out = scenes.scaffold(project, _scene(data, args.scene), config.NODE_DIR, refresh, estimate)
     except scenes.SceneError as e:
         config.error(str(e))
     print(out / "index.html")
@@ -364,6 +411,8 @@ def _cmd_render(args: argparse.Namespace) -> int:
         return _render_presenter(project, _scene(data, args.scene), seed, model)
     if seed is not None or model is not None:
         config.error("--seed and --model apply only to a video or presenter scene (`Engine: video`, `Engine: presenter`)")
+    if name := storyboard.world_name(_scene(data, args.scene)):
+        return _render_world(project, data, name)
     # A scene switched from manim to html has a latest version with no page.
     latest = state.latest_scene(project, args.scene)
     if latest is not None and not (latest / "index.html").is_file():
@@ -401,6 +450,71 @@ def _cmd_frames(args: argparse.Namespace) -> int:
             print(p)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
+    return 0
+
+
+def _cmd_stills(args: argparse.Namespace) -> int:
+    project = _project(args)
+    try:
+        times = stills.parse_times(args.at)
+    except ValueError:
+        config.error("--at takes comma-separated seconds, e.g. 3.2,7.5")
+    try:
+        mark = stills.Mark.parse(args.mark) if args.mark else None
+    except ValueError as e:
+        config.error(str(e))
+    data = _valid(project)
+    scene = _scene(data, args.scene)
+    try:
+        page = pages.scene_page(project, data, scene, args.version)
+    except scenes.SceneError as e:
+        config.error(str(e))
+    _ensure_node()
+    try:
+        for p in stills.stills(scene["id"], page, times, config.NODE_DIR, mark, args.sheet):
+            print(p)
+    except (scenes.SceneError, media.ToolError) as e:
+        config.error(str(e))
+    return 0
+
+
+def _cmd_check(args: argparse.Namespace) -> int:
+    project = _project(args)
+    data = _valid(project)
+    _ensure_node()
+    try:
+        index, warnings = pages.check(project, data, _scene(data, args.scene), config.NODE_DIR)
+    except (scenes.SceneError, media.ToolError) as e:
+        config.error(str(e))
+    for line in warnings:
+        print(line)
+    print(f"ok: {index}")
+    return 0
+
+
+def _cmd_html(args: argparse.Namespace) -> int:
+    project = _project(args)
+    data = _valid(project)
+    _ensure_node()
+    try:
+        out, warnings = film_html.write(project, data, config.NODE_DIR,
+                                        Path(args.out).expanduser() if args.out else None, args.music)
+    except (scenes.SceneError, mix.AssembleError, media.ToolError, FileNotFoundError) as e:
+        config.error(str(e))
+    for w in warnings:
+        config.warn(w)
+    print(out)
+    print(f"  {out.stat().st_size / 1e6:.1f} MB")
+    return 0
+
+
+def _cmd_refs(args: argparse.Namespace) -> int:
+    out = Path(args.out).expanduser() if args.out else _project(args) / "refs"
+    try:
+        index = refs.run(Path(args.src), out, args.fps)
+    except (refs.RefsError, media.ToolError) as e:
+        config.error(str(e))
+    print("\n".join(refs.summary(index, out, Path(args.src))))
     return 0
 
 
@@ -513,18 +627,23 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+# An HTML page (film.html) opens in the default browser.
+PAGE_SUFFIXES = {".html", ".htm"}
 
 
 def play_commands(paths: list[Path], system: str | None = None) -> list[list[str]]:
     """The commands for `play` under the OS `system` (`platform.system()`, default this one). On macOS
-    one `open -a` command per application: images in `play.image_app`, other files in `play.app`. Elsewhere
+    one `open -a` command per application: images in `play.image_app`, other files in `play.app`; HTML pages
+    in the default browser (`open`). Elsewhere
     one `xdg-open` command per file, which opens it in the desktop's default application."""
     if (system or platform.system()) != "Darwin":
         return [["xdg-open", str(p)] for p in paths]
     s = settings.get()["play"]
     images = [str(p) for p in paths if p.suffix.lower() in IMAGE_SUFFIXES]
-    media = [str(p) for p in paths if p.suffix.lower() not in IMAGE_SUFFIXES]
-    return [["open", "-a", app, *files] for app, files in ((s["image_app"], images), (s["app"], media)) if files]
+    pages = [str(p) for p in paths if p.suffix.lower() in PAGE_SUFFIXES]
+    media = [str(p) for p in paths if p.suffix.lower() not in IMAGE_SUFFIXES | PAGE_SUFFIXES]
+    return ([["open", "-a", app, *files] for app, files in ((s["image_app"], images), (s["app"], media)) if files]
+            + ([["open", *pages]] if pages else []))
 
 
 def _cmd_play(args: argparse.Namespace) -> int:
@@ -569,6 +688,10 @@ def _build_parser() -> argparse.ArgumentParser:
     c.add_argument("--images", help="Folder with the PNGs, one image scene each (optional)")
     c.add_argument("--source", help="Topic or source text file, copied to sources/")
     c.add_argument("--json", action="store_true", help="Write storyboard.json instead of storyboard.md")
+    c.add_argument("--silent", action="store_true", help="A film without narration: silent scenes with `Length:`, "
+                   "no title or end template scenes")
+    c.add_argument("--length", type=float, metavar="S", help="The film length the user asks for, in seconds: sets "
+                   "length.min_seconds and max_seconds in settings.yaml (and, with --silent, the scene Lengths)")
     c.set_defaults(func=_cmd_init)
 
     c = project_cmd("validate", "Validate the storyboard and estimate length")
@@ -591,6 +714,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     c = project_cmd("scaffold", "Create the next version of a scene's composition")
     c.add_argument("--scene", required=True)
+    c.add_argument("--refresh", action="store_true",
+                   help="HTML scene or world: rewrite brief.md and the timing files of the latest version in place "
+                        "(refused once it is rendered); its page and added files stay")
+    c.add_argument("--estimate", action="store_true",
+                   help="Narrated HTML scene without a world: time the page from the narration's words at "
+                        "length.words_per_second instead of a recording (no voice needed; `render` refuses the "
+                        "version until a scaffold after `voice`)")
     c.set_defaults(func=_cmd_scaffold)
 
     c = project_cmd("render", "Render the latest version of a scene")
@@ -610,6 +740,32 @@ def _build_parser() -> argparse.ArgumentParser:
     c.add_argument("--at", required=True, help="Comma-separated times in seconds, e.g. 3.2,7.5")
     c.add_argument("--version", help="Scene version, e.g. v2 (default: latest rendered)")
     c.set_defaults(func=_cmd_frames)
+
+    c = project_cmd("stills", "PNGs of an HTML scene's page at given times, without a render")
+    c.add_argument("--scene", required=True)
+    c.add_argument("--at", required=True, help="Comma-separated scene times in seconds, e.g. 1.2,3.4")
+    c.add_argument("--version", help="Scene version, e.g. v2 (a world scene: world version; default: latest page)")
+    c.add_argument("--mark", metavar="X,Y[,W,H]", help="Also write a copy with a red point or rectangle, in frame "
+                   "pixels")
+    c.add_argument("--sheet", action="store_true", help="Also write one contact sheet of the stills")
+    c.set_defaults(func=_cmd_stills)
+
+    c = project_cmd("check", "Run the static checks of render (helpers, timeline, determinism, lint) on a scene's "
+                    "latest page")
+    c.add_argument("--scene", required=True)
+    c.set_defaults(func=_cmd_check)
+
+    c = project_cmd("html", "Write the film as one standalone film.html playing every scene's latest page")
+    c.add_argument("--out", metavar="PATH", help="Write film.html here instead of film/html/v<N>/")
+    c.add_argument("--music", help="Music version, e.g. v2 (default: as `assemble`)")
+    c.set_defaults(func=_cmd_html)
+
+    c = project_cmd("refs", "Frames, contact sheets, palette and motion curve of a reference video or images, "
+                    "into the project's refs/")
+    c.add_argument("--src", required=True, metavar="FILE_OR_DIR", help="Reference video, image, or a folder of them")
+    c.add_argument("--fps", type=float, default=refs.FPS, help="Frames per second to extract (default: 4)")
+    c.add_argument("--out", metavar="DIR", help="Output folder (default: <project>/refs)")
+    c.set_defaults(func=_cmd_refs)
 
     c = project_cmd("music", "Import music.file as the next music version")
     c.set_defaults(func=_cmd_music)

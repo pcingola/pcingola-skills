@@ -48,17 +48,52 @@ does not pass the motion check.
 - One GSAP timeline, created `paused: true`, registered as
   `window.__timelines["<scene id>"]`. The renderer seeks it frame by frame, so
   everything is a function of time: no `setTimeout`, no
-  `requestAnimationFrame`, no `Math.random()` at play time, no CSS
+  `requestAnimationFrame`, no `Math.random()`, no CSS
   transitions or animations, no audio elements, and no video element other
   than the background video below.
+- `render` checks the page and the scripts you add for these rules before
+  lint and fails with `<file>:<line>` for each break: timers
+  (`setTimeout`, `setInterval`, `requestAnimationFrame`,
+  `setAnimationLoop`, `THREE.Clock`), wall clocks (`Date.now`,
+  `new Date()` without arguments, `performance.now`; a literal date such
+  as `new Date(2020, 0, 1)` passes), `Math.random` and the library random
+  functions,
+  d3 `.transition()`, endless repeats (`repeat: -1`, `loop: true`),
+  `autoplay: true` or `.play()`, `new Audio`, `<audio>`, a `<video>`
+  without `data-start`, CSS `animation`, `transition` or `@keyframes`,
+  `fetch`, `XMLHttpRequest`, `import()`, remote URLs, and a declaration
+  that shadows a timing helper (`const W = 1920`; name the frame size `FW`,
+  `FH`). Comments and
+  strings are not checked; the library, kit, `timing.js` and `card.js`
+  files are trusted. Values that look random come from a seeded generator:
+  `const rand = (s => () => (s = (s * 16807) % 2147483647) / 2147483647)(7);`.
 - Overlays (labels, arrows, boxes, SVG diagrams) are absolutely positioned
   elements inside `#root`, after the `<!-- overlays here -->` comment,
   starting hidden (`opacity: 0`) and shown by the timeline. An overlay fixed
   to a point of the picture goes inside `#anchored`, the full-frame layer
   that moves with the camera.
-- Local files only: `gsap.min.js`, `timing.js`, `background.png` (scenes
+- Local files only: the library files below, `timing.js`, `background.png` (scenes
   with `Image:`), `background.mp4` and files you add to the version directory. No network fonts or CDNs.
 - The page has no audio; `render` muxes the narration.
+
+### Library files
+
+A page loads libraries with a `<script src>` of the bare file name, from the version directory:
+
+| File | Library | Global |
+|---|---|---|
+| `gsap.min.js` | GSAP 3.13.0 | `gsap` |
+| `anime.umd.min.js` | anime.js 4.5.0 | `anime` |
+| `motion.js` | Motion 14.14.0 | `Motion` |
+| `d3.min.js` | d3 7.9.0 | `d3` |
+| `three.min.js` | three.js 0.159.0 | `THREE` |
+
+- `setup` installs them at pinned versions and checks each file's SHA-256.
+- `scaffold` copies `gsap.min.js` always, and each other file the page names in a `<script src>`.
+- `render` copies a named file the version directory lacks, so a `<script src="three.min.js">` added after `scaffold` works.
+- A `<script src="kit/<file>.js">` loads a kit script (`tiltshift.js`, `glow.js`, `shadow.js`, `ribbon.js`, `labels3d.js`, `camera.js`, all on three.js). `scaffold` and `render` copy it into the version's `kit/` the same way.
+- A three.js page: `references/three.md`.
+- `render` refuses a page that HyperFrames cannot seek: it needs `window.__timelines["<root id>"] = tl` or a `window.addEventListener("hf-seek", ...)`. A root with `data-no-timeline` (anime.js, Motion) needs the `hf-seek` listener (`references/anime.md`, `references/motion.md`).
 
 ## Timing helpers (`timing.js`)
 
@@ -69,6 +104,9 @@ W(n, "word")    // start of the first "word" in sentence n
 W(n, "word", 2) // start of its second occurrence
 WE(n, "word")   // end of that word
 ```
+
+`S`, `SE`, `W`, `WE`, `ST` and `STE` are globals of `timing.js`: a page
+declares no variable or function of these names.
 
 Words match case-insensitively with punctuation removed (`W(2, "spike")`
 matches `spike,`); hyphenated and numeric words as written (`W(1, "1995")`,
@@ -97,9 +135,68 @@ from the drawing: parts built with the sentence that names them, flows
 along its lines, values counting, and camera moves on `#anchored` to the part
 each sentence names. The motion check is the same.
 
+Charts and diagrams follow `references/motion-rules.md`.
+
 `render` refuses a page other than a template's that uses `background.png`
 when the version has none: a scene whose `Image:` was removed keeps its
 previous page, so redraw it without the picture.
+
+## Silent scenes and shared worlds
+
+A silent HTML scene (`Length:` in the storyboard) has no voice version.
+`scaffold` writes `timing.json` as `{"duration": <Length>, "sentences": []}`
+and no `voice_version`; the page keys its tweens to plain seconds, and
+`render` gives the scene a silent sound track. The rules of "Movement" apply
+over its whole length.
+
+Scenes with the same `World:` share one page in `worlds/<name>/v<N>/`, a
+HyperFrames project like a scene version. `scaffold --scene ID` and
+`render --scene ID` on any scene of the world act on the whole world.
+
+- Times. Scene k lasts its narration (or its `Length:`). Scene starts are
+  whole frames: the first starts at frame 0, and each next one at the frame
+  nearest to the sum of the lengths before it. The world lasts the sum.
+  `world.json` holds the world, its length, the fps and, per scene, its
+  `start`, `duration`, `frames` (`[first, end)`) and `voice_version`.
+- Page. The root has `data-composition-id="<name>"` and the timeline is
+  `window.__timelines["<name>"]`. A new world starts from
+  `assets/world.html` (drawn, like `scene-drawn.html`); a later version
+  starts from the previous version's page, and the files and
+  subdirectories you added to the version directory (videos, pictures,
+  `fonts/`) are copied with it; `stills/` is not.
+- Helpers. `timing.js` holds every scene's times in world time, and every
+  helper names the scene first, its id as a string literal: `ST("id")` and
+  `STE("id")` (scene start and end), `S("id", n)`, `SE("id", n)`,
+  `W("id", n, "word", k)`, `WE("id", n, "word", k)`. `render` checks these
+  calls as it checks a scene page; a call without the scene id is an error.
+  Key every tween to these helpers, so a new voice version moves the tweens
+  with their scene.
+- `brief.md` lists each scene's Brief, start and end, and its sentences and
+  word times in world time.
+- Camera and light. The camera and the light keep moving across scene
+  boundaries. A cut between two scenes of a world is what the world exists
+  to avoid; a scene that needs a cut belongs in no world.
+- Render. `render` checks, lints and renders the world page once to
+  `worlds/<name>/v<N>/silent.mp4`, then writes the next version of every
+  scene of the world: `scenes/<id>/v<M>/` with its cut `silent.mp4`,
+  `scene.mp4` (with the scene's narration, or silence), `contact.png`,
+  `world.json` (`world`, `version`, `start`, `duration`) and `meta.json`
+  (with `world`, `world_version`, `start`). It prints every `scene.mp4`.
+  There is no partial render: an edit for one scene renders the whole world.
+- Per scene. `stills --scene ID --at t` opens the world page at
+  `start + t` and names the stills by scene and scene time (`t` = world time
+  minus the scene's `start`); the motion check and the Brief check use them.
+  `frames`, `contact.png` and `assemble` work on the rendered cuts; `assemble`
+  joins them frame to frame. The HTML film plays the world page once, across
+  its scenes.
+- Edits. An edit for one scene goes into the world page. `scaffold` a new
+  world version first when a voice or a Brief changed; otherwise edit the
+  latest world version and take `stills` again. A Brief edited before the
+  world is rendered needs no new version: `scaffold --scene ID --refresh`
+  rewrites `brief.md`, the timing files and `world.json` of the latest
+  version in place and keeps its page and added files (a scene page: its
+  `brief.md`, timing files, `voice_version` and `card.js`). A fix found in the Brief check
+  edits the page, not the Brief (see "Procedure").
 
 ## Placing overlays on the image
 
@@ -230,8 +327,24 @@ user asks for in `lessons.md`.
 - Label text at least 36 px on screen in every frame, after any camera zoom:
   a label inside `#anchored` scales with the camera, so size it for the
   smallest scale of its sentence, and scale it up or remove it where a
-  pull-back would shrink it below 36 px. Labels sit inside a 60 px margin
-  from the frame edge.
+  pull-back would shrink it below 36 px. Secondary text may be smaller, down
+  to 24 px on screen: chart axis ticks, axis and unit titles, category
+  labels on an axis, source lines, and a muted line under a title or
+  label. A kicker above a title is a label. Labels sit
+  inside a 60 px margin from the frame edge.
+- Fonts: every font a page names is a font file in the version
+  directory's `fonts/`, under the SIL Open Font License (every Google Font
+  family is), loaded with `@font-face { font-family: "<name>"; src:
+  url("fonts/<file>"); }`. The renderer would also find an installed font,
+  but film.html plays on other machines, and `html` embeds only `fonts/`
+  files: it warns for each font stack whose first family no local
+  `@font-face` embeds. Pick an OFL family installed here (`fc-list : family
+  file | grep -i "<family>"` gives its files) and copy the files of the
+  weights the page uses into `fonts/`; a family that is not installed and is
+  OFL may be downloaded into `fonts/`. A non-OFL installed font (such as the
+  URW Nimbus fonts) is replaced by an OFL family. `scaffold` carries
+  `fonts/` into the next version. End every font stack with a generic
+  family (`sans-serif`, `serif`, `monospace`).
 - Colours, for labels and cards alike: text is dark on a light ground and
   light on a dark ground, in the film's palette. A label carries its own
   solid or semi-opaque ground, so its text contrasts with that ground, not
@@ -295,22 +408,81 @@ directory, and place it as the folder's `guidelines.md` says. A scene renders
 from its own folder and `scaffold` does not copy the logo, so copy it into
 each new version after `scaffold`.
 
+## Stills and the HTML film
+
+An HTML scene needs no render to be seen. `stills --scene ID --at t1,t2,...`
+loads the latest page version (a world scene: the latest world version) in
+the render browser with `hyperframes snapshot` and seeks it as `render`
+does: the GSAP timeline `window.__timelines["<root id>"]`, or the `hf-seek`
+event of an anime.js, Motion or three.js page. Each still is the frame
+`render` would write at that time. They go to the version's `stills/`, as
+`at_<t>.png` (a world scene: `<scene>_at_<t>.png`). `--sheet` adds one
+labelled contact sheet of the stills (`sheet.png`, a world scene:
+`<scene>_sheet.png`), which is the view for the motion check and the Brief
+check. `--mark x,y` or `--mark x,y,w,h` adds a copy `..._mark.png` with a
+red point or rectangle in frame pixels, to show a comment's place.
+`--version vN` takes the stills from an older version (a world scene: world
+version). `frames` stays for rendered scenes (`scene.mp4`). Each still is
+the second of two seeks (the first 5 ms later), because on a hardware GPU
+the first three.js draw that links new shader programs can come out black.
+A WebGL page's still with half or more of its pixels exactly #000000 is
+taken again once, and `stills` fails when it stays so: draw a black ground
+as a near-black such as `#050505`.
+
+`check --scene ID` runs the checks of `render` (timing helpers, a seekable
+timeline, the determinism rules, `<video>` lengths, the background image,
+`hyperframes lint`) on the latest page and renders nothing.
+
+`html` writes the film as one file, `film/html/v<N>/film.html`: each page
+with every local script inlined and every local picture, video and font as
+a data URI, so the file plays from file:// on another machine; it warns for
+each font a page names without a `fonts/` file (Fonts, under Style). A scene's
+narration and the music play in step. The player seeks each page through
+the same timeline or `hf-seek` listener, so a page that passes `stills` plays
+in the film. `film.html#t=12.5` opens the film paused at 12.5 s (film
+time), for a check of the film at a given moment. Each page carries its own libraries, so the file grows by the
+size of each library per page (GSAP 72 KB, three.js 668 KB) plus its
+pictures as base64 (4/3 of their size); `html` prints the file size.
+
+`render` (an MP4 per scene) runs only when the user asks for a video file.
+
 ## Procedure
 
 1. `short-video.sh scaffold -p <project> --scene ID`.
 2. Edit `index.html`: overlays in the body, the timeline in the script.
-3. `short-video.sh render -p <project> --scene ID`. Fix any error it reports
-   and render again; this re-renders the same version. A fix found while looking at frames (layout, size, timing,
-   movement) edits the page and runs `render` again on the same version;
+3. `short-video.sh check -p <project> --scene ID`. Fix any error it reports
+   and check again. A fix found while looking at stills (layout, size, timing,
+   movement) edits the page of the same version and takes the stills again;
    `scaffold` makes a new version only when the storyboard, the image or
-   the voice changed.
+   the voice changed, and `scaffold --refresh` takes a storyboard change
+   into an unrendered version in place.
 4. Motion check, over the whole scene (start, middle, end and any hold):
-   `frames --at 0,1,2,...`, one per second. Put each frame next to the
+   `stills --sheet --at 0,1,2,...`, one per second. Put each frame next to the
    frame 2 s later. The pair fails when neither the view nor any object
    moved by about a tenth of the frame width (192 px at 1920) and no new
    element appeared; a slow drift of a few pixels fails. The last 0.5 s is
    excepted. The contact sheet's thumbnails are too small to judge it.
-   Where a pair fails, add movement and render again until every pair
+   Where a pair fails, add movement and take the stills again until every pair
    passes; the scene is not done before.
-5. Look at `contact.png` for layout and at `frames --at <t>` for each beat's
-   key word, to see that the text is legible.
+5. Look at the sheet for layout and at `stills --at <t>` for each beat's
+   key word, at full size, to see that the text is legible.
+6. Brief check, together with steps 4 and 5: `stills --sheet --at` the times the
+   Brief names (each camera keyframe, each element's entrance, each light
+   change) and compare each still with the Brief and its On screen cell:
+   palette, fonts, light, framing, and each element present and in place.
+   Fix what differs in the page of the same version and take the stills
+   again. The Brief changes only when its intent was wrong; then change it in
+   `storyboard.md` and run `scaffold --refresh` (or `scaffold` for a new
+   version once the page is rendered).
+7. Stills critic, after steps 4 to 6: a fresh critic scores the stills
+   against the reference stills (or the Brief) as
+   `references/scene-critic.md` says, and the agent fixes its top five
+   fixes and every defect. Steps 4 to 7 are one round. The scene is done
+   when every critic score is 7 or more, no defect remains and the motion
+   check passes; after round 5 the agent reports what stays below 7. Your
+   own look at the stills is not the stopping rule.
+
+The kit (`assets/kit/README.md`) and the techniques in
+`assets/techniques/<name>/` are starting points to use, change or ignore.
+A scene they do not cover is written from scratch. A new technique that
+worked goes into the project's `lessons.md` as one dated line.

@@ -87,9 +87,9 @@ class TestStoryboard(unittest.TestCase):
         template, an empty table and an unknown engine. Guards a silent scene being allowed only for clips."""
         no_table = "# T\n\nTopic: x.\n\n## a\nImage: a.png\nBrief: b.\n"
         self.assertIn("scene 'a': missing the `| Narration | On screen |` table "
-                      "(only an `Engine: clip` scene may have none)", _error(no_table))
+                      "(only an `Engine: clip` scene or a scene with `Length:` may have none)", _error(no_table))
         manim = "# T\n\nTopic: x.\n\n## a\nEngine: manim\nBrief: b.\n"
-        self.assertIn("only an `Engine: clip` scene may have none", _error(manim))
+        self.assertIn("only an `Engine: clip` scene or a scene with `Length:` may have none", _error(manim))
         template = "# T\n\nTopic: x.\n\n## title\nTemplate: title\nEngine: clip\n"
         msg = _error(template)
         self.assertIn("a template scene takes no `Engine:`", msg)

@@ -1526,6 +1526,6 @@ const Studio = (() => {
     feed, error, openDetail, refreshDetail, closeDetail, releaseDetail, progress, autonomy, runStatus, started, stopRequest,
     stopped: id => S.stopped.has(id),
     nice, versionStyle, brandSelect, stylePicker, readDataUrl, dropZone, upload, copyToRefs, IMAGE_TYPES, refThumb, versionRows, editActions,
-    describeEdit, catalogue: () => catalogue, config: () => S.config, models: () => models, withModel,
+    describeEdit, catalogue: () => catalogue, config: () => S.config, models: () => models, withModel, drawMarks,
   };
 })();

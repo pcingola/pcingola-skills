@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 from .deck import ASSEMBLY, SLIDE_DIR, VERSION_JSON, deck_details, slide_count, versions_of
-from .paths import HttpError, inside, read_json, resolve_abs, slug, write_atomic
-from .video import default_film, film_count, film_of, films_of, is_video, sources_of, video_details, watched_subdirs
+from .paths import IMAGE_SUFFIXES, HttpError, inside, read_json, resolve_abs, slug, write_atomic
+from .video import VIDEO_SUFFIXES, default_film, film_count, film_of, films_of, is_video, sources_of, video_details, watched_subdirs
 
 
 class Kind(NamedTuple):
@@ -175,9 +175,11 @@ def project_details(root: Path, value: object) -> dict:
     meta = read_json(p / PROJECT_FILE)
     if meta is None:
         raise HttpError(404, f"no readable {PROJECT_FILE} in {p}")
+    # The pictures and videos of refs/; the files media:short-video's `refs` writes there (refs.json) are not refs.
+    kinds = {x for s in (*IMAGE_SUFFIXES.values(), *VIDEO_SUFFIXES.values()) for x in s}
     refs_dir = p / "refs"
-    refs = sorted(str(f) for f in refs_dir.iterdir() if f.is_file() and not f.name.startswith(".")) \
-        if refs_dir.is_dir() else []
+    refs = sorted(str(f) for f in refs_dir.iterdir() if f.is_file() and not f.name.startswith(".")
+                  and f.suffix.lower() in kinds) if refs_dir.is_dir() else []
     if is_deck(p):
         return {"dir": str(p), "project": meta, "versions": [], "refs": refs, "deck": deck_details(p, meta)}
     if is_video(p):

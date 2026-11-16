@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<script src="three.min.js"></script>
+<script src="kit/camera.js"></script>
+<script src="kit/ribbon.js"></script>
+<script src="kit/glow.js"></script>
+<script src="kit/labels3d.js"></script>
+<script src="kit/shadow.js"></script>
+<script src="kit/tiltshift.js"></script>
+<style>
+  :root {
+    --bg: #dfe7e5;          /* sky and fog */
+    --ground: #e9ece4;
+    --block: #f4f3ee;       /* building tops */
+    --park: #cfdcc4;
+    --route: #0f8ca0;       /* routes and riders */
+    --accent: #f9a200;      /* the station the scene is about */
+    --label-bg: #fbfbfb;
+    --text: #111111;
+    --muted: #5b6670;
+    --font: "Barlow", Inter, "Helvetica Neue", Arial, sans-serif;
+    --font-num: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: var(--font); color: var(--text); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: var(--bg); }
+  #gl { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+  .label { position: absolute; left: 0; top: 0; opacity: 0; display: flex; flex-direction: column; align-items: center; }
+  .label .box { background: var(--label-bg); padding: 10px 18px 12px; border-radius: 6px;
+                box-shadow: 0 6px 18px rgba(0,0,0,0.16); text-align: left; }
+  .label .name { font-size: 36px; font-weight: 600; }
+  .label .val { font-family: var(--font-num); font-size: 40px; font-weight: 700; line-height: 1; margin-top: 4px; }
+  .label .leader { width: 2px; height: 46px; background: var(--text); opacity: 0.7; }
+  #title { position: absolute; left: 96px; top: 80px; font-size: 46px; font-weight: 600; opacity: 0; }
+  #title small { display: block; font-size: 28px; font-weight: 400; color: var(--muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="aerial_routes" data-start="0" data-duration="8"
+     data-full-length data-width="1920" data-height="1080" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="8" data-full-length data-track-index="0"></div>
+  <div id="anchored" class="bg">
+    <canvas id="gl" width="1920" height="1080"></canvas>
+    <div id="lbl-a" class="label"><div class="box"><div class="name">Fernhill</div><div class="val" id="lbl-a-val">21 bikes</div></div><div class="leader"></div></div>
+    <div id="lbl-b" class="label"><div class="box"><div class="name">Canal Street</div><div class="val">6 bikes</div></div><div class="leader"></div></div>
+  </div>
+  <!-- overlays fixed to the frame here -->
+  <div id="title">Morning rush<small>Riders leave the hill for downtown</small></div>
+</div>
+<script>
+  // Aerial map with routes. One clock tween drives the 3D world: draw(t) poses the camera from a keyframe path,
+  // draws the ribbons by arc length, pulses the glows and pins the labels, so every seeked frame is exact.
+  const D = 8, FW = 1920, FH = 1080;
+  const css = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const C = (k) => new THREE.Color(css(k));
+
+  // Deterministic generator: the city is the same on every load (no Math.random).
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+  const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("gl"), antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(FW, FH, false);
+  const scene = new THREE.Scene();
+  scene.background = C("--bg");
+  scene.fog = new THREE.Fog(C("--bg"), 28, 60);
+  const camera = new THREE.PerspectiveCamera(32, FW / FH, 0.5, 120);
+  Kit.lights(scene, renderer, { sky: 0xffffff, ground: 0xb8b2a4, fill: 0.75, intensity: 0.55, elevation: 48, azimuth: -35, extent: 16, radius: 4 });
+
+  // Ground, blocks on a street grid of pitch P, parks on a few blocks.
+  const P = 1.2, N = 10;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: C("--ground") }));
+  ground.receiveShadow = true;
+  scene.add(ground);
+  const boxes = [], parks = [];
+  for (let i = -N; i <= N; i++) for (let j = -N; j <= N; j++) {
+    if (rand() < 0.08) { parks.push([i * P, j * P]); continue; }
+    for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) {
+      const h = 0.15 + rand() * rand() * (Math.abs(i) + Math.abs(j) < 4 ? 2.2 : 0.7);
+      boxes.push([i * P + (a - 0.5) * 0.42, h, j * P + (b - 0.5) * 0.42]);
+    }
+  }
+  const city = new THREE.InstancedMesh(new THREE.BoxGeometry(0.36, 1, 0.36), new THREE.MeshLambertMaterial({ color: C("--block") }), boxes.length);
+  const m = new THREE.Matrix4();
+  boxes.forEach((b, k) => { m.makeScale(1, b[1], 1).setPosition(b[0], b[1] / 2, b[2]); city.setMatrixAt(k, m); });
+  Kit.shadows(city, true, true);
+  scene.add(city);
+  parks.forEach((p) => {
+    const g = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: C("--park") }));
+    g.position.set(p[0], 0.005, p[1]);
+    g.receiveShadow = true;
+    scene.add(g);
+  });
+
+  // Routes on the street centre lines (x or z = (k + 0.5) * P), from the hill station A to downtown.
+  const s = (k) => (k + 0.5) * P;
+  const A = [s(4), s(-4)], B = [s(-1), s(1)];
+  const routes = [
+    [A, [s(4), s(-1)], [s(0), s(-1)], [s(0), s(1)], B],
+    [A, [s(1), s(-4)], [s(1), s(0)], [s(-1), s(0)], B],
+    [A, [s(4), s(2)], [s(-1), s(2)], B],
+    [[s(5), s(-5)], [s(5), s(-2)], [s(2), s(-2)], [s(2), s(1)], B]
+  ].map((pts, i) => {
+    const mesh = Kit.ribbon(Kit.roundCorners(pts, 0.35), { width: 0.15, y: 0.02, color: C("--route"), opacity: 0.9, order: 2 + i, progress: 0 });
+    scene.add(mesh);
+    return { mesh, start: 1.6 + i * 0.45, len: 3.2 };
+  });
+  // A rider: a glow that rides the head of each ribbon.
+  routes.forEach((r) => { r.dot = Kit.glow({ color: C("--route"), size: 0.55 }); scene.add(r.dot); });
+  const ringA = Kit.glow({ color: C("--accent"), size: 1.6, position: [A[0], 0.08, A[1]] });
+  const ringB = Kit.glow({ color: C("--route"), size: 1.2, position: [B[0], 0.08, B[1]] });
+  scene.add(ringA, ringB);
+  [A, B].forEach((p, i) => {
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.06, 32), new THREE.MeshLambertMaterial({ color: i ? C("--route") : C("--accent") }));
+    disc.position.set(p[0], 0.03, p[1]);
+    scene.add(disc);
+  });
+
+  // Camera: a high, nearly top-down start that tilts and drifts toward the hill station.
+  const cam = Kit.camera.path([
+    { t: 0, tx: 0.6, ty: 0, tz: -0.6, d: 24, pitch: 74, yaw: 0 },
+    { t: 4.5, tx: 1.4, tz: -0.9, d: 18, pitch: 54, yaw: 10, ease: "sineInOut" },
+    { t: 8, tx: 1.9, tz: -1.3, d: 15.5, pitch: 47, yaw: 16, ease: "sineInOut" }
+  ]);
+  const post = Kit.tiltShift(renderer, { tilt: 1, band: [0.3, 0.72], edge: [1, 0.8], vignette: 0.5 });
+
+  const lblA = document.getElementById("lbl-a"), lblB = document.getElementById("lbl-b"), lblAVal = document.getElementById("lbl-a-val");
+  function draw(t) {
+    cam.apply(camera, t);
+    routes.forEach((r) => {
+      const u = Kit.ease.sineInOut(Math.max(0, Math.min(1, (t - r.start) / r.len)));
+      Kit.ribbonProgress(r.mesh, u);
+      const p = r.mesh.userData.sampler.at(u * r.mesh.userData.length);
+      r.dot.position.set(p.x, 0.12, p.z);
+      r.dot.material.opacity = u > 0 && u < 1 ? 1 : 0;
+    });
+    ringA.scale.setScalar(Kit.pulse(t, 1.5, 1.3, 1.9));
+    lblAVal.textContent = Math.round(21 - 10 * Math.max(0, Math.min(1, (t - 1.6) / 5))) + " bikes";
+    Kit.anchor(lblA, camera, [A[0], 0.1, A[1]], { width: FW, height: FH, anchor: [0.5, 1] });
+    Kit.anchor(lblB, camera, [B[0], 0.1, B[1]], { width: FW, height: FH, anchor: [0.5, 1] });
+    post.render(scene, camera);
+  }
+
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: D, duration: D, ease: "none", onUpdate: () => draw(clock.t) }, 0);
+  tl.fromTo("#title", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0.3);
+  tl.fromTo("#lbl-a", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, 1.0);
+  tl.fromTo("#lbl-b", { opacity: 0 }, { opacity: 1, duration: 0.4, ease: "power2.out" }, 1.4);
+  tl.to("#title", { opacity: 0, duration: 0.5, ease: "power1.in" }, 4.0);
+  draw(0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["aerial_routes"] = tl;
+</script>
+</body>
+</html>

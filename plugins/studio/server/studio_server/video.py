@@ -4,7 +4,8 @@ The storyboard is `storyboard.json` (the structure media:short-video parses `sto
 through `/api/storyboard`, checked here by the same structural rules media:short-video applies when it reads it. The
 agent writes `status.json` (each scene's state and the scene object it was computed on); the server compares the
 storyboard with it to show each scene's state, and reads the version directories media:short-video writes
-(`voice/<scene>/v<N>/`, `scenes/<scene>/v<N>/`, `music/v<N>/`, `film/v<N>/`) and the scene pictures in
+(`voice/<scene>/v<N>/`, `scenes/<scene>/v<N>/`, `worlds/<world>/v<N>/`, `music/v<N>/`, `film/v<N>/`,
+`film/html/v<N>/`) and the scene pictures in
 `images/<scene>/`. Nothing here runs or imports media:short-video.
 """
 
@@ -13,7 +14,10 @@ from __future__ import annotations
 import copy
 import os
 import re
+import secrets
+from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from plugin_settings import get
 
@@ -28,17 +32,30 @@ META = "meta.json"
 MANIFEST = "manifest.json"
 STUDIO_JSON = "studio.json"
 REVIEW_JSON = "review.json"
+WORLD_JSON = "world.json"
+COMMENTS = "comments"
+# The URL prefix of the /scene/ route: a random token per server run, so only a page that read /api/project can name
+# a scene file (the route answers cross-site requests, for the sandboxed scene page).
+SCENE_PREFIX = f"/scene/{secrets.token_urlsafe(16)}/"
 SCENE_ID = re.compile(r"^[a-z0-9_]+$")
 VERSION_DIR = re.compile(r"^v([1-9][0-9]*)$")
+FILM_HTML = "film.html"
+ROOT_TAG = re.compile(r"<[a-zA-Z][^>]*\bdata-composition-id\b[^>]*>")
+DATA_DURATION = re.compile(r"""\bdata-duration\s*=\s*["']([0-9]+(?:\.[0-9]+)?)["']""")
 SAMPLE_JSON = re.compile(r"^voice-([1-9][0-9]*)\.json$")
 SAMPLE_WAV = "narration.wav"
 SAMPLE_DIR = re.compile(r"^voice-[1-9][0-9]*$")
 PICTURE_FILE = re.compile(r"^v([1-9][0-9]*)\.(?:png|json)$")
+# A still of a drawn scene's page: the sidecar `images/<scene>/v<N>.json` names its page version (`page_version`,
+# a scene or world version directory) and the still `media:short-video`'s `stills` wrote in its `stills/`.
+PAGE_VERSION = re.compile(r"^(?:scenes|worlds)/[a-z0-9_]+/v[1-9][0-9]*$")
+STILL_NAME = re.compile(r"^(?:[a-z0-9_]+_)?at_[0-9]+(?:\.[0-9]+)?\.png$")
+VERSION_JSON = re.compile(r"^v([1-9][0-9]*)\.json$")
 
 # The storyboard structure, as media:short-video's storyboard check has it.
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
 SCENE_KEYS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
-              "voices")
+              "voices", "world", "length")
 VOICE_KEYS = ("model", "name", "speed", "style")
 # The voice field of an earlier version; `backend_model` maps its values, as media:short-video does.
 OLD_VOICE_KEY = "backend"
@@ -73,7 +90,7 @@ MUSIC_MODES = ("made", "own", "none")
 VOLUMES = ("quiet", "normal", "louder")
 SHAPES = ("16:9", "9:16")
 LENGTHS = (30, 60, 120, 180)
-FILM_KEYS = ("voice", "music", "shape", "length", "author", "brand", "review")
+FILM_KEYS = ("voice", "music", "shape", "length", "author", "brand", "review", "silent")
 FILM_DEFAULTS = {
     "voice": {"model": None, "name": None, "speed": 1.0, "style": None},
     "music": {"mode": "made", "brief": "", "volume": "normal", "version": None},
@@ -82,15 +99,20 @@ FILM_DEFAULTS = {
     "author": [],
     "brand": None,
     "review": True,
+    "silent": False,
 }
 PHONE_SHAPE = "9:16"
 PHONE_LENGTH = 60
 
 AUDIO_SUFFIXES = (".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg")
 SOURCE_SUFFIXES = (".pdf", ".txt", ".md", ".docx", ".pptx", ".xlsx", ".csv", ".html") + AUDIO_SUFFIXES
+# A reference video in refs/ of a short-video project, by type, and its largest size: the upload is a base64 data
+# URL inside a JSON body of at most 64 MiB.
+VIDEO_SUFFIXES = {"video/mp4": (".mp4",), "video/quicktime": (".mov",), "video/webm": (".webm",)}
+REF_VIDEO_MAX = 45 * 1024 * 1024
 
 # Requests that write pictures of one scene (named in `scene`), and requests that write pictures of many scenes.
-SCENE_PICTURE_ACTIONS = ("change", "variations", "other-styles")
+SCENE_PICTURE_ACTIONS = ("change", "variations", "other-styles", "use-still")
 FILM_PICTURE_ACTIONS = ("storyboard", "use-style", "style-samples", "add-scene")
 
 
@@ -182,7 +204,23 @@ def check_storyboard(data: object) -> list[str]:
     seen: set[str] = set()
     for i, s in enumerate(scenes):
         _check_scene(s, i, seen, speakers, err)
+    _check_worlds(scenes, err)
     return out
+
+
+def _check_worlds(scenes: list, err) -> None:
+    """The scenes of one world (`world`) follow each other in the storyboard."""
+    ended: set[str] = set()
+    previous = None
+    for s in scenes:
+        world = s.get("world") if isinstance(s, dict) else None
+        world = world if isinstance(world, str) else None
+        if world != previous and previous is not None:
+            ended.add(previous)
+        if world is not None and world in ended:
+            err(f"the scenes of world {world!r} must follow each other in the storyboard")
+            ended.discard(world)
+        previous = world
 
 
 def _check_scene(s: object, i: int, seen: set, speakers: dict, err) -> None:
@@ -201,10 +239,22 @@ def _check_scene(s: object, i: int, seen: set, speakers: dict, err) -> None:
     for k in s:
         if k not in SCENE_KEYS:
             err(f"{label}: unknown key `{k}`; allowed: {', '.join(SCENE_KEYS)}")
-    for k in ("template", "image", "brief", "engine", "preview"):
+    for k in ("template", "image", "brief", "engine", "preview", "world"):
         if k in s and not isinstance(s[k], str):
             err(f"{label}: `{k}` must be a string")
     engine, template = s.get("engine"), s.get("template")
+    html = template is None and engine in (None, "html")
+    if isinstance(s.get("world"), str):
+        if not SCENE_ID.match(s["world"]):
+            err(f"{label}: invalid world name {s['world']!r}: use lowercase letters, digits and _ only")
+        if template is not None or "image" in s or not html:
+            err(f"{label}: a world scene is an HTML scene without `template` or `image`")
+    length = s.get("length")
+    if "length" in s:
+        if not _number(length) or length <= 0:
+            err(f"{label}: `length` must be a positive number of seconds")
+        if not html or s.get("narration"):
+            err(f"{label}: only an HTML scene without narration has `length`")
     if engine is not None and engine not in ENGINES:
         err(f"{label}: `engine` must be one of {', '.join(ENGINES)}")
     if template is not None:
@@ -227,13 +277,14 @@ def _check_scene(s: object, i: int, seen: set, speakers: dict, err) -> None:
             err(f"{label}: `ambience` must be true or false")
         elif engine != "video" or template is not None:
             err(f"{label}: only a scene with `engine` video has `ambience` (the video model's sound track)")
-    silent = engine == "clip" and template is None
+    silent = (engine == "clip" and template is None) or (html and "length" in s)
     narration = s.get("narration", [] if silent else None)
     if not isinstance(narration, list) or not all(_text(x) for x in narration):
         err(f"{label}: `narration` must be a list of non-empty sentences")
         return
     if not narration and not silent:
-        err(f"{label}: missing sentences in `narration` (only a scene with `engine` clip may have none)")
+        err(f"{label}: missing sentences in `narration` (only a scene with `engine` clip or `length` may have "
+            "none)")
     n = len(narration)
     beats = s.get("beats", [] if silent else None)
     if not isinstance(beats, list) or len(beats) != n or not all(_text(x) for x in beats):
@@ -284,6 +335,80 @@ def has_picture(scene: dict) -> bool:
     """Whether a scene has a picture: it names an `image`, or it is a template scene (its picture is the
     background)."""
     return bool(scene.get("image")) or bool(scene.get("template"))
+
+
+def is_drawn(scene: dict) -> bool:
+    """Whether a scene is drawn in its page: an HTML scene (no template, `engine` absent or html) without `image`.
+    Its picture versions are stills of its page."""
+    return not scene.get("template") and scene.get("engine") in (None, "html") and not scene.get("image")
+
+
+def is_still(version: dict) -> bool:
+    """Whether a picture version is a still of a drawn scene's page: its sidecar names the page version
+    (`page_version`, relative to the project) it was taken from."""
+    return isinstance(version.get("page_version"), str)
+
+
+def still_image(project: Path, sidecar: dict) -> Path | None:
+    """The PNG a still's sidecar names: `<project>/<page_version>/stills/<still>`, a file reached without a symbolic
+    link; None when the sidecar is not a still's or the file is not there."""
+    page, still = sidecar.get("page_version"), sidecar.get("still")
+    if not (isinstance(page, str) and PAGE_VERSION.match(page) and isinstance(still, str) and STILL_NAME.match(still)):
+        return None
+    d = project
+    for part in [*page.split("/"), "stills"]:
+        d = d / part
+        if d.is_symlink():
+            return None
+    f = d / still
+    return f if f.is_file() and not f.is_symlink() else None
+
+
+def scene_pictures(project: Path, directory: Path) -> list[dict]:
+    """The picture versions of `images/<scene>/`, newest first: each `v<N>.png` with its sidecar (`versions_of`),
+    and each still of the scene's page, whose sidecar names a still that exists (`image` is that still)."""
+    pictures = versions_of(directory)
+    listed = {v["n"] for v in pictures}
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        names = []
+    for f in names:
+        m = VERSION_JSON.match(f)
+        if not m or int(m.group(1)) in listed:
+            continue
+        data = read_json(directory / f)
+        image = still_image(project, data) if isinstance(data, dict) else None
+        if image is not None:
+            pictures.append({**data, "n": int(m.group(1)), "image": str(image)})
+    return sorted(pictures, key=lambda v: v["n"], reverse=True)
+
+
+def key_scene(scenes: list[dict]) -> str | None:
+    """The key scene, on which style samples are made: the first scene with a picture that is not a template scene,
+    else the first drawn scene, else the first template scene; None when there is none."""
+    for test in (lambda sc: bool(sc.get("image")), is_drawn, lambda sc: bool(sc.get("template"))):
+        found = next((sc["id"] for sc in scenes if test(sc)), None)
+        if found is not None:
+            return found
+    return None
+
+
+def style_sample_versions(project: Path, scene: str) -> list[int]:
+    """The N of the stills of `images/<scene>/` that carry a `page_style` object: every style sample made on the
+    scene's page, newest first."""
+    return [v["n"] for v in scene_pictures(project, project / "images" / scene)
+            if is_still(v) and isinstance(v.get("page_style"), dict)]
+
+
+def picture_file(project: Path, directory: Path, n: int) -> Path | None:
+    """The PNG of picture version `n` of `images/<scene>/`: `v<n>.png`, else the still its sidecar names; None
+    when neither exists."""
+    png = directory / f"v{n}.png"
+    if png.is_file():
+        return png
+    data = read_json(directory / f"v{n}.json")
+    return still_image(project, data) if isinstance(data, dict) else None
 
 
 def scene_ids(project: Path) -> list[str]:
@@ -401,6 +526,8 @@ def check_film_keys(film: object, whole: bool) -> dict:
         raise _fail("brand must be a non-empty string or null")
     if "review" in film and not isinstance(film["review"], bool):
         raise _fail("review must be true or false")
+    if "silent" in film and not isinstance(film["silent"], bool):
+        raise _fail("silent must be true or false")
     return film
 
 
@@ -478,14 +605,180 @@ def recording_of(project: Path, scene: str) -> dict | None:
             "created": meta.get("created_at")}
 
 
+def scene_url(project: Path, page: Path) -> str:
+    """The `/scene/<token>/` URL of a file of a version directory of a short-video project."""
+    rel = page.relative_to(project.parent.parent)
+    return SCENE_PREFIX + "/".join(quote(part) for part in rel.parts)
+
+
+def page_of(project: Path, version: Path) -> tuple[Path | None, dict | None]:
+    """The page a scene render was made from and the render's world.json: its own `index.html`, or for a cut of a
+    world render `worlds/<world>/v<K>/index.html`; (None, world) when the page is not there."""
+    own = version / "index.html"
+    if own.is_file() and not own.is_symlink():
+        return own, None
+    world = read_json(version / WORLD_JSON)
+    if not isinstance(world, dict):
+        return None, None
+    name, k = world.get("world"), world.get("version")
+    k = _version_n(k) if isinstance(k, str) else k
+    if not (isinstance(name, str) and SCENE_ID.match(name) and isinstance(k, int) and not isinstance(k, bool)):
+        return None, world
+    d = _subdir(project, "worlds", name, f"v{k}")
+    page = d / "index.html" if d else None
+    return (page if page and page.is_file() and not page.is_symlink() else None), world
+
+
 def clip_of(project: Path, scene: str) -> dict | None:
+    """The newest complete render of a scene. `page` and `page_url`: the HTML page it was rendered from (null for
+    a scene of another engine), `start` the scene's start in that page (0, or its start in its world), `world` the
+    world's name or null, `narration` the recording it was rendered with or null."""
     d = _subdir(project, "scenes", scene)
     versions = _complete(d) if d else []
     if not versions:
         return None
     n, v, meta = versions[0]
+    page, world = page_of(project, v)
+    start = world.get("start") if world else 0
+    voice = meta.get("voice_version")
+    wav = project / "voice" / scene / voice / "narration.wav" if isinstance(voice, str) and VERSION_DIR.match(voice) \
+        else None
     return {"n": n, "path": str(v / "scene.mp4"), "contact": str(v / "contact.png"),
-            "duration": meta.get("duration"), "created": meta.get("rendered_at")}
+            "duration": meta.get("duration"), "created": meta.get("rendered_at"),
+            "page": str(page) if page else None, "page_url": scene_url(project, page) if page else None,
+            "start": start if _number(start) else 0, "world": world.get("world") if world else None,
+            "narration": str(wav) if wav is not None and wav.is_file() else None}
+
+
+def _root_duration(page: Path) -> float | None:
+    """`data-duration` of the page's root element (the one with `data-composition-id`), or None."""
+    try:
+        html = page.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    tag = ROOT_TAG.search(html)
+    m = DATA_DURATION.search(tag.group(0)) if tag else None
+    return float(m.group(1)) if m else None
+
+
+def _page_file(d: Path) -> Path | None:
+    page = d / "index.html"
+    return page if page.is_file() and not page.is_symlink() else None
+
+
+def _narration(project: Path, scene: str, voice: object) -> str | None:
+    """The narration.wav of voice version `voice` (`v<N>`) of `scene`, or None."""
+    if not (isinstance(voice, str) and VERSION_DIR.match(voice)):
+        return None
+    wav = project / "voice" / scene / voice / "narration.wav"
+    return str(wav) if wav.is_file() else None
+
+
+def _read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8").strip() if path.is_file() and not path.is_symlink() else None
+    except OSError:
+        return None
+
+
+def _file_time(path: Path) -> str:
+    """The modification time of `path`, ISO 8601 in local time."""
+    return datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(timespec="seconds")
+
+
+def page_scene(project: Path, scene: dict) -> dict | None:
+    """The latest page of an HTML scene, rendered or not, as the scene player plays it; None for a scene of another
+    engine or one with no page yet. A plain scene plays the latest `scenes/<id>/v<N>/` holding `index.html`; a world
+    scene the latest `worlds/<world>/v<K>/` holding `index.html` and a world.json that names the scene. `n` is that
+    version, `created` its index.html's time, `start` the scene's start in the page, `duration` its length
+    (meta.json of a render of the version, else the root's `data-duration`, else timing.json; for a world scene
+    world.json), `narration` the recording the page is timed to, and `video` the scene.mp4 rendered from this page
+    version, or null."""
+    sid = scene["id"]
+    if scene.get("engine", "html") != "html":
+        return None
+    world = scene.get("world")
+    if isinstance(world, str) and SCENE_ID.match(world):
+        d = _subdir(project, "worlds", world)
+        for k, v in _version_dirs(d) if d else []:
+            page = _page_file(v)
+            if page is None:
+                continue
+            plan = read_json(v / WORLD_JSON)
+            spans = plan.get("scenes") if isinstance(plan, dict) else None
+            span = next((s for s in spans if isinstance(s, dict) and s.get("id") == sid), None) \
+                if isinstance(spans, list) else None
+            if span is None or not _number(span.get("start")) or not _number(span.get("duration")):
+                return None
+            return {"n": k, "page": str(page), "page_url": scene_url(project, page), "created": _file_time(page),
+                    "start": span["start"],
+                    "duration": span["duration"], "world": world,
+                    "narration": _narration(project, sid, span.get("voice_version")),
+                    "video": _world_video(project, sid, world, v.name)}
+        return None
+    d = _subdir(project, "scenes", sid)
+    for n, v in _version_dirs(d) if d else []:
+        page = _page_file(v)
+        if page is None:
+            continue
+        meta = read_json(v / META)
+        meta = meta if isinstance(meta, dict) else None
+        timing = read_json(v / "timing.json")
+        duration = meta.get("duration") if meta else None
+        if not _number(duration):
+            duration = _root_duration(page)
+        if duration is None and isinstance(timing, dict) and _number(timing.get("duration")):
+            duration = timing["duration"]
+        mp4 = v / "scene.mp4"
+        return {"n": n, "page": str(page), "page_url": scene_url(project, page), "created": _file_time(page),
+                "start": 0, "duration": duration,
+                "world": None, "narration": _narration(project, sid, _read_text(v / "voice_version")),
+                "video": str(mp4) if meta and mp4.is_file() else None}
+    return None
+
+
+def page_of_scene(project: Path, scene_id: str) -> dict | None:
+    """`page_scene` of the storyboard's scene `scene_id`; None when the storyboard has no such scene."""
+    scene = next((s for s in scenes_of(read_storyboard(project)) if s["id"] == scene_id), None)
+    return page_scene(project, scene) if scene else None
+
+
+def _world_video(project: Path, scene: str, world: str, version: str) -> str | None:
+    """The scene.mp4 of the newest complete render of `scene` cut from world version `version`, or None."""
+    d = _subdir(project, "scenes", scene)
+    for _, v, meta in _complete(d) if d else []:
+        if meta.get("world") == world and meta.get("world_version") == version and (v / "scene.mp4").is_file():
+            return str(v / "scene.mp4")
+    return None
+
+
+def html_films_of(project: Path) -> list[dict]:
+    """The HTML films (`film/html/v<N>/film.html` with its manifest.json), newest first. `scenes`: per scene of the
+    manifest's segments in order, `{"id", "source"}` with the segment's `source` (the page version directory, or the
+    scene.mp4, relative to the project; null for a card); `changes` and `created` from the version's studio.json
+    (`created` the file's time without one)."""
+    d = _subdir(project, "film", "html")
+    out = []
+    for n, v, manifest in _complete(d, MANIFEST) if d else []:
+        path = v / FILM_HTML
+        if not path.is_file() or path.is_symlink():
+            continue
+        segments = manifest.get("segments")
+        segments = [s for s in segments if isinstance(s, dict)] if isinstance(segments, list) else []
+        ends = [s["start"] + s["duration"] for s in segments if _number(s.get("start")) and _number(s.get("duration"))]
+        scenes = [{"id": sid, "source": s.get("source") if isinstance(s.get("source"), str) else None}
+                  for s in segments if isinstance(s.get("scenes"), list) for sid in s["scenes"] if isinstance(sid, str)]
+        studio = _studio_json(v)
+        created = studio.get("created") if isinstance(studio.get("created"), str) else _file_time(path)
+        out.append({"n": n, "path": str(path), "duration": max(ends) if ends else None, "created": created,
+                    "scenes": scenes, "changes": studio.get("changes")})
+    return out
+
+
+def is_html_film(project: Path, path: Path) -> bool:
+    """`path` is the film.html of an HTML film version of the short-video project `project`."""
+    return path.name == FILM_HTML and VERSION_DIR.match(path.parent.name) is not None \
+        and path.parent.parent == project / "film" / "html"
 
 
 def music_of(project: Path) -> list[dict]:
@@ -602,18 +895,22 @@ def video_details(project: Path, meta: object) -> dict:
     for s in scenes_of(storyboard):
         sid = s["id"]
         d = _subdir(project, "images", sid)
-        pictures = versions_of(d) if d else []
+        pictures = scene_pictures(project, d) if d else []
         image = s.get("image")
         m = re.fullmatch(rf"{sid}/v([1-9][0-9]*)\.png", image) if isinstance(image, str) else None
         picture = int(m.group(1)) if m and int(m.group(1)) in [v["n"] for v in pictures] else None
+        # A drawn scene shows its newest still where a scene with a picture shows the picture it uses.
+        still = next((v["n"] for v in pictures if is_still(v)), None) if is_drawn(s) else None
         scenes.append({"id": sid, "state": scene_state(s, storyboard, status, film), "pictures": pictures,
-                       "picture": picture, "recording": recording_of(project, sid), "clip": clip_of(project, sid)})
+                       "picture": picture, "still": still, "recording": recording_of(project, sid),
+                       "clip": clip_of(project, sid), "page": page_scene(project, s)})
     music = music_of(project)
     out |= {
         "scenes": scenes,
         "music": music,
         "music_used": music_used(film, music),
         "films": films_of(project),
+        "html_films": html_films_of(project),
         "samples": samples_of(project),
         "status": status.get("created") if isinstance(status, dict) else None,
     }
@@ -653,7 +950,7 @@ def _dirs(directory: Path) -> list[str]:
 
 def watched_subdirs(project: Path) -> list[str]:
     """The subdirectories of a short-video project whose files are watched, relative to it."""
-    out = ["sources", "samples", "images", "voice", "scenes", "music", "film"]
+    out = ["sources", "samples", "images", "voice", "scenes", "worlds", "music", "film", os.path.join("film", "html")]
     out += [os.path.join("samples", s) for s in _dirs(project / "samples") if SAMPLE_DIR.match(s)]
     for scene in _dirs(project / "images"):
         out += [os.path.join("images", scene), os.path.join("images", scene, "marks")]
@@ -661,6 +958,9 @@ def watched_subdirs(project: Path) -> list[str]:
         for scene in _dirs(project / top):
             out.append(os.path.join(top, scene))
             out += [os.path.join(top, scene, v) for v in _dirs(project / top / scene) if VERSION_DIR.match(v)]
-    for top in ("music", "film"):
+    for world in _dirs(project / "worlds"):
+        out.append(os.path.join("worlds", world))
+        out += [os.path.join("worlds", world, v) for v in _dirs(project / "worlds" / world) if VERSION_DIR.match(v)]
+    for top in ("music", "film", os.path.join("film", "html")):
         out += [os.path.join(top, v) for v in _dirs(project / top) if VERSION_DIR.match(v)]
     return out

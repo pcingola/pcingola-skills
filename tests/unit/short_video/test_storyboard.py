@@ -1,10 +1,12 @@
 """short_video_tool.storyboard: parsing storyboard.md, and validating what the
 parser cannot check (files, settings, template positions, length)."""
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
 
-from short_video_tool import settings, storyboard
+from short_video_tool import cli, settings, storyboard
 
 MD = """\
 <!-- a comment -->
@@ -74,6 +76,12 @@ class TestParse(unittest.TestCase):
                                  "beats": ['Label "cell" on "cell".']})
         scene = storyboard.parse_markdown(md.replace("## injection\n", "## injection\nEngine: html\n"))["scenes"][1]
         self.assertEqual((scene["engine"], "image" in scene), ("html", False))
+
+    def test_hash_without_space_is_text(self) -> None:
+        """storyboard.parse_markdown reads a Brief line starting `#0f1420` as part of the Brief: a heading needs
+        `# ` or `## ` with the space. Guards hex colours at the start of a Brief line."""
+        md = MD.replace("Brief: Start wide.\n", "Brief: Start wide on\n#0f1420 navy.\n")
+        self.assertEqual(storyboard.parse_markdown(md)["scenes"][1]["brief"], "Start wide on #0f1420 navy.")
 
     def test_errors_name_their_line(self) -> None:
         """storyboard.parse_markdown reports a missing brief, wrong cell count, empty narration, duplicate or
@@ -326,6 +334,38 @@ class TestValidate(unittest.TestCase):
         r = self.check(text)
         self.assertEqual(r.errors, [])
         self.assertEqual([s["id"] for s in storyboard.load(self.project)["scenes"]], ["title", "end"])
+
+
+
+class TestInitSilent(unittest.TestCase):
+
+    def tearDown(self) -> None:
+        settings.use_project(None)
+
+    def test_init_silent_with_length(self) -> None:
+        """`init --silent --length 40` with two images writes a storyboard of silent image scenes whose Lengths sum
+        to 40 s, with no template scene and no narration table, and a settings.yaml whose length range holds 40 s,
+        so validate gives no error and no length warning (SKILL.md, Workflow step 1). Guards a silent film starting
+        from a storyboard written for narration."""
+        with tempfile.TemporaryDirectory() as tmp:
+            images = Path(tmp, "imgs")
+            images.mkdir()
+            for name in ("a.png", "b.png"):
+                (images / name).write_bytes(b"")
+            project = Path(tmp, "film")
+            args = cli._build_parser().parse_args(
+                ["init", str(project), "--silent", "--length", "40", "--images", str(images)])
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(args.func(args), 0)
+            text = (project / storyboard.MD_FILE).read_text()
+            self.assertNotIn("| Narration", text)
+            data = storyboard.load(project)
+            self.assertEqual([(s["id"], s.get("template"), s.get("image")) for s in data["scenes"]],
+                             [("scene_1", None, "a.png"), ("scene_2", None, "b.png")])
+            self.assertEqual(sum(s["length"] for s in data["scenes"]), 40)
+            r = storyboard.validate(data, project)
+            self.assertEqual(r.errors, [])
+            self.assertFalse(any("estimated length" in w for w in r.warnings), r.warnings)
 
 
 if __name__ == "__main__":

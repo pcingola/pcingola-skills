@@ -658,10 +658,20 @@ export const register: Register = on => {
       return result
     }
     void log($, 'turn-end', undefined, ended)
+    const finished = running
     running = null
     busy = false
     turnId = undefined
     started = null
+    // Only a turn that ended with the model's answer finishes its request (the server marks a comment of it
+    // done). A stopped, aborted, refused or failed turn leaves it open, with a note unless the user stopped it.
+    if (finished && e.reason === 'answer') {
+      void event($, { kind: 'done', id: finished.id })
+    } else if (finished && !stopped.includes(finished.id)) {
+      void logAs($, 'note', { request: finished.id, agent: null }, {
+        text: `The turn ended without finishing this request (${e.reason}).`,
+      })
+    }
     settle($)
     publishState($)
     void submitNext($)

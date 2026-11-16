@@ -86,9 +86,17 @@ under the narration (`video_scene.render`). No other scene takes it.
 `Engine: clip` marks a scene whose video is a clip made outside short-video and
 imported with `clip` (see `clip`). Its `Brief:` and
 `Image:` are optional (the parsed scene has `brief` and `image` only when
-given), and it cannot be a template scene. Only a clip scene may have no
+given), and it cannot be a template scene. A clip scene may have no
 table: its `narration` and `beats` are then empty, and the scene is silent
 and lasts its clip.
+
+An HTML scene without a table has `Length: <seconds>` (parsed `length`, a
+number above 0): it is silent and lasts that long. Only such a scene takes
+`Length:`; it cannot be a template scene.
+
+`World: <name>` (`[a-z0-9_]+`, parsed `world`) puts an HTML scene in a shared
+world: the consecutive scenes with the same name are cut from one page (see
+`world`). A world scene takes no `Template:` and no `Image:`.
 """
 
 from __future__ import annotations
@@ -108,7 +116,7 @@ SCENE_ID_RE = re.compile(r"^[a-z0-9_]+$")
 HEADER_KEYS = ("Topic", "Source")
 # Header keys of older storyboards and where their values live now.
 MOVED_KEYS = {"Voice": "voice", "Music": "music", "Author": "author"}
-SCENE_KEYS = ("Image", "Brief", "Template", "Engine", "Ambience")
+SCENE_KEYS = ("Image", "Brief", "Template", "Engine", "Ambience", "Length", "World")
 # `Ambience:` values of storyboard.md and the parsed `ambience`.
 AMBIENCE_VALUES = {"on": True, "off": False}
 # Values of a scene's `Engine:` key; a scene without one uses the first.
@@ -116,6 +124,7 @@ ENGINES = tuple(e.value for e in Engine)
 CLIP = Engine.CLIP
 VIDEO = Engine.VIDEO
 PRESENTER = Engine.PRESENTER
+HTML = Engine.HTML
 # Engines whose scene needs no `Brief:`.
 NO_BRIEF = (CLIP, PRESENTER)
 TABLE_HEADER = ["narration", "on screen"]
@@ -161,8 +170,10 @@ def backend_moved(backend: str | None = None) -> str:
 
 # Keys of the storyboard structure (storyboard.json) and of each scene.
 TOP_KEYS = ("title", "topic", "source", "speakers", "scenes")
-SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "ambience", "preview", "narration", "beats", "speakers",
-                "voices")
+SCENE_FIELDS = ("id", "template", "image", "brief", "engine", "ambience", "length", "world", "preview", "narration",
+                "beats", "speakers", "voices")
+# A heading is `#`s followed by a space (or nothing): `#0f1420` in a Brief is text.
+HEADING_RE = re.compile(r"^#+(\s|$)")
 KEY_RE = re.compile(r"^([A-Z][A-Za-z]*):(?:\s+(.*))?$")
 UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
 SEPARATOR_CELL_RE = re.compile(r"^:?-+:?$")
@@ -235,7 +246,8 @@ JSON_NAMES = {"scenes": "an entry to `scenes`", "no_speaker": "use null for the 
               "narration": "sentences in `narration`", "clip_scene": "a scene with `engine` clip",
               "video_scene": "a scene with `engine` video", "presenter_scene": "a scene with `engine` presenter",
               "ambience": "`ambience`",
-              "ambience_values": "true or false"}
+              "ambience_values": "true or false", "length": "`length`", "world": "`world`",
+              "silent_scene": "a scene with `engine` clip or with `length`"}
 MD_NAMES = {
     "title": "`# <title>`", "topic": "`Topic:` paragraph", "source": "`Source:`",
     "scenes": "a `## <scene id>` section", "image": "`Image:`", "brief": "`Brief:`",
@@ -244,7 +256,8 @@ MD_NAMES = {
     "Style |`)", "no_speaker": "leave the cell empty for the default voice",
     "clip_scene": "an `Engine: clip` scene", "video_scene": "an `Engine: video` scene",
     "presenter_scene": "an `Engine: presenter` scene",
-    "ambience": "`Ambience:`", "ambience_values": "on or off",
+    "ambience": "`Ambience:`", "ambience_values": "on or off", "length": "`Length:`", "world": "`World:`",
+    "silent_scene": "an `Engine: clip` scene or a scene with `Length:`",
 }
 
 
@@ -316,7 +329,21 @@ def check(data, names: dict | None = None) -> list[tuple[tuple, str]]:
     templates = _templates()
     for i, s in enumerate(scenes_):
         _check_scene(s, ("scenes", i), seen, speakers, templates, name, err)
+    _check_worlds(scenes_, name, err)
     return out
+
+
+def _check_worlds(scenes_: list, name, err) -> None:
+    """The scenes of one world are consecutive."""
+    last: dict[str, int] = {}
+    for i, s in enumerate(scenes_):
+        w = s.get("world") if isinstance(s, dict) else None
+        if not isinstance(w, str):
+            continue
+        if w in last and last[w] != i - 1:
+            err(("scenes", i, "world"), f"scene {s.get('id')!r}: the scenes of world {w!r} must be consecutive; "
+                                        f"move it next to the others or give it another {name('world')}")
+        last[w] = i
 
 
 def _check_scene(s, p: tuple, seen: set, speakers: dict, templates: dict, name, err) -> None:
@@ -357,6 +384,23 @@ def _check_scene(s, p: tuple, seen: set, speakers: dict, templates: dict, name, 
     elif engine == PRESENTER and template is None and "image" not in s:
         err(p + ("image",), f"{label}: missing {name('image')}; {name('presenter_scene')} makes the person in that "
                             "image speak")
+    if "world" in s:
+        world = s["world"]
+        if not isinstance(world, str) or not SCENE_ID_RE.match(world):
+            err(p + ("world",), f"{label}: invalid {name('world')} {world!r}: use lowercase letters, digits and _ only")
+        elif template is not None or "image" in s or (engine is not None and engine != HTML):
+            err(p + ("world",), f"{label}: a world scene is an HTML scene without {name('template')} and without "
+                                f"{name('image')}; it draws everything in the world's page")
+    has_length = "length" in s
+    if has_length:
+        length = s["length"]
+        if not _number(length) or length <= 0:
+            err(p + ("length",), f"{label}: {name('length')} must be a number of seconds above 0")
+        elif template is not None or (engine is not None and engine != HTML):
+            err(p + ("length",), f"{label}: only an HTML scene without a table takes {name('length')}")
+        elif s.get("narration"):
+            err(p + ("length",), f"{label}: a scene with {name('length')} is silent and has no narration; remove "
+                                 f"{name('length')} to narrate it (a narrated scene lasts its narration)")
     if "ambience" in s:
         if not isinstance(s["ambience"], bool):
             err(p + ("ambience",), f"{label}: {name('ambience')} must be {name('ambience_values')}")
@@ -364,16 +408,17 @@ def _check_scene(s, p: tuple, seen: set, speakers: dict, templates: dict, name, 
             err(p + ("ambience",), f"{label}: only {name('video_scene')} has {name('ambience')} (the video model's "
                                    "sound track)")
 
-    silent = engine == CLIP and template is None
+    silent = (engine == CLIP or has_length) and template is None
+    missing = f"{label}: missing {name('narration')} (only {name('silent_scene')} may have none)"
     narration = s.get("narration", [] if silent else None)
     if narration is None:
-        err(p + ("narration",), f"{label}: missing {name('narration')} (only {name('clip_scene')} may have none)")
+        err(p + ("narration",), missing)
         return
     if not isinstance(narration, list) or not all(_text(x) for x in narration):
         err(p + ("narration",), f"{label}: `narration` must be a list of non-empty sentences")
         return
     if not narration and not silent:
-        err(p + ("narration",), f"{label}: missing {name('narration')} (only {name('clip_scene')} may have none)")
+        err(p + ("narration",), missing)
     n = len(narration)
     beats = s.get("beats", [] if silent else None)
     if not isinstance(beats, list) or len(beats) != n or not all(_text(x) for x in beats):
@@ -411,7 +456,7 @@ def parse_json(text: str) -> dict:
     problems = check(data)
     if problems:
         raise StoryboardError("\n".join(f"{JSON_FILE}: {msg}" for _, msg in problems))
-    for scene in data["scenes"]:  # a silent clip scene may leave both out
+    for scene in data["scenes"]:  # a silent scene may leave both out
         scene.setdefault("narration", [])
         scene.setdefault("beats", [])
     return data
@@ -521,7 +566,7 @@ def parse_markdown(text: str) -> dict:
                 speakers_table = "done"
             continue
 
-        if line.startswith("#"):
+        if HEADING_RE.match(line):
             open_field = None
             level = len(line) - len(line.lstrip("#"))
             rest = line[level:].strip()
@@ -659,10 +704,14 @@ def parse_markdown(text: str) -> dict:
         p = ("scenes", i)
         lines[p] = s.line
         scene: dict = {"id": s.id}
-        for key in ("Template", "Image", "Brief", "Engine", "Ambience"):
+        for key in ("Template", "Image", "Brief", "Engine", "Ambience", "Length", "World"):
             if key in s.fields:
                 value = s.fields[key].value
-                scene[key.lower()] = AMBIENCE_VALUES.get(value.lower(), value) if key == "Ambience" else value
+                if key == "Ambience":
+                    value = AMBIENCE_VALUES.get(value.lower(), value)
+                elif key == "Length":
+                    value = _seconds(value)
+                scene[key.lower()] = value
                 lines[p + (key.lower(),)] = s.fields[key].line
         if s.preview is not None:
             scene["preview"] = s.preview
@@ -694,6 +743,15 @@ def parse_markdown(text: str) -> dict:
     if errors:
         raise StoryboardError("\n".join(sorted(errors, key=_line_of)))
     return data
+
+
+def _seconds(value: str) -> float | str:
+    """A `Length:` value as a number of seconds (an optional trailing `s`); the text itself when it is not one,
+    for `check` to report."""
+    try:
+        return float(value.removesuffix("s").strip())
+    except ValueError:
+        return value
 
 
 def _line_of(message: str) -> int:
@@ -742,18 +800,45 @@ def sentence_voices(data: dict, scene: dict) -> list[dict]:
             zip(scene.get("speakers") or [None] * n, scene.get("voices") or [None] * n)]
 
 
-def json_template(title: str, images: list[str]) -> str:
+def json_template(title: str, images: list[str], silent: bool = False, length: float | None = None) -> str:
     """Starting storyboard.json written by `init --json`: the starting
     storyboard.md as a dict, without its image previews."""
-    data = parse_markdown(template(title, images))
+    data = parse_markdown(template(title, images, silent, length))
     for scene in data["scenes"]:
         scene.pop("preview", None)
     return to_json(data)
 
 
-def template(title: str, images: list[str]) -> str:
+# Length of the one scene of `init --silent` without --length.
+SILENT_SCENE_SECONDS = 10.0
+
+
+def silent_template(title: str, images: list[str], length: float | None = None) -> str:
+    """Starting storyboard.md written by `init --silent`: `assets/storyboard-silent.md` with one silent scene
+    (`assets/storyboard-scene-silent.md`) per image, or one scene without images. `length` is shared among the
+    scenes in tenths of a second, the last taking the remainder, so the Lengths sum to it."""
+    s = settings.get()["storyboard"]
+    ids = [s["image_scene_id"].format(n=i) for i in range(1, len(images) + 1)] or ["scene_1"]
+    total = round((length or SILENT_SCENE_SECONDS * len(ids)) * 10)
+    tenths = [total // len(ids)] * (len(ids) - 1)
+    tenths.append(total - sum(tenths))
+    blocks = []
+    for i, sid in enumerate(ids):
+        image = f"Image: {images[i]}\n" if images else ""
+        blocks.append(settings.asset("storyboard-scene-silent.md").strip()
+                      .replace("__SCENE_ID__", sid).replace("__IMAGE_LINE__", image)
+                      .replace("__LENGTH__", f"{tenths[i] / 10:g}"))
+    return (settings.asset("storyboard-silent.md")
+            .replace("__TITLE__", title)
+            .replace("__SCENES__", "\n\n".join(blocks)))
+
+
+def template(title: str, images: list[str], silent: bool = False, length: float | None = None) -> str:
     """Starting storyboard.md written by `init`: `assets/storyboard.md` with
-    one `assets/storyboard-scene.md` section per image (none without images)."""
+    one `assets/storyboard-scene.md` section per image (none without images);
+    with `silent`, `silent_template`."""
+    if silent:
+        return silent_template(title, images, length)
     s = settings.get()["storyboard"]
     blocks = []
     for i, image in enumerate(images, 1):
@@ -834,8 +919,29 @@ def is_presenter(scene: dict) -> bool:
 
 
 def narrated(scene: dict) -> bool:
-    """False for a clip scene without a table, which is silent."""
+    """False for a scene without a table (a clip scene, or an HTML scene with `length`), which is silent."""
     return bool(scene.get("narration"))
+
+
+def length_seconds(scene: dict) -> float | None:
+    """The `length` of a silent HTML scene, or None."""
+    return float(scene["length"]) if scene.get("length") is not None else None
+
+
+def world_name(scene: dict) -> str | None:
+    """The scene's `world`, or None."""
+    return scene.get("world")
+
+
+def world_scenes(data: dict, name: str) -> list[dict]:
+    """The scenes of world `name`, in film order."""
+    return [s for s in scenes(data) if s.get("world") == name]
+
+
+def world_of(data: dict, scene: dict) -> list[dict] | None:
+    """The scenes of the scene's world, in film order, or None for a scene in no world."""
+    name = world_name(scene)
+    return world_scenes(data, name) if name else None
 
 
 def clip_seconds(project_dir: Path | None, scene: dict) -> float | None:
@@ -858,7 +964,8 @@ def with_clip(scene: dict, project_dir: Path | None, seconds: float) -> float:
 def estimate_seconds(data: dict, project_dir: Path | None = None) -> float:
     """Each scene's narration word count at `length.words_per_second`; a clip
     scene counts at least its imported clip's length, a clip scene without
-    narration and no imported clip `length.clip_seconds`."""
+    narration and no imported clip `length.clip_seconds`, a silent HTML scene
+    its `length`."""
     length = settings.get()["length"]
     total = 0.0
     for s in scenes(data):
@@ -866,6 +973,8 @@ def estimate_seconds(data: dict, project_dir: Path | None = None) -> float:
         seconds = words / length["words_per_second"]
         if is_clip(s) and not narrated(s) and clip_seconds(project_dir, s) is None:
             seconds = float(length["clip_seconds"])
+        if length_seconds(s) is not None:
+            seconds = length_seconds(s)
         total += with_clip(s, project_dir, seconds)
     return total
 
@@ -1004,6 +1113,12 @@ def validate(data: dict, project_dir: Path, brand_dir: Path | None = None) -> Va
             warn_clip = clip_problem(project_dir, s)
             if warn_clip:
                 warn(f"{label}: {warn_clip}")
+
+    for name in dict.fromkeys(w for s in sc if (w := world_name(s))):
+        members = world_scenes(data, name)
+        if len(members) == 1:
+            warn(f"scene {members[0]['id']}: world {name!r} has one scene; a world joins consecutive scenes "
+                 "without a cut, so drop `World:` or add the scenes that follow")
 
     length = settings.get()["length"]
     r.estimated_seconds = estimate_seconds(data, project_dir)

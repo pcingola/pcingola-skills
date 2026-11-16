@@ -7,7 +7,8 @@
  * shell's detail view, placed in the page, with its versions; 2 the sentences, each with a collapsed voice part;
  * 3 movement and timing; the scene's own style; 4 what to change in this scene. The scene view holds the plan only;
  * "See the result" opens the scene's row in step 6.
- * A scene drawn in its page (an HTML scene without `image`) has no picture: no picture step, no own style, steps 1 to 3.
+ * A scene drawn in its page (an HTML scene without `image`) has no picture: its step 1 shows the stills of its page
+ * versions (picture versions whose sidecar names `page_version`) where the others show pictures, and it has no own style.
  * The page edits storyboard.json directly (/api/storyboard, one write at a time, with the base it read) and the film
  * settings with /api/film. Registers with the Studio shell (shell.js), which draws everything around it.
  */
@@ -56,9 +57,14 @@
   const STATES = { ready: ["st-ready", "Ready"], voice: ["st-voice", "Needs voice"], render: ["st-render", "Needs render"] };
   const AUDIO = [".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg"];
   const SOURCES = [".pdf", ".txt", ".md", ".docx", ".pptx", ".xlsx", ".csv", ".html", ...AUDIO];
+  /** Reference videos by suffix, with the type the server takes, and their largest size (the server's REF_VIDEO_MAX). */
+  const VIDEO_REFS = { ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm" };
+  const REF_VIDEO_MB = 45;
+  const isVideoRef = path => suffix(path) in VIDEO_REFS;
   const suffix = name => (name.match(/\.[^.]+$/) || [""])[0].toLowerCase();
-  /** Requests that write pictures of the scene they name, and those that write pictures of many scenes. */
-  const PICTURE_ACTIONS = ["change", "variations", "other-styles"];
+  /** Requests that write pictures of the scene they name (`use-still`: a drawn scene's still), and those that write
+   *  pictures of many scenes. */
+  const PICTURE_ACTIONS = ["change", "variations", "other-styles", "use-still"];
   const MANY_PICTURES = ["storyboard", "use-style", "style-samples", "add-scene"];
   const WORDS_PER_SECOND = 2.5;
 
@@ -98,7 +104,7 @@
   const scenes = () => (sb && Array.isArray(sb.scenes) ? sb.scenes : []);
   const sceneOf = id => scenes().find(s => s.id === id) || null;
   const indexOf = id => scenes().findIndex(s => s.id === id);
-  const info = id => (V().scenes || []).find(s => s.id === id) || { id, state: null, pictures: [], picture: null, recording: null, clip: null };
+  const info = id => (V().scenes || []).find(s => s.id === id) || { id, state: null, pictures: [], picture: null, still: null, recording: null, clip: null, page: null };
   const samples = () => P().samples || null;
   const reqs = () => (project ? pending(project.dir) : []);
 
@@ -110,9 +116,10 @@
     if (!scene.image || !project || /^[a-z0-9_]+\/v\d+\.png$/.test(scene.image)) return null;
     return `${project.dir}/images/${scene.image}`;
   }
-  /** Seconds of a scene: its recording, else its words at 2.5 a second, else its clip. */
+  /** Seconds of a scene: its `length` (a silent HTML scene), its recording, else its words at 2.5 a second, else its clip. */
   function secs(scene) {
     const i = info(scene.id);
+    if (typeof scene.length === "number") return scene.length;
     if (i.recording && i.recording.duration) return i.recording.duration;
     const n = words((scene.narration || []).join(" "));
     return n ? n / WORDS_PER_SECOND : (i.clip && i.clip.duration) || 0;
@@ -128,16 +135,29 @@
    *  dotted paper that marks a drawn scene (a missing picture is grey stripes). */
   const drawnThumb = s => h("div", { class: "noimg drawn", title: (s.brief || "").trim() },
     h("b", {}, Studio.icon("draw"), "Drawn scene"), h("span", {}, drawnText(s)));
+  /** Whether a picture version is a still of a drawn scene's page: its sidecar names the `page_version`. */
+  const isStill = v => !!v && typeof v.page_version === "string";
+  /** The still a drawn scene shows where a picture would be: its newest still (the server's `still`), else null. */
+  function stillOf(scene) {
+    const i = info(scene.id), v = drawn(scene) && i.still != null ? i.pictures.find(p => p.n === i.still) : null;
+    return v ? v.image : null;
+  }
+  /** Whether a scene still lacks what step 3 makes: a picture it names, or a drawn scene's still. */
+  const missing = s => (s.image && !pictureOf(s)) || (drawn(s) && !stillOf(s));
+  /** What a scene's thumbnail shows: its picture, else its still. */
+  const thumbOf = scene => pictureOf(scene) || stillOf(scene);
   const stateOf = id => info(id).state;
   /** Step 3 is shown once the storyboard has scenes or one is being written. */
   const boardShown = () => !!project && (scenes().length > 0 || reqs().some(p => p.request.action === "storyboard"));
 
   /** The current make-film request, or null. */
   const filmRun = () => (reqs().find(p => p.current && makesFilm(p.request)) || {}).request || null;
-  /** Whether a request makes a film of this project: `make-film`, a `storyboard` with `make_film` or in `auto`
-   *  autonomy, and a `style-samples` in `auto` autonomy. */
-  const makesFilm = r => ["make-film", "fix"].includes(r.action) || (r.action === "storyboard" && (r.make_film || Studio.autonomy() === "auto"))
+  /** Whether a request makes a film of this project: `make-film`, `export-mp4`, `fix`, a `storyboard` with `make_film`
+   *  or in `auto` autonomy, and a `style-samples` in `auto` autonomy. */
+  const makesFilm = r => ["make-film", "export-mp4", "fix"].includes(r.action) ||(r.action === "storyboard" && (r.make_film || Studio.autonomy() === "auto"))
     || (r.action === "style-samples" && Studio.autonomy() === "auto");
+  /** Whether a film-making request ends with an MP4 (`export-mp4`, `fix`); the others end with the HTML film. */
+  const mp4Run = r => ["export-mp4", "fix"].includes(r.action);
   /** Whether an ISO time is at or after `since` (ms since the epoch). */
   const madeSince = (iso, since) => !!(iso && since && Date.parse(iso) >= since);
   /** Where the current make-film `r` stands with scene `id`, from the files written since it started: null when the
@@ -145,16 +165,19 @@
    *  clip), "render" (it needs only a render, no new clip yet) or "done" (a new clip). */
   function filmStage(r, id) {
     const since = started(r.id), i = info(id), s = sceneOf(id) || {};
-    const voiced = madeSince(i.recording && i.recording.created, since), rendered = madeSince(i.clip && i.clip.created, since);
+    // In a run that ends with the HTML film, an HTML scene is done with a new page version; in an MP4 run, with a clip.
+    const voiced = madeSince(i.recording && i.recording.created, since), rendered = madeSince(i.clip && i.clip.created, since)
+      || (!mp4Run(r) && madeSince(i.page && i.page.created, since));
     if (rendered) return "done";
     if (voiced) return "recorded";
     if (stateOf(id) === "ready") return null;
     return stateOf(id) === "voice" && (s.narration || []).length ? "voice" : "render";
   }
 
-  /** "New picture…" while the current request makes pictures of the scene, else null: the storyboard's mark. */
+  /** "New picture…" ("New still…" for a drawn scene) while the current request makes pictures of the scene, else
+   *  null: the storyboard's mark. */
   const pictureBusy = id => (reqs().some(({ request: r, current }) => current && r.scene === id && PICTURE_ACTIONS.includes(r.action))
-    ? "New picture…" : null);
+    ? (drawn(sceneOf(id)) ? "New still…" : "New picture…") : null);
   /** What the current request does to a scene's recording or animation, as its chip in step 6 says: null when nothing. */
   function busyText(id) {
     for (const { request: r, current } of reqs()) {
@@ -173,9 +196,10 @@
    * or make pointless (a film or a scene remade from a storyboard about to be replaced).
    */
   const BLOCKS = {
-    "make-film": r => ["make-film", "fix", "storyboard", "style-samples"].includes(r.action),
-    fix: r => ["make-film", "fix", "storyboard", "style-samples"].includes(r.action),
-    "remake-scene": (r, f) => ["make-film", "fix", "storyboard"].includes(r.action) || (r.action === "remake-scene" && r.scene === f.scene),
+    "make-film": r => ["make-film", "export-mp4", "fix", "storyboard", "style-samples"].includes(r.action),
+    "export-mp4": r => ["make-film", "export-mp4", "fix", "storyboard", "style-samples"].includes(r.action),
+    fix: r => ["make-film", "export-mp4", "fix", "storyboard", "style-samples"].includes(r.action),
+    "remake-scene": (r, f) => ["make-film", "export-mp4", "fix", "storyboard"].includes(r.action) ||(r.action === "remake-scene" && r.scene === f.scene),
     storyboard: r => r.action === "storyboard",
     "style-samples": r => ["storyboard", "style-samples", "use-style"].includes(r.action),
     "use-style": r => ["storyboard", "style-samples", "use-style"].includes(r.action),
@@ -240,10 +264,23 @@
   /** The rules of the server's storyboard check that the page's edits can break; a message, or null. */
   function check(b) {
     if (!b.scenes.length) return "A storyboard needs a scene.";
+    const ended = new Set();
+    let previous = null;
     for (const [i, s] of b.scenes.entries()) {
-      const clip = s.engine === "clip" && !s.template;
-      if (!s.narration.length && !clip) return `Scene ${i + 1} needs a sentence.`;
-      if (s.narration.some(t => !t.trim()) || s.beats.some(t => !t.trim()))
+      const html = !s.template && (s.engine === undefined || s.engine === null || s.engine === "html");
+      const clip = (s.engine === "clip" && !s.template) || typeof s.length === "number";
+      const said = s.narration || [], shown = s.beats || [];
+      const world = typeof s.world === "string" ? s.world : null;
+      if (world !== previous && previous !== null) ended.add(previous);
+      if (world !== null && ended.has(world))
+        return `Scene ${i + 1} belongs to world "${world}", whose scenes must follow each other; move it next to them.`;
+      previous = world;
+      if (world !== null && (!html || s.image !== undefined))
+        return `Scene ${i + 1} is a scene of world "${world}", which is HTML only, with no picture; keep the HTML engine and remove the picture.`;
+      if (s.length !== undefined && (!html || said.length))
+        return `Scene ${i + 1} has a fixed length, which only an HTML scene without narration has; keep the HTML engine and no sentences.`;
+      if (!said.length && !clip) return `Scene ${i + 1} needs a sentence.`;
+      if (said.some(t => !t.trim()) || shown.some(t => !t.trim()))
         return `Scene ${i + 1}: write what is said and what is on screen in every sentence; it is saved once both are filled in.`;
       if (!s.template && s.engine !== "clip" && s.engine !== "presenter" && !(s.brief || "").trim())
         return `Scene ${i + 1}: write ${drawn(s) ? "what the scene draws and how it moves" : "how the picture moves"}; it is saved once that is filled in.`;
@@ -419,10 +456,11 @@
     const has = () => scenes().length > 0;
     section(() => JSON.stringify([notice, writeHint]), () => [noticeBox(), writeHint ? h("div", { class: "notice inline sv-notice" }, writeHint) : null]);
     const pend = actions => reqs().filter(p => actions.includes(p.request.action)).map(p => [p.request.id, p.current]);
-    section(() => JSON.stringify([!!project, has(), film.brand, film.shape, film.length, film.author, film.review, form.refs, form.sources,
+    section(() => JSON.stringify([!!project, has(), film.brand, film.shape, film.length, film.author, film.silent, film.review, form.refs, form.sources,
       V().error, pend(["storyboard"])]),
       fold("brief", () => step() === "brief", briefSummary, stepBrief, () => false, has));
     section(() => JSON.stringify([has(), samples(), fromCatalogue, P().style, Studio.autonomy(), sampleData(), project && project.dir, form.style,
+      earlierSamples(samples() ? samples().scene : keyScene(), (samples() && samples().versions) || []).map(v => v.n),
       pend(["storyboard", "style-samples", "use-style"])]),
       fold("style", () => step() === "style", styleSummary, stepStyle, () => busyWith(["style-samples", "use-style"]),
         () => !!P().style && !samples()));
@@ -430,17 +468,18 @@
       film.length, film.voice, reqs().map(p => [p.request.id, p.current]), project && reqs().filter(p => p.request.action === "add-scene").length]),
       fold("board", () => step() === "board", () => `${plural(scenes().length, "scene")} · ${mmss(total())}`, stepBoard,
         () => busyWith(["storyboard", "add-scene", ...PICTURE_ACTIONS]),
-        () => has() && !scenes().some(s => s.image && !pictureOf(s))));
-    section(() => JSON.stringify([!!project, has(), boardShown(), film.voice, sb && sb.speakers]),
-      fold("voice", () => step() === "voice", () => `voice ${voiceText(film.voice)}`, stepVoice, () => busyWith(["voice-sample"]), voiced));
+        () => has() && !scenes().some(missing)));
+    section(() => JSON.stringify([!!project, has(), boardShown(), film.voice, film.silent, sb && sb.speakers]),
+      fold("voice", () => step() === "voice", () => (film.silent ? "silent film: no narration" : `voice ${voiceText(film.voice)}`), stepVoice, () => busyWith(["voice-sample"]), voiced));
     section(() => JSON.stringify([!!project, has(), boardShown(), film.music, V().music, V().music_used, pend(["music", "own-music"])]),
       fold("music", () => step() === "voice", musicSummary, stepMusic, () => busyWith(["music", "own-music"]),
         () => film.music.mode === "none" || V().music_used != null));
-    section(() => JSON.stringify([!!project, samples(), scenes(), V().scenes, openClip, Studio.autonomy(), reqs().filter(p => makesFilm(p.request) || ["remake-scene", "storyboard"].includes(p.request.action))
+    section(() => JSON.stringify([!!project, samples(), scenes(), V().scenes, openClip, openPlayer, Studio.autonomy(), reqs().filter(p => makesFilm(p.request) || ["remake-scene", "storyboard"].includes(p.request.action))
       .map(p => [p.request.id, p.current, progress(p.request.id)])]),
       fold("scenes", () => step() === "films", scenesSummary, stepScenes,
         () => busyWith(["remake-scene"]) || reqs().some(p => makesFilm(p.request)), animated));
-    section(() => JSON.stringify([!!project, samples(), scenes(), V().films, V().scenes, V().music, V().music_used, film.shape, film.music.mode, film.review, Studio.autonomy(),
+    section(() => JSON.stringify([project && project.dir, openPlayer]), playerSection);
+    section(() => JSON.stringify([!!project, samples(), scenes(), V().films, V().html_films, V().scenes, V().music, V().music_used, film.shape, film.music.mode, film.review, Studio.autonomy(),
       reqs().filter(p => makesFilm(p.request) || ["review", "phone", "storyboard", "style-samples"].includes(p.request.action)).map(p => [p.request.id, p.current, progress(p.request.id)])]),
       fold("films", () => step() === "films", filmsSummary, stepFilms,
         () => busyWith(["review"]) || reqs().some(p => makesFilm(p.request)), () => !filmChanges()));
@@ -457,9 +496,9 @@
     if (!scenes().length) return busyWith(["storyboard"]) ? "board" : "brief";
     if (samples() || !P().style) return "style";
     if (reqs().some(p => makesFilm(p.request))) return "films";
-    if ((V().films || []).length) return "board";
+    if ((V().films || []).length || (V().html_films || []).length) return "board";
     const pictures = busyWith(["storyboard", "use-style", "add-scene", ...PICTURE_ACTIONS])
-      || scenes().some(s => s.image && !pictureOf(s));
+      || scenes().some(missing);
     return pictures ? "board" : "voice";
   }
   /** Whether a request of one of `actions` is pending on the project. */
@@ -489,7 +528,7 @@
   function refold() {
     for (const f of folders) if (f.card && f.card.isConnected) { f.card.foldDefault(f.open()); f.card.foldBusy(f.busy()); markDone(f); }
   }
-  const briefSummary = () => [form.brief || P().brief || "", shapeLabel(film.shape), aim(film.length), film.review ? "each film reviewed" : null]
+  const briefSummary = () => [form.brief || P().brief || "", shapeLabel(film.shape), aim(film.length), film.silent ? "silent" : null, film.review ? "each MP4 reviewed" : null]
     .filter(Boolean).join(" · ");
   const musicSummary = () => (film.music.mode === "none" ? "no music" : V().music_used != null ? `music v${V().music_used}`
     : film.music.mode === "made" ? "made with the film" : "own track not uploaded");
@@ -507,11 +546,16 @@
       placeholder: "For example: a one-minute explainer for new starters on how expenses work, from the policy I attach",
       oninput: e => { form.brief = e.target.value; e.target.closest(".card")?.foldSummary?.(briefSummary()); } });
     const refs = h("div", { class: "refs" },
-      dropZone("Drop sources (notes, articles, PDFs) and pictures to use here, or click to choose files",
-        [...IMAGE_TYPES, ...SOURCES].join(","), addFiles),
+      dropZone("Drop sources (notes, articles, PDFs), pictures and reference videos (MP4, MOV, WebM) to use here, or click to choose files",
+        [...IMAGE_TYPES, ...Object.keys(VIDEO_REFS), ...SOURCES].join(","), addFiles),
       form.sources.map(path => h("div", { class: "src", title: baseName(path) }, Studio.icon("file"), baseName(path),
         h("button", { class: "x", title: "Remove", onclick: () => { form.sources = form.sources.filter(p => p !== path); render(); } }, "×"))),
-      form.refs.map(path => refThumb(path, () => { form.refs = form.refs.filter(p => p !== path); render(); })));
+      form.refs.map(path => {
+        const remove = () => { form.refs = form.refs.filter(p => p !== path); render(); };
+        return isVideoRef(path) ? h("div", { class: "ref", title: `${baseName(path)} · reference video` },
+          h("video", { src: fileUrl(path) + "#t=0.5", muted: true, preload: "metadata", style: "width:100%;height:100%;object-fit:cover" }),
+          h("button", { type: "button", title: "Remove", onclick: remove }, "×")) : refThumb(path, remove);
+      }));
     const shape = h("select", { disabled: has, title: has ? "A storyboard with scenes keeps its shape; a phone version is made from a film" : null,
       onchange: e => setFilm({ shape: e.target.value }) }, SHAPES.map(([v, l]) => h("option", { value: v }, l)));
     shape.value = film.shape;
@@ -528,8 +572,11 @@
         field("Brand", brandSelect(film.brand, v => setFilm({ brand: v }))),
         field("Shape", shape), field("Length", length), field("Made by (shown in the credits)", author)),
       h("label", { class: "switch", style: "margin-top:12px" },
+        h("input", { type: "checkbox", checked: !!film.silent, onchange: e => setFilm({ silent: e.target.checked }) }), h("span"),
+        "Silent film", h("span", { class: "hint" }, " · no narration: each scene lasts a set time, with music only")),
+      h("label", { class: "switch", style: "margin-top:12px" },
         h("input", { type: "checkbox", checked: !!film.review, onchange: e => setFilm({ review: e.target.checked }) }), h("span"),
-        "Review each new film", h("span", { class: "hint" }, " · a second model watches it and lists what to fix; in automatic mode the fixes are made too")),
+        "Review each new MP4", h("span", { class: "hint" }, " · after Export MP4 a second model watches it and lists what to fix; in automatic mode the fixes are made too")),
       has ? h("div", { class: "foot" },
         h("button", { class: "secondary", ...guard({ action: "storyboard" }), onclick: e => writeStoryboard(e.currentTarget) }, "Write a new storyboard from this"),
         h("span", { class: "hint" }, "Replaces the scenes below; older films are kept."))
@@ -538,9 +585,13 @@
 
   async function addFiles(files) {
     const pictures = files.filter(f => IMAGE_TYPES.includes(f.type));
-    const others = files.filter(f => !IMAGE_TYPES.includes(f.type)
-      && (SOURCES.includes(suffix(f.name)) || (error(`${f.name} cannot be used: a source is a PDF, text, Word, PowerPoint, Excel, CSV, HTML or audio file, a picture a PNG, JPEG or WebP image.`), false)));
-    for (const path of await upload("/api/refs", pictures)) if (!form.refs.includes(path)) form.refs.push(path);
+    // A video's type is taken from its suffix: browsers give a .mov no type or another one.
+    const videos = files.filter(f => !IMAGE_TYPES.includes(f.type) && isVideoRef(f.name)
+      && (f.size <= REF_VIDEO_MB * 1024 * 1024 || (error(`${f.name} is larger than ${REF_VIDEO_MB} MB; a reference video is at most ${REF_VIDEO_MB} MB. Cut it or lower its resolution.`), false)))
+      .map(f => new File([f], f.name, { type: VIDEO_REFS[suffix(f.name)] }));
+    const others = files.filter(f => !IMAGE_TYPES.includes(f.type) && !isVideoRef(f.name)
+      && (SOURCES.includes(suffix(f.name)) || (error(`${f.name} cannot be used: a source is a PDF, text, Word, PowerPoint, Excel, CSV, HTML or audio file, a picture a PNG, JPEG or WebP image, a reference video an MP4, MOV or WebM file.`), false)));
+    for (const path of await upload("/api/refs", [...pictures, ...videos])) if (!form.refs.includes(path)) form.refs.push(path);
     for (const path of await upload("/api/sources", others)) if (!form.sources.includes(path)) form.sources.push(path);
     render();
   }
@@ -567,6 +618,39 @@
     return (s.versions || []).map(n => ({ n, v: pics.find(p => p.n === n) || null }));
   }
 
+  /** The key scene, on which style samples are made: the first scene with a picture that is not a template scene,
+   *  else the first drawn scene, else the first template scene. */
+  function keyScene() {
+    const list = scenes(), first = test => (list.find(test) || {}).id;
+    return first(x => !!x.image) || first(drawn) || first(x => !!x.template) || null;
+  }
+  /** The stills of `scene` with a page style that are not in `except`: earlier style samples, newest first. */
+  function earlierSamples(scene, except) {
+    return (scene ? info(scene).pictures : []).filter(v => isStill(v) && v.page_style && !except.includes(v.n));
+  }
+
+  /** One style sample: its picture or still, its style and a "Use this style" button sending use-style. */
+  const sampleCard = (v, scene, disabled) => h("div", { class: "sample" },
+    h("img", { src: fileUrl(v.image), alt: "", onclick: () => openDetail(adopt(v, scene)) }),
+    h("div", { class: "t" }, h("b", {}, versionStyle(v)),
+      h("span", {}, v.invented ? v.invented.description : (Studio.catalogue().styles.find(x => x.name === v.style) || {}).description || ""),
+      isStill(v) && pageStyleText(v) ? h("span", {}, pageStyleText(v)) : null,
+      h("button", { class: "primary", ...guard({ action: "use-style" }), ...(disabled ? { disabled: true } : {}),
+        onclick: () => send({ action: "use-style", version: v.n }) }, "Use this style")));
+  /** Earlier style samples of `scene` (not in `except`), under a heading; null when there are none. */
+  function earlierPart(scene, except, disabled) {
+    const list = earlierSamples(scene, except);
+    return list.length ? [h("div", { class: "sampling" }, h("b", {}, "Earlier style samples"),
+      h("span", { class: "hint" }, `stills of scene ${indexOf(scene) + 1} made in other styles; any of them can still be the film's style`)),
+      h("div", { class: "samples" }, list.map(v => sampleCard(v, scene, disabled)))] : null;
+  }
+
+  /** The page style of a still's sidecar (`page_style`) in one line: 2D or 3D, light, typography, camera. */
+  const pageStyleText = v => {
+    const p = (v && v.page_style) || {};
+    return [p.dimension, p.light, p.typography, p.camera].filter(x => typeof x === "string" && x.trim()).join(" · ");
+  };
+
   function stepStyle() {
     const head = hint => [h("h2", {}, h("span", { class: "num" }, "2"), "Picture style", hint),
       Studio.autonomy() === "auto" ? h("div", { class: "auto-hint" }, "Automatic: the style is picked and the whole film made without waiting for you.") : null];
@@ -575,19 +659,16 @@
     const styleNotice = styling ? h("div", { class: "notice inline sv-notice" }, pendingText(styling), runStatus(styling.request.id)) : null;
     if (s && !fromCatalogue) {
       const k = indexOf(s.scene);
-      const invent = s.style === "invent";
+      const invent = s.style === "invent", paged = drawn(sceneOf(s.scene));
       return h("section", { class: "card" }, head(h("span", { class: "hint" }, "one style for every scene")), styleNotice,
         h("div", { class: "sampling" },
           h("b", {}, `${invent ? "3 styles invented for this film" : "3 styles picked for this film"}: pick one before the rest is made`),
           h("span", { class: "hint" }, k < 0 ? "The scene they were drawn on is no longer in the storyboard; ask for new samples."
+            : paged ? `Each is a still of scene ${k + 1}'s page in that style. Every other scene gets its page or picture once you pick a style.`
             : `Each is shown on scene ${k + 1}. The other scenes with a picture get theirs once you pick a style.`)),
-        h("div", { class: "samples" }, sampleData().map(({ n, v }) => v
-          ? h("div", { class: "sample" }, h("img", { src: fileUrl(v.image), alt: "", onclick: () => openDetail(adopt(v, s.scene)) }),
-            h("div", { class: "t" }, h("b", {}, versionStyle(v)),
-              h("span", {}, v.invented ? v.invented.description : (Studio.catalogue().styles.find(x => x.name === v.style) || {}).description || ""),
-              h("button", { class: "primary", ...guard({ action: "use-style" }), ...(k < 0 ? { disabled: true } : {}),
-                onclick: () => send({ action: "use-style", version: n }) }, "Use this style")))
-          : h("div", { class: "sample pending" }, h("div", { class: "ph" }, h("div", { class: "spin" }), `Drawing sample v${n}…`)))),
+        h("div", { class: "samples" }, sampleData().map(({ n, v }) => v ? sampleCard(v, s.scene, k < 0)
+          : h("div", { class: "sample pending" }, h("div", { class: "ph" }, h("div", { class: "spin" }), `${paged ? "Building" : "Drawing"} sample v${n}…`)))),
+        earlierPart(s.scene, s.versions || [], k < 0),
         h("div", { class: "foot" },
           h("button", { class: "secondary", ...guard({ action: "style-samples" }), onclick: () => send({ action: "style-samples", style: s.style }) }, invent ? "Invent others" : "Choose others"),
           h("button", { class: "secondary", onclick: () => { fromCatalogue = true; render(); } }, "Pick from the catalogue instead")));
@@ -601,6 +682,7 @@
       style && style.invented ? h("div", { class: "overrides film-style" }, "The film's style: ", h("b", {}, style.invented.name), " ",
         h("span", { class: "tag" }, "new"), style.invented.description ? ` · ${style.invented.description}` : "") : null,
       s ? h("div", { class: "foot top" }, h("button", { class: "secondary", onclick: () => { fromCatalogue = false; render(); } }, "← Back to the 3 samples")) : null,
+      s || !has ? null : earlierPart(keyScene(), [], false),
       picker.el);
   }
 
@@ -609,8 +691,8 @@
     if (!scenes().length) { form.style = name; summary(); return; }
     const card = CARDS[name], b = blocker({ action: card ? "style-samples" : "use-style" });
     if (b) { error(`${pendingText(b)}. Pick a style once it is done.`); picker.el.set((P().style && P().style.name) || null); return; }
-    const ok = confirm(card ? `Draw the first scene with a picture in ${card.asked.replace("to choose from", "")}to choose the film's style from?`
-      : `Make every scene's picture again in ${nice(name)}? Scenes with their own style keep it; every picture made so far is kept.`);
+    const ok = confirm(card ? `Make the first scene with a picture (with none, the first drawn scene) in ${card.asked.replace("to choose from", "")}to choose the film's style from?`
+      : `Make every scene's picture and page again in ${nice(name)}? Scenes with their own style keep it; every picture and page made so far is kept.`);
     if (!ok) { picker.el.set((P().style && P().style.name) || null); return; }
     if (await request(card ? { action: "style-samples", style: name } : { action: "use-style", style: name })) fromCatalogue = false;
     render();
@@ -625,7 +707,7 @@
     const list = scenes(), t = total(), s = samples();
     const making = reqs().find(p => p.request.action === "storyboard");
     const strip = h("div", { class: "strip-wrap" }, h("div", { class: "strip" }, list.map((x, i) => {
-      const pic = s ? null : pictureOf(x);
+      const pic = s ? null : thumbOf(x);
       const paper = !pic && drawn(x);
       return h("div", { "data-n": i + 1, "data-id": x.id, class: paper ? "drawn" : null,
         style: `flex:${Math.max(secs(x), 1)};${pic ? `background-image:url("${fileUrl(pic)}")` : paper ? "" : "background:var(--stripe)"}` },
@@ -653,7 +735,7 @@
     const s = samples(), id = x.id, busy = pictureBusy(id);
     const sampled = s && s.scene === id, waiting = s && !sampled;
     const sampleV = sampled ? (sampleData().find(d => d.v) || {}).v : null;
-    const pic = waiting || drawn(x) ? null : sampled ? sampleV && sampleV.image : pictureOf(x);
+    const pic = waiting ? null : sampled ? sampleV && sampleV.image : thumbOf(x);
     const tags = [kindWord(x) ? h("span", { class: "kind" }, kindWord(x)) : null,
       (P().scene_styles || {})[id] ? h("span", { class: "own" }, "own style") : null,
       voicesUsed(x) > 1 ? h("span", { class: "own" }, `${voicesUsed(x)} voices`) : null];
@@ -663,8 +745,9 @@
         h("span", { class: "num" }, String(i + 1)), busy ? h("div", { class: "spin" }) : null),
       h("div", { class: "what" }, h("b", {}, titleOf(id), tags), h("div", {}, `“${(x.narration || []).join(" ")}”`)),
       h("span", { class: "dur" }, mmss(secs(x))),
-      waiting && !drawn(x) ? h("span", { class: "state st-wait" }, "Waiting for the style") : sampled ? h("span", { class: "state st-voice" }, "3 samples")
-        : !pic && x.image && reqs().some(p => MANY_PICTURES.includes(p.request.action)) ? h("span", { class: "state st-wait" }, "Picture to come")
+      waiting ? h("span", { class: "state st-wait" }, "Waiting for the style") : sampled ? h("span", { class: "state st-voice" }, "3 samples")
+        : !pic && (x.image || drawn(x)) && reqs().some(p => MANY_PICTURES.includes(p.request.action))
+          ? h("span", { class: "state st-wait" }, drawn(x) ? "Still to come" : "Picture to come")
         : busy ? h("span", { class: "state st-busy" }, busy) : h("span"),
       h("span", { class: "go" }, "›"));
   }
@@ -678,7 +761,7 @@
       const seg = id ? [...wrap.querySelectorAll(".strip > div")].find(el => el.dataset.id === id) : null;
       tip.hidden = !seg;
       if (!seg) return;
-      tip.textContent = `Scene ${indexOf(id) + 1} · ${titleOf(id)} · ${mmss(secs(sceneOf(id) || {}))}${drawn(sceneOf(id)) ? " · drawn, no picture" : ""}`;
+      tip.textContent = `Scene ${indexOf(id) + 1} · ${titleOf(id)} · ${mmss(secs(sceneOf(id) || {}))}${drawn(sceneOf(id)) ? " · drawn in its page" : ""}`;
       tip.style.left = `${seg.offsetLeft + seg.offsetWidth / 2}px`;
     };
     const segOf = e => e.target.closest(".strip > div");
@@ -768,7 +851,7 @@
     const speed = seg(SPEEDS.map(([x, l]) => [x, l]), Number(v.speed || 1), x => setFilm({ voice: { ...v, speed: +x } }));
     if (!hasSpeed(v.model)) speed.classList.add("off");
     return h("section", { class: "card", id: "sv-voices" },
-      h("h2", {}, h("span", { class: "num" }, String(voiceNum())), "Voice", h("span", { class: "hint" }, "for the whole film. Press ▶ to hear a sample")),
+      h("h2", {}, h("span", { class: "num" }, String(voiceNum())), "Voice", h("span", { class: "hint" }, film.silent ? "not used: the film is silent (step 1)" : "for the whole film. Press ▶ to hear a sample")),
       voices,
       h("div", { class: "opts" },
         h("div", {}, h("label", { class: "f" }, "Voice name (optional)"), name),
@@ -908,20 +991,279 @@
     const newMusic = (V().music || []).find(m => m.source === film.music.mode && madeSince(m.created, Date.parse(r.time)));
     const music = film.music.mode === "none" ? "none" : newMusic ? `v${newMusic.n} made` : V().music_used != null ? `v${V().music_used}` : "to make";
     const assembled = (V().films || []).filter(f => madeSince(f.created, since));
+    const built = (V().html_films || []).filter(f => madeSince(f.created, since));
+    const made = mp4Run(r) ? (assembled.length ? `MP4 v${assembled[0].n} assembled` : "not assembled yet")
+      : built.length ? `HTML v${built[0].n} made` : "not made yet";
     return [["Voices", `${voiced} of ${voices.length}`], ["Scenes", `${stages.filter(x => x === "done").length} of ${stages.length}`],
-      ["Music", music], ["Film", assembled.length ? `v${assembled[0].n} assembled` : "not assembled yet"]];
+      ["Music", music], ["Film", made]];
   }
 
   /* ---------- step 6: scenes, each scene's recording and animation ---------- */
 
   /** The scene whose animation player is open in step 6, or null: one at a time, so one plays. */
   let openClip = null;
+  /** The HTML scene whose scene player is open below step 6, or null, and its player (kept across redraws). */
+  let openPlayer = null, scenePlayer = null;
+  /** Opens or hides a scene's animation: the scene player for an HTML scene's latest page, rendered or not, else its
+   *  video. */
+  function toggleAnimation(id) {
+    if (playing) play(null, playing);
+    const html = !!info(id).page, open = openClip === id || openPlayer === id;
+    if (scenePlayer) { scenePlayer.close(); scenePlayer = null; }
+    openClip = !open && !html ? id : null;
+    openPlayer = !open && html ? id : null;
+    render();
+    if (openPlayer) requestAnimationFrame(() => Studio.reveal(root.querySelector("#sv-player")));
+  }
+  /** The scene player section: the open HTML scene's player, built once per opened scene. */
+  function playerSection() {
+    if (!openPlayer || !project || !info(openPlayer).page) return null;
+    if (!scenePlayer || scenePlayer.scene !== openPlayer)
+      scenePlayer = makeScenePlayer(openPlayer);
+    return scenePlayer.el;
+  }
+
+  /* ---------- scene player: an HTML scene's page, played, paused and marked ---------- */
+
+  /** Seconds the Send button waits for the element ids under a mark; then it sends with none. */
+  const HITS_WAIT_MS = 1000;
+  /** The colour of the mark drawn into the marked still sent to Claude (the shell's marked copy red). */
+  const STILL_RED = "#e5382f";
+  const MARK_TOOLS = [["point", "Point", "Click on the spot to change"], ["box", "Box", "Drag a box around the part to change"]];
+
+  /**
+   * The player of an HTML scene's newest render: its page in a sandboxed iframe (served under /scene/ with
+   * scene-player.js), Play/Pause, a scrub bar and the time. The page owns time: the narration's <audio> time, or a
+   * clock for a silent scene, sent as `sv:seek` each frame. Paused, the user marks a point or a box; the iframe
+   * answers the element ids under it (`sv:hits`). Send draws the marked still from scene.mp4 at that time, writes
+   * it with /api/scene-marked and sends a `mark-scene` request. sync() follows a newer render at the same time.
+   */
+  function makeScenePlayer(id) {
+    const S = { scene: id, page: info(id).page, t: 0, playing: false, ready: false, W: 1920, H: 1080, tool: "point",
+      mark: null, drawing: null, ids: null, qid: 0, origin: 0, raf: 0, sending: false };
+    const iframe = h("iframe", { sandbox: "allow-scripts", title: "Scene animation", src: S.page.page_url });
+    const overlay = h("canvas", { class: "sp-overlay" });
+    const stage = h("div", { class: "sp-stage" + (film.shape === "9:16" ? " tall" : "") }, iframe, overlay);
+    const playB = h("button", { type: "button", class: "secondary sp-play", onclick: () => (S.playing ? pause() : play()) }, "Play");
+    const scrub = h("input", { type: "range", class: "sp-scrub", min: "0", step: "0.01", value: "0",
+      oninput: e => { pause(false); clearMark(); seek(parseFloat(e.target.value)); } });
+    const clock = h("span", { class: "sp-time" });
+    const tools = seg(MARK_TOOLS, S.tool, v => { S.tool = v; clearMark(); });
+    const idsLine = h("div", { class: "sp-ids" });
+    const text = h("textarea", { class: "sp-text", rows: 2, placeholder: "What to change at this moment. For example: make this label larger and move it left." ,
+      oninput: paintSend });
+    const sendB = h("button", { class: "primary sp-send", type: "button", disabled: true, onclick: () => send() }, "Send");
+    const status = h("span", { class: "hint sp-status" });
+    const markPart = h("div", { class: "sp-mark" },
+      h("div", { class: "line" }, tools, h("span", { class: "hint" }, "Pause, then mark what to change on the frame")),
+      idsLine, text, h("div", { class: "line" }, sendB, status));
+    const commentsEl = h("div", { class: "sp-comments" });
+    const heading = h("span", {});
+    const el = h("section", { class: "card sp", id: "sv-player" },
+      h("h2", {}, heading, h("button", { class: "mini", type: "button", onclick: () => toggleAnimation(id) }, "Hide")),
+      stage, h("div", { class: "line sp-controls" }, playB, scrub, clock), markPart, commentsEl);
+    const audio = new Audio();
+
+    const duration = () => Number(S.page.duration) || 0;
+    const post = msg => { if (iframe.contentWindow) iframe.contentWindow.postMessage(msg, "*"); };
+
+    function paint() {
+      heading.textContent = `Scene ${indexOf(id) + 1}, ${titleOf(id)} · v${S.page.n}`;
+      playB.textContent = S.playing ? "Pause" : "Play";
+      scrub.max = String(duration());
+      scrub.value = String(S.t);
+      clock.textContent = `${S.t.toFixed(2)} / ${duration().toFixed(2)} s`;
+      markPart.hidden = S.playing;
+      overlay.classList.toggle("on", !S.playing && S.ready);
+      paintSend();
+    }
+    function paintSend() {
+      sendB.disabled = S.sending || !S.mark || S.ids === null || !text.value.trim();
+      idsLine.textContent = !S.mark ? "" : S.ids === null ? "Finding the elements under the mark…"
+        : S.ids.length ? `Elements: ${S.ids.join(", ")}` : "No element with an id under the mark";
+    }
+    function seek(t) {
+      S.t = Math.min(Math.max(Number(t) || 0, 0), duration());
+      if (S.ready) post({ type: "sv:seek", t: (Number(S.page.start) || 0) + S.t });
+      paint();
+    }
+    function frame(now) {
+      if (!S.playing) return;
+      const t = S.page.narration ? audio.currentTime : (now - S.origin) / 1000;
+      if (t >= duration()) { seek(duration()); pause(); return; }
+      seek(t);
+      S.raf = requestAnimationFrame(frame);
+    }
+    function play() {
+      if (!S.ready) return;
+      if (S.t >= duration()) S.t = 0;
+      clearMark();
+      S.playing = true;
+      if (S.page.narration) {
+        if (audio.dataset.src !== S.page.narration) { audio.src = fileUrl(S.page.narration); audio.dataset.src = S.page.narration; }
+        audio.currentTime = S.t;
+        audio.play().catch(e => error(`Could not play the narration: ${e.message}`));
+      } else S.origin = performance.now() - S.t * 1000;
+      S.raf = requestAnimationFrame(frame);
+      paint();
+    }
+    function pause(redraw = true) {
+      S.playing = false;
+      cancelAnimationFrame(S.raf);
+      audio.pause();
+      if (redraw) seek(S.t);
+    }
+
+    /* marking, in fractions of the frame; the query and the request take frame pixels */
+    function clearMark() {
+      S.mark = S.drawing = null;
+      S.ids = null;
+      S.qid++;
+      redraw();
+      paintSend();
+    }
+    function redraw() {
+      const dpr = window.devicePixelRatio || 1, W = Math.round(overlay.clientWidth * dpr), H = Math.round(overlay.clientHeight * dpr);
+      if (overlay.width !== W || overlay.height !== H) { overlay.width = W; overlay.height = H; }
+      const g = overlay.getContext("2d");
+      g.clearRect(0, 0, W, H);
+      const marks = [S.drawing || S.mark].filter(Boolean);
+      Studio.drawMarks(g, W, H, marks, dpr, getComputedStyle(document.documentElement).getPropertyValue("--mark").trim() || STILL_RED);
+    }
+    const frameMark = m => (m.kind === "point"
+      ? { point: { x: Math.round(m.x * S.W * 10) / 10, y: Math.round(m.y * S.H * 10) / 10 } }
+      : { rect: { x: Math.round(m.x * S.W * 10) / 10, y: Math.round(m.y * S.H * 10) / 10, w: Math.round(m.w * S.W * 10) / 10, h: Math.round(m.h * S.H * 10) / 10 } });
+    function setMark(m) {
+      S.mark = m;
+      S.drawing = null;
+      S.ids = null;
+      const qid = ++S.qid;
+      post({ type: "sv:query", qid, ...frameMark(m) });
+      setTimeout(() => { if (S.qid === qid && S.ids === null) { S.ids = []; paintSend(); } }, HITS_WAIT_MS);
+      redraw();
+      paintSend();
+    }
+    const at = e => {
+      const r = overlay.getBoundingClientRect();
+      return [Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1), Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1)];
+    };
+    overlay.addEventListener("pointerdown", e => {
+      if (S.playing || !S.ready) return;
+      const [x, y] = at(e);
+      if (S.tool === "point") return setMark({ kind: "point", x, y });
+      overlay.setPointerCapture(e.pointerId);
+      S.start = [x, y];
+      S.drawing = { kind: "box", x, y, w: 0, h: 0 };
+    });
+    overlay.addEventListener("pointermove", e => {
+      if (!S.drawing) return;
+      const [x, y] = at(e), [x0, y0] = S.start;
+      S.drawing = { kind: "box", x: Math.min(x, x0), y: Math.min(y, y0), w: Math.abs(x - x0), h: Math.abs(y - y0) };
+      redraw();
+    });
+    overlay.addEventListener("pointerup", () => {
+      const d = S.drawing;
+      if (!d) return;
+      if (d.w > 0.01 && d.h > 0.01) setMark(d);
+      else { S.drawing = null; redraw(); }
+    });
+
+    function onMessage(ev) {
+      const m = ev.data;
+      if (ev.source !== iframe.contentWindow || !m || typeof m.type !== "string") return;
+      if (m.type === "sv:ready") {
+        S.ready = true;
+        S.W = Number(m.width) || S.W;
+        S.H = Number(m.height) || S.H;
+        stage.style.aspectRatio = `${S.W} / ${S.H}`;
+        status.textContent = (m.errors || []).length ? `The page reported: ${m.errors.join("; ")}` : "";
+        seek(S.t);
+      } else if (m.type === "sv:hits" && m.qid === S.qid && S.mark) {
+        S.ids = Array.isArray(m.ids) ? m.ids.filter(x => typeof x === "string") : [];
+        paintSend();
+      }
+    }
+    window.addEventListener("message", onMessage);
+
+    /** The frame of scene.mp4 at scene time t with the mark drawn, as a PNG data URL. */
+    function still(t, mark) {
+      return new Promise((resolve, reject) => {
+        const v = h("video", { muted: true, preload: "auto", playsinline: true });
+        v.addEventListener("error", () => reject(new Error("the render could not be read")));
+        v.addEventListener("loadedmetadata", () => { v.currentTime = Math.min(t, Math.max(0, v.duration - 0.01)); }, { once: true });
+        v.addEventListener("seeked", () => {
+          const W = v.videoWidth, H = v.videoHeight, c = h("canvas", { width: W, height: H }), g = c.getContext("2d");
+          g.drawImage(v, 0, 0, W, H);
+          Studio.drawMarks(g, W, H, [mark], Math.max(1, W / (overlay.clientWidth || W)), STILL_RED);
+          resolve(c.toDataURL("image/png"));
+        }, { once: true });
+        v.src = fileUrl(S.page.video);
+      });
+    }
+
+    async function send() {
+      const mark = S.mark, ids = S.ids, words = text.value.trim(), t = Math.round(S.t * 1000) / 1000, page = S.page;
+      if (!mark || ids === null || !words) return;
+      S.sending = true;
+      paintSend();
+      try {
+        let marked = null;
+        if (page.video) {
+          status.textContent = "Drawing the marked still…";
+          const png = await still(t, mark);
+          marked = (await api.post("/api/scene-marked", { project: project.dir, scene: id, version: page.n, t, png })).path;
+        }
+        const sent = await request({ action: "mark-scene", scene: id, version: page.n, t, mark: frameMark(mark), ids, marked, text: words,
+          world: page.world || null, world_t: page.world ? Math.round(((Number(page.start) || 0) + t) * 1000) / 1000 : null });
+        if (sent) { text.value = ""; clearMark(); paintComments(); status.textContent = "Sent to Claude"; }
+        else status.textContent = "";
+      } catch (e) {
+        status.textContent = `Could not send: ${e.message}`;
+      } finally {
+        S.sending = false;
+        paintSend();
+      }
+    }
+
+    function paintComments() {
+      const open = reqs().filter(p => p.request.action === "mark-scene" && p.request.scene === id);
+      commentsEl.replaceChildren(...open.map(p => h("div", { class: "notice inline sp-comment", "data-req": p.request.id },
+        h("span", {}, `${Number(p.request.t).toFixed(2)} s: ${p.request.text}`), runStatus(p.request.id),
+        h("button", { class: "mini", type: "button", onclick: () => Studio.stopRequest(p.request.id) }, "Stop"))));
+    }
+
+    /** Follows a newer page version of the scene: it opens at the same time once ready. A new render of the same
+     *  version only gives the scene.mp4 the marked still is drawn from. */
+    function sync() {
+      const page = info(id).page;
+      if (page && page.n !== S.page.n) {
+        pause(false);
+        clearMark();
+        S.page = page;
+        S.ready = false;
+        audio.removeAttribute("src");
+        delete audio.dataset.src;
+        iframe.src = page.page_url;
+      } else if (page) S.page = page;
+      paintComments();
+      paint();
+    }
+
+    function close() {
+      pause(false);
+      window.removeEventListener("message", onMessage);
+    }
+
+    paintComments();
+    paint();
+    return { scene: id, el, sync, close, state: S };
+  }
   const narrated = x => (x.narration || []).length > 0;
   /** Step 4 is done once every scene with narration has a recording that matches it. */
   const voiced = () => scenes().length > 0 && scenes().every(x => !narrated(x) || (info(x.id).recording && stateOf(x.id) !== "voice"));
   /** Step 6 is done once every scene has an animation that matches it. */
-  const animated = () => scenes().length > 0 && scenes().every(x => info(x.id).clip && stateOf(x.id) === "ready");
-  const scenesSummary = () => `${scenes().filter(x => info(x.id).clip && stateOf(x.id) === "ready").length} of ${plural(scenes().length, "scene")} ready`;
+  const animated = () => scenes().length > 0 && scenes().every(x => (info(x.id).clip || info(x.id).page) && stateOf(x.id) === "ready");
+  const scenesSummary = () => `${scenes().filter(x => (info(x.id).clip || info(x.id).page) && stateOf(x.id) === "ready").length} of ${plural(scenes().length, "scene")} ready`;
   /** What a scene's recording is: made, to make again, to make, or none without narration. */
   function voiceLine(x) {
     const rec = info(x.id).recording;
@@ -931,7 +1273,9 @@
   }
   /** What a scene's animation is: made, to make again, or to make. */
   function clipLine(x) {
-    const clip = info(x.id).clip;
+    const clip = info(x.id).clip, page = info(x.id).page;
+    if (page && (!clip || page.video !== clip.path))
+      return `page v${page.n} · ${mmss(page.duration)}${page.video ? "" : " · not rendered"}${stateOf(x.id) === "ready" ? "" : " · to make again, the scene changed"}`;
     if (!clip) return "to make";
     return `v${clip.n} · ${mmss(clip.duration)}${stateOf(x.id) === "ready" ? "" : " · to make again, the scene changed"}`;
   }
@@ -951,7 +1295,7 @@
     if (!project || samples() || !scenes().length) return null;
     const rows = scenes().map((x, i) => {
       const id = x.id, inf = info(id), clip = inf.clip, rec = inf.recording, busy = busyText(id);
-      const pic = pictureOf(x);
+      const pic = thumbOf(x);
       const thumb = h("div", { class: "thumb" + (busy ? " busy" : "") },
         clip ? clipStill(clip) : pic ? h("img", { src: fileUrl(pic), alt: "", loading: "lazy" }) : drawn(x) ? drawnThumb(x) : h("div", { class: "noimg" }),
         h("span", { class: "num" }, String(i + 1)), busy ? h("div", { class: "spin" }) : null);
@@ -961,7 +1305,7 @@
         h("div", { class: "what" }, h("b", {}, titleOf(id), kindWord(x) ? h("span", { class: "kind" }, kindWord(x)) : null),
           h("div", { class: "line" }, rec && narrated(x) ? playButton("Play this scene’s recording", b => { if (openClip) { openClip = null; render(); } play(rec.path, b); }) : h("span", { class: "noplay" }),
             h("span", { class: "lab" }, "Voice"), h("span", {}, voiceLine(x))),
-          h("div", { class: "line" }, clip ? playButton(showing ? "Hide the animation" : "Play this scene’s animation", () => { if (playing) play(null, playing); openClip = showing ? null : id; render(); })
+          h("div", { class: "line" }, clip || inf.page ? playButton(showing || openPlayer === id ? "Hide the animation" : "Play this scene’s animation", () => toggleAnimation(id))
             : h("span", { class: "noplay" }), h("span", { class: "lab" }, "Animation"), h("span", {}, clipLine(x)))),
         chip(id),
         h("div", { class: "acts" },
@@ -980,31 +1324,47 @@
   function stepFilms() {
     if (!project || samples()) return null;
     const films = V().films || [];
-    const next = Math.max(0, ...films.map(f => f.n)) + 1;
+    const htmlFilms = V().html_films || [];
+    const next = Math.max(0, ...films.map(f => f.n)) + 1, nextHtml = Math.max(0, ...htmlFilms.map(f => f.n)) + 1;
     const making = reqs().filter(p => makesFilm(p.request));
-    if (!films.length && !making.length) return scenes().length ? filmPlan() : null;
+    if (!films.length && !htmlFilms.length && !making.length) return scenes().length ? filmPlan() : null;
     /** The pending requests on film `n` (review, phone), each with its line; a fix is shown by its film-making card. */
     const ON_FILM = { review: "Review", phone: "Phone version" };
     const onFilm = n => reqs().filter(p => ON_FILM[p.request.action] && p.request.version === n)
       .map(p => h("div", { class: "changed" }, h("b", {}, ON_FILM[p.request.action]), runStatus(p.request.id)));
+    const exporting = blocker({ action: "export-mp4" });
+    let mp4s = 0, htmls = 0;
     return h("section", { class: "card", id: "sv-films" },
       h("h2", {}, h("span", { class: "num" }, String(filmsNum())), "Films", h("span", { class: "hint" }, "every version is kept, newest first")),
       h("div", { class: "films" },
-        making.map((p, i) => {
+        making.map(p => {
           const done = p.current ? filmDone(p.request) : null, note = p.current ? progress(p.request.id) : null;
+          const label = mp4Run(p.request) ? `MP4 v${next + mp4s++}` : `HTML v${nextHtml + htmls++}`;
           return h("div", { class: "film pending" },
             h("div", { class: "ph" }, p.current ? h("div", { class: "spin" }) : null, p.current ? makingText(p.request, next) : "Waiting"),
-            h("div", { class: "t" }, h("b", {}, `v${next + i}`), h("span", {}, p.current ? "being made" : "queued")),
+            h("div", { class: "t" }, h("b", {}, label), h("span", {}, p.current ? "being made" : "queued")),
             h("div", { class: "made" },
               done ? h("div", { class: "counts" }, done.map(([label, value]) => h("span", {}, `${label} `, h("b", {}, value)))) : null,
               note ? h("div", { class: "note" }, note) : null,
               runStatus(p.request.id)));
         }),
+        // The newest HTML film plays here, in a sandbox without Studio's origin (the server's CSP says the same);
+        // older ones open in a tab, since each embeds every scene and its audio.
+        htmlFilms.map((f, k) => h("div", { class: "film" },
+          k === 0 ? h("div", { class: "player" + (film.shape === "9:16" ? " tall" : "") },
+            h("iframe", { src: fileUrl(f.path), sandbox: "allow-scripts", allow: "fullscreen", allowfullscreen: true, title: `HTML film v${f.n}`,
+              style: `width:100%;border:0;display:block;aspect-ratio:${film.shape === "9:16" ? "9 / 16" : "16 / 9"}` })) : null,
+          h("div", { class: "t" }, h("b", {}, `HTML v${f.n}`), h("span", {}, [f.duration ? mmss(f.duration) : null, when(f.created)].filter(Boolean).join(" · ")),
+            h("span", { class: "acts" }, h("a", { class: "mini", href: fileUrl(f.path), target: "_blank", rel: "noopener" }, k === 0 ? "Open in a tab" : "Watch the film"),
+              k === 0 ? [" ", h("button", { class: "mini", disabled: !!exporting, title: exporting ? pendingText(exporting)
+                : "Renders every scene and assembles film.mp4 from the current scenes; review and phone version work on the MP4",
+                onclick: () => send({ action: "export-mp4" }) }, "Export MP4")] : null)),
+          f.changes ? h("div", { class: "changed" }, f.changes) : null)),
         films.map(f => {
           const video = h("video", { src: fileUrl(f.path), controls: true, preload: "metadata" });
           return h("div", { class: "film" },
             h("div", { class: "player" + (film.shape === "9:16" ? " tall" : "") }, video),
-            h("div", { class: "t" }, h("b", {}, `v${f.n}`), h("span", {}, [f.duration ? mmss(f.duration) : null, when(f.created)].filter(Boolean).join(" · ")),
+            h("div", { class: "t" }, h("b", {}, `MP4 v${f.n}`), h("span", {}, [f.duration ? mmss(f.duration) : null, when(f.created)].filter(Boolean).join(" · ")),
               h("span", { class: "acts" }, h("button", { class: "mini", onclick: () => download(f.path) }, "⬇ Download"), " ",
                 f.review ? null : [h("button", { class: "mini", ...guard({ action: "review", version: f.n }), onclick: () => send({ action: "review", version: f.n }) }, "Review this film"), " "],
                 film.shape === "16:9" ? h("button", { class: "mini", ...guard({ action: "phone", version: f.n }), onclick: () => phone(f) }, "Phone version") : null)),
@@ -1015,57 +1375,66 @@
   }
 
   /**
-   * What differs between the newest film and the project as it is now: null when the film is up to date (every
-   * scene ready, the scenes of its manifest the storyboard's in order with their newest clips, and the music it used
-   * the one the film would use now); otherwise the number of scenes that changed (added, removed, moved, or with a
-   * newer or a needed recording or clip) and whether the music changed. With no film, every scene is to make.
+   * What differs between the newest film (the newest HTML film, else the newest MP4) and the project as it is now:
+   * null when the film is up to date; otherwise the number of scenes that changed (added, removed, moved, needing a
+   * recording or a new version, or with a newer page or clip than the film plays) and whether the music changed (an
+   * MP4 only: an HTML film plays the newest music version). `label` names the film. With no film, every scene is to
+   * make.
    */
   function filmChanges() {
-    const f = (V().films || [])[0], list = scenes();
-    if (!f) return { scenes: list.length, music: false, none: true };
-    const used = Array.isArray(f.scenes) ? f.scenes : [];
+    const hf = (V().html_films || [])[0], mf = (V().films || [])[0], list = scenes();
+    if (!hf && !mf) return { scenes: list.length, music: false, none: true };
+    const used = (hf ? hf.scenes : mf.scenes) || [];
     const moved = used.length !== list.length || used.some((e, k) => !e || e.id !== list[k].id);
-    const changed = moved ? list.length : list.filter((x, k) => stateOf(x.id) !== "ready"
-      || !info(x.id).clip || used[k].scene_version !== `v${info(x.id).clip.n}`).length;
-    const music = (film.music.mode === "none" ? null : V().music_used) !== (f.music ?? null);
-    return changed || music ? { scenes: changed, music, none: false } : null;
+    /** The source the HTML film plays for scene `id` now: its page version directory, else its clip. */
+    const source = id => {
+      const { page, clip } = info(id);
+      if (page) return page.world ? `worlds/${page.world}/v${page.n}` : `scenes/${id}/v${page.n}`;
+      return clip ? `scenes/${id}/v${clip.n}/scene.mp4` : null;
+    };
+    const stale = hf ? (x, k) => source(x.id) === null || used[k].source !== source(x.id)
+      : (x, k) => !info(x.id).clip || used[k].scene_version !== `v${info(x.id).clip.n}`;
+    const changed = moved ? list.length : list.filter((x, k) => stateOf(x.id) !== "ready" || stale(x, k)).length;
+    const music = !hf && (film.music.mode === "none" ? null : V().music_used) !== (mf.music ?? null);
+    return changed || music ? { scenes: changed, music, none: false, label: hf ? `HTML v${hf.n}` : `MP4 v${mf.n}` } : null;
   }
   /** The films step's line: "not made yet", what changed since the newest film, or the number of films. */
   function filmsSummary() {
-    const c = filmChanges(), films = V().films || [];
-    if (!c) return plural(films.length, "film");
+    const c = filmChanges(), films = (V().html_films || []).length + (V().films || []).length;
+    if (!c) return plural(films, "film");
     if (c.none) return "not made yet";
     return [c.scenes ? `${plural(c.scenes, "scene")} changed` : null, c.music ? "music changed" : null].filter(Boolean).join(" and ")
-      + ` since film v${films[0].n}`;
+      + ` since film ${c.label}`;
   }
   /** The films step before the first film: what "Make the film" will do. */
   function filmPlan() {
     const n = scenes().length, music = film.music.mode === "none" ? "no music"
       : V().music_used != null ? `music: track v${V().music_used}` : film.music.mode === "made" ? "make the music" : "music: choose a track in step 5";
     const plan = [`Record the voice of ${plural(scenes().filter(x => (x.narration || []).length).length, "scene")}`,
-      `Animate ${plural(n, "scene")}`, music[0].toUpperCase() + music.slice(1), "Put the film together and check it",
-      film.review ? "Review the film and list what to fix" : null].filter(Boolean);
+      `Animate ${plural(n, "scene")}`, music[0].toUpperCase() + music.slice(1), "Put the film together as one HTML page you play here"];
     return h("section", { class: "card", id: "sv-films" },
       h("h2", {}, h("span", { class: "num" }, String(filmsNum())), "Film", h("span", { class: "hint" }, "not made yet")),
       h("p", { class: "hint" }, "“Make the film” does all of this:"),
-      h("ol", { class: "plan" }, plan.map(t => h("li", {}, t))));
+      h("ol", { class: "plan" }, plan.map(t => h("li", {}, t))),
+      h("p", { class: "hint" }, `Export MP4 on the film then renders a video file${film.review ? ", which a second model reviews" : ""}; the review and the phone version work on the MP4.`));
   }
 
   /** The findings listed of a review: those with a number `k` and numeric `start` and `end`. */
   const findingsOf = review => (review && Array.isArray(review.findings) ? review.findings : [])
     .filter(x => x && Number.isInteger(x.k) && Number.isFinite(x.start) && Number.isFinite(x.end));
 
-  /** What the current film-making request `r` is doing: making film v`next`, then, once it has assembled a film
-   *  since it started and the film is reviewed, reviewing it, and in auto autonomy fixing it once its review has a
-   *  finding. A fix is not reviewed. */
+  /** What the current film-making request `r` is doing: making the HTML film; for an MP4 run (export-mp4, fix)
+   *  making MP4 v`next`, then, once it has assembled one since it started and the film is reviewed, reviewing it, and
+   *  in auto autonomy fixing it once its review has a finding. A fix is not reviewed. */
   function makingText(r, next) {
+    if (!mp4Run(r)) return "Making the film…";
     const since = started(r.id);
     const assembled = (V().films || []).filter(f => madeSince(f.created, since));
-    if (!assembled.length || !film.review || r.action === "fix") return `Making film v${next}…`;
+    if (!assembled.length || !film.review || r.action === "fix") return `Making MP4 v${next}…`;
     const reviewed = assembled.find(f => f.review);
-    const auto = Studio.autonomy() === "auto" || !!r.make_film;
-    if (reviewed && auto && findingsOf(reviewed.review).length) return `Fixing film v${reviewed.n}…`;
-    return `Reviewing film v${(reviewed || assembled[0]).n}…`;
+    const auto = Studio.autonomy() === "auto";
+    if (reviewed && auto && findingsOf(reviewed.review).length) return `Fixing MP4 v${reviewed.n}…`;
+    return `Reviewing MP4 v${(reviewed || assembled[0]).n}…`;
   }
 
   /** The findings of film `f`'s review, each with its time range (a click seeks `video` there); on the newest film
@@ -1121,7 +1490,7 @@
     const id = view;
     const sc = () => sceneOf(id) || {};
     section(() => JSON.stringify([id, scenes().length, indexOf(id), secs(sc()), notice, !!samples()]), sceneNav);
-    section(() => JSON.stringify([id, info(id).pictures, info(id).picture, sc().image, shown, picturesLocked(id), P().name,
+    section(() => JSON.stringify([id, info(id).pictures, info(id).picture, info(id).still, info(id).page, drawn(sc()), sc().image, shown, picturesLocked(id), P().name,
       reqs().filter(p => p.request.scene === id).map(p => [p.request.id, p.current])]), scenePicture);
     section(() => JSON.stringify([id, sc().narration, sc().beats, sc().speakers, sc().voices, sb && sb.speakers, film.voice,
       info(id).recording && info(id).recording.duration, writeHint, drawn(sc())]), sceneLines);
@@ -1162,47 +1531,53 @@
   /** Pictures a pending request on the scene makes. */
   function expected(r) {
     switch (r.action) {
-      case "change": return 1;
+      case "change": case "use-still": return 1;
       case "variations": return r.count || 3;
       case "other-styles": return (r.styles && r.styles.length) || 3;
       default: return 0;
     }
   }
 
-  /** The number of a scene view step: one less in a drawn scene, which has no picture step. */
-  const stepNum = n => String(drawn(sceneOf(view)) ? n - 1 : n);
+  /** The number of a scene view step. */
+  const stepNum = n => String(n);
+  /** Whether still `v` is of the page version the film uses (the scene's latest page). */
+  const stillInFilm = (v, id) => !!info(id).page && info(id).page.page === `${project.dir}/${v.page_version}/index.html`;
 
+  /** Step 1 of the scene view: the picture versions, or for a drawn scene the stills of its page versions, with the
+   *  chosen one in the shell's detail view. */
   function scenePicture() {
-    if (drawn(sceneOf(view))) {
-      ui.wantDetail = null;
-      return h("section", { class: "card drawn-note" }, Studio.icon("draw"),
-        h("div", {}, h("b", {}, "This scene has no picture."), " Its page draws it when the film is made."));
-    }
-    const id = view, i = info(id), pics = i.pictures.map(v => adopt(v, id));
+    const id = view, i = info(id), paged = drawn(sceneOf(id));
+    const pics = i.pictures.filter(v => !paged || isStill(v)).map(v => adopt(v, id));
+    const used = paged ? i.still : i.picture;
     // A version the page just wrote (`waiting`) stays chosen until the project's reload lists it.
     if (shown && shown.scene === id && !shown.waiting && !pics.some(v => v.n === shown.n)) shown = null;
-    if (!shown || shown.scene !== id) shown = pics.length ? { scene: id, n: i.picture ?? pics[0].n } : null;
+    if (!shown || shown.scene !== id) shown = pics.length ? { scene: id, n: used ?? pics[0].n } : null;
     let v = shown && pics.find(p => p.n === shown.n);
     if (v) delete shown.waiting;
-    else if (shown && shown.waiting) v = pics.find(p => p.n === i.picture) || pics[0] || null;
+    else if (shown && shown.waiting) v = pics.find(p => p.n === used) || pics[0] || null;
     let next = Math.max(0, ...pics.map(p => p.n)) + 1;
     const cards = [];
     for (const p of reqs().filter(p => p.request.scene === id && PICTURE_ACTIONS.includes(p.request.action))) {
       const made = p.current && p.request.time ? pics.filter(x => new Date(x.created) >= new Date(p.request.time)).length : 0;
       for (let k = made; k < expected(p.request); k++) cards.push(h("div", { class: "ver pending" },
         h("div", { class: "ph" }, p.current ? h("div", { class: "spin" }) : null, p.current ? `Making v${next++}…` : "Waiting"),
-        h("div", { class: "t" }, h("b", {}, p.current ? `v${next - 1}` : "queued"), h("span", {}, p.request.action === "change" ? `change of v${p.request.version}` : p.request.action.replace("-", " "))),
+        h("div", { class: "t" }, h("b", {}, p.current ? `v${next - 1}` : "queued"), h("span", {}, p.request.action === "change" ? `change of v${p.request.version}`
+          : p.request.action === "use-still" ? `page of v${p.request.version}` : p.request.action.replace("-", " "))),
         k === made ? h("div", { class: "t" }, runStatus(p.request.id)) : null));
     }
     cards.push(...pics.map(p => h("div", { class: "ver" + (v && p.n === v.n ? " on" : ""), onclick: () => { shown = { scene: id, n: p.n }; render(); } },
       h("img", { src: fileUrl(p.image), alt: "", loading: "lazy" }),
-      p.n === i.picture ? h("span", { class: "badge" }, "In the film") : null,
+      (paged ? stillInFilm(p, id) : p.n === i.picture) ? h("span", { class: "badge" }, "In the film") : null,
       h("div", { class: "t" }, h("b", {}, `v${p.n}`), h("span", {}, p.action === "own-picture" ? "your picture" : versionStyle(p)), h("span", {}, when(p.created))))));
     ui.wantDetail = v || null;
     return h("section", { class: "card" },
-      h("h2", {}, h("span", { class: "num" }, "1"), "Picture", h("span", { class: "hint" }, "every version is kept, newest first; mark what to change")),
-      v ? ui.detailHost : h("div", { class: "nopic" }, h("span", {}, "This scene has no picture yet."),
-        h("button", { class: "secondary", disabled: picturesLocked(id), onclick: () => ownPicture(id) }, "Use my own picture")),
+      h("h2", {}, h("span", { class: "num" }, "1"), paged ? "Still of the page" : "Picture", h("span", { class: "hint" },
+        paged ? "a frame of the scene's page; every version is kept, newest first; mark what to change in the page"
+          : "every version is kept, newest first; mark what to change")),
+      v ? ui.detailHost : paged ? h("div", { class: "nopic drawn-note" }, Studio.icon("draw"),
+        h("span", {}, "This scene is drawn in its page. Its page is built and a still taken where the other scenes get their pictures."))
+        : h("div", { class: "nopic" }, h("span", {}, "This scene has no picture yet."),
+          h("button", { class: "secondary", disabled: picturesLocked(id), onclick: () => ownPicture(id) }, "Use my own picture")),
       cards.length ? h("div", { class: "pics" }, cards) : null);
   }
 
@@ -1521,7 +1896,7 @@
       rend ? `${rend} ${rend === 1 ? "needs" : "need"} a render` : null].filter(Boolean).join(", ") : "every scene up to date";
     bar.enable(list.length > 0);
     bar.summary([plural(list.length, "scene"), mmss(total()), shapeLabel(film.shape), `voice ${voiceText(v)}`, music, work,
-      film.review ? "reviewed" : null].filter(Boolean).join(" · "));
+      film.review ? "MP4 reviewed" : null].filter(Boolean).join(" · "));
   }
 
   /* ---------- module ---------- */
@@ -1564,12 +1939,14 @@
     } else film = filmOf(data);
     if (!samples()) fromCatalogue = false;
     if (view && !sceneOf(view)) { view = null; build(); return; }
+    if (scenePlayer) scenePlayer.sync();
     render();
   }
 
   function onEvent(ev) {
     if (!form || !root) return;
-    if (["state", "request", "pending", "turn", "note", "autonomy", "catalogue", "stopped"].includes(ev.kind)) render();
+    if (["state", "request", "pending", "turn", "note", "autonomy", "catalogue", "stopped", "done"].includes(ev.kind)) render();
+    if (scenePlayer && ["state", "request", "stopped", "done"].includes(ev.kind)) scenePlayer.sync();
   }
 
   /** Text of a request in the Claude column. */
@@ -1589,13 +1966,18 @@
         const other = here && samples() ? " other" : "";
         return { text: req.style === "invent" ? `Invent 3${other} styles to choose from` : `Pick 3${other} catalogue styles to choose from` };
       }
-      case "change": case "variations": case "other-styles": return describeEdit(req, `${k(req.scene)} · picture `);
+      case "change": case "variations": case "other-styles":
+        return describeEdit(req, `${k(req.scene)} · ${here && drawn(sceneOf(req.scene)) ? "still" : "picture"} `);
+      case "use-still": return { text: `${K(req.scene)}: use the page of still v${req.version}` };
       case "add-scene": return { text: `Add a scene${req.after ? ` after ${k(req.after)}` : ""}:\n${req.text}` };
       case "remake-scene": return { text: `Remake ${k(req.scene)}` };
+      case "mark-scene": return { text: `${K(req.scene)} at ${Number(req.t).toFixed(2)} s${req.ids && req.ids.length ? ` · ${req.ids.join(", ")}` : ""}:\n${req.text}`,
+        images: req.marked ? [req.marked] : [] };
       case "music": return { text: `Make new music:\n${req.brief}` };
       case "own-music": return { text: `Use my own track ${baseName(req.file || "")}` };
       case "voice-sample": return { text: `A sample of the voice ${voiceText(resolve(null, req.voice))}` };
       case "make-film": return { text: "Make the film" };
+      case "export-mp4": return { text: "Export the film as MP4" };
       case "review": return { text: `Review film v${req.version}` };
       case "fix": {
         const n = (req.findings || []).length;
@@ -1607,8 +1989,14 @@
     }
   }
 
-  const versionInfo = v => versionRows(v, shapeLabel);
+  /** A version's rows in the detail view; a still adds the page version and time it was taken from, and its page style. */
+  const versionInfo = v => [...versionRows(v, shapeLabel),
+    ...(isStill(v) ? [["Page", `${v.page_version}${Number.isFinite(v.t) ? ` at ${v.t} s` : ""}`], ["Page style", pageStyleText(v)]] : [])]
+    .filter(r => r[1]);
 
+  /** The detail actions of a version: a picture's (variations, other styles, own picture, use it); a still takes a
+   *  change (Send), "Use this still" when its page is not the film's (a `use-still` request makes that page the
+   *  scene's latest page version), "Use as reference" and Download. */
   function detailActions(v) {
     const id = v.sceneId, locked = picturesLocked(id);
     const acts = editActions(v, async () => {
@@ -1618,6 +2006,14 @@
       openScene(null);
       requestAnimationFrame(() => Studio.reveal(root.querySelector("#sv-brief")));
     });
+    // editActions: 3 variations, other styles, use as reference, download.
+    if (isStill(v)) {
+      const still = acts.slice(2);
+      if (info(id).page && !stillInFilm(v, id)) still.unshift({ label: "Use this still",
+        disabled: locked, title: locked ? "Stills of this scene are being made; wait until they are done" : null,
+        run: () => send({ action: "use-still", scene: id, version: v.n }) });
+      return still;
+    }
     acts.splice(3, 0, { label: "Use my own picture", disabled: locked, run: () => ownPicture(id),
       title: locked ? "Pictures of this scene are being made; wait until they are done" : null });
     if (info(id).picture !== v.n) acts.unshift({ label: "Use this picture", run: () => usePicture(v) });
@@ -1625,7 +2021,7 @@
   }
 
   const changeFields = v => (v.sceneId ? { scene: v.sceneId } : {});
-  const detailTitle = v => `${P().name || ""} · scene ${indexOf(v.sceneId) + 1} · picture v${v.n}`;
+  const detailTitle = v => `${P().name || ""} · scene ${indexOf(v.sceneId) + 1} · ${isStill(v) ? "still" : "picture"} v${v.n}`;
 
   Studio.register({ id: "videos", tag: () => "Short video", versionNoun: "film", open, update, onEvent, describe, versionInfo,
     detailActions, changeFields, detailTitle,

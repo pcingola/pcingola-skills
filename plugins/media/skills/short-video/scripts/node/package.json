@@ -1,9 +1,13 @@
 {
   "name": "short-video-render",
   "private": true,
-  "description": "Pinned HyperFrames renderer and GSAP for the short-video skill",
+  "description": "Pinned HyperFrames renderer and the animation libraries (GSAP, anime.js, Motion, d3, three.js) for the short-video skill",
   "dependencies": {
+    "animejs": "4.5.0",
+    "d3": "7.9.0",
     "gsap": "3.13.0",
-    "hyperframes": "0.8.143"
+    "hyperframes": "0.8.143",
+    "motion": "14.14.0",
+    "three": "0.159.0"
   }
 }

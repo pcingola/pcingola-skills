@@ -5,6 +5,7 @@ A checked request keeps every field the page sent; paths are replaced by their r
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -13,12 +14,18 @@ from .paths import HttpError, inside, positive, read_json, resolve_abs
 from .projects import AUTONOMY, PROJECT_FILE, kind_named, project_path
 from .video import (
     AUDIO_SUFFIXES,
+    COMMENTS,
     check_film,
+    page_of_scene,
+    picture_file,
     check_voice,
     default_film,
     film_of,
     films_of,
     has_picture,
+    is_drawn,
+    is_still,
+    key_scene,
     music_of,
     music_used,
     read_storyboard,
@@ -28,6 +35,7 @@ from .video import (
     scene_images,
     scene_named,
     scenes_of,
+    style_sample_versions,
 )
 
 SHAPES = ("1:1", "4:3", "16:9", "9:16")
@@ -40,7 +48,8 @@ MARK_KINDS = ("box", "point", "loop")
 ACTIONS = {
     "images": ("generate", "change", "variations", "other-styles", "assemble", "message"),
     "videos": ("storyboard", "use-style", "style-samples", "change", "variations", "other-styles", "add-scene",
-                    "remake-scene", "music", "own-music", "voice-sample", "make-film", "review", "fix", "phone", "message"),
+               "use-still", "remake-scene", "mark-scene", "music", "own-music", "voice-sample", "make-film", "export-mp4", "review",
+               "fix", "phone", "message"),
 }
 # Actions only some kinds take.
 KIND_ACTIONS = {"assemble": ("slide",)}
@@ -48,6 +57,12 @@ KIND_ACTIONS = {"assemble": ("slide",)}
 SLIDE_SHAPE = "16:9"
 # The `style` of a generate of one slide: the deck's style.
 DECK_STYLE = "auto"
+# Limits of a mark-scene request: element ids, the length of one id, the text.
+IDS_MAX = 200
+ID_MAX = 200
+TEXT_MAX = 10_000
+# The name of a marked still of a playing scene: comments/<scene>/v<N>-t<seconds>-<k>.png.
+SCENE_MARKED = re.compile(r"v([1-9][0-9]*)-t[0-9]+(?:\.[0-9]+)?-[1-9][0-9]*\.png")
 # The `style` of a style-samples request.
 SAMPLE_STYLES = ("auto", "invent")
 
@@ -105,9 +120,12 @@ def _mark(m: object) -> None:
             raise _fail(f"mark {n}: points must be a non-empty list of [x, y] fractions")
 
 
-def _version(req: dict, project: Path) -> int:
+def _version(req: dict, project: Path, image_of=None) -> int:
+    """`req["version"]`, a version of the image directory `project` with an image: `v<N>.png`, or the file
+    `image_of(N)` names (a scene's still)."""
     n = _int(req, "version")
-    if not (project / f"v{n}.png").is_file():
+    image = image_of(n) if image_of else project / f"v{n}.png"
+    if image is None or not image.is_file():
         raise _fail(f"version {n} has no image in {project}")
     return n
 
@@ -217,11 +235,11 @@ def check_request(req: object, root: Path) -> dict:
     return req
 
 
-def _check_version_action(req: dict, images: Path, action: str) -> None:
+def _check_version_action(req: dict, images: Path, action: str, image_of=None) -> None:
     """The fields of a change, variations or other-styles of a version in the image directory `images` (a project,
-    a deck's slide directory or a scene's `images/<scene>/`)."""
+    a deck's slide directory or a scene's `images/<scene>/`, whose versions' images `image_of` finds)."""
     if action == "change":
-        n = _version(req, images)
+        n = _version(req, images, image_of)
         marks = req.get("marks")
         if not isinstance(marks, list):
             raise _fail("marks must be a list")
@@ -237,10 +255,10 @@ def _check_version_action(req: dict, images: Path, action: str) -> None:
         if _marks_file(req, "mask", images, n, "mask") != k:
             raise _fail(f"mask must be {images / 'marks' / f'v{n}-mask-{k}.png'}, the mask of marked")
     elif action == "variations":
-        _version(req, images)
+        _version(req, images, image_of)
         _int(req, "count")
     elif action == "other-styles":
-        _version(req, images)
+        _version(req, images, image_of)
         _str_list(req, "styles")
 
 
@@ -262,7 +280,7 @@ def _files_in(req: dict, key: str, directory: Path | None, direct: bool = False)
 
 def _check_video(req: dict, root: Path, kind, action: str) -> dict:
     """The checks of a short-video request other than `message`. The server adds `film` to remake-scene, music,
-    make-film and fix."""
+    make-film, export-mp4 and fix."""
     # A storyboard with project null starts a new project, created by the server once the request is accepted.
     new = action == "storyboard" and req.get("project") is None
     project = None if new else project_path(root, req.get("project"), kind)
@@ -289,20 +307,34 @@ def _check_video(req: dict, root: Path, kind, action: str) -> dict:
         if req.get("version") is not None:
             n = _int(req, "version")
             samples = meta.get("samples")
-            if not isinstance(samples, dict) or not isinstance(samples.get("versions"), list):
-                raise _fail("the project has no style samples")
-            if n not in samples["versions"]:
-                raise _fail(f"version {n} is not one of the samples {samples['versions']}")
-            if samples.get("scene") not in scene_ids(project):
-                raise _fail(f"the samples' scene {samples.get('scene')!r} is no longer a scene of the storyboard")
+            current = samples.get("versions") if isinstance(samples, dict) else None
+            current = current if isinstance(current, list) else []
+            scene = samples.get("scene") if isinstance(samples, dict) else key_scene(scenes_of(read_storyboard(project)))
+            if scene is None or scene not in scene_ids(project):
+                raise _fail(f"the samples' scene {scene!r} is no longer a scene of the storyboard" if scene
+                            else "the project has no style samples")
+            earlier = style_sample_versions(project, scene)
+            if n not in current and n not in earlier:
+                raise _fail(f"version {n} is not a style sample of scene {scene!r}: the samples are "
+                            f"{sorted(set(current) | set(earlier)) or 'none'}")
         else:
             _str(req, "style", empty=False)
     elif action == "style-samples":
         _choice(req, "style", SAMPLE_STYLES)
-        if not any(has_picture(sc) for sc in scenes_of(read_storyboard(project))):
-            raise _fail("no scene of the storyboard has a picture to draw the samples on")
+        if not any(has_picture(sc) or is_drawn(sc) for sc in scenes_of(read_storyboard(project))):
+            raise _fail("no scene of the storyboard has a picture or a page to make the samples on")
     elif action in ("change", "variations", "other-styles"):
-        _check_version_action(req, scene_images(project, req), action)
+        images = scene_images(project, req)
+        _check_version_action(req, images, action, lambda n: picture_file(project, images, n))
+        sidecar = read_json(images / f"v{req['version']}.json")
+        if action != "change" and isinstance(sidecar, dict) and is_still(sidecar):
+            raise _fail(f"version {req['version']} is a still of the scene's page, which takes only a change")
+    elif action == "use-still":
+        images = scene_images(project, req)
+        n = _version(req, images, lambda n: picture_file(project, images, n))
+        sidecar = read_json(images / f"v{n}.json")
+        if not (isinstance(sidecar, dict) and is_still(sidecar)):
+            raise _fail(f"version {n} is not a still of the scene's page")
     elif action == "add-scene":
         if read_storyboard(project) is None:
             raise _fail("add-scene needs a storyboard")
@@ -312,6 +344,8 @@ def _check_video(req: dict, root: Path, kind, action: str) -> dict:
     elif action == "remake-scene":
         scene_named(project, req)
         req["film"] = film
+    elif action == "mark-scene":
+        _check_mark_scene(req, project)
     elif action == "music":
         _str(req, "brief", empty=False)
         req["film"] = film
@@ -321,7 +355,7 @@ def _check_video(req: dict, root: Path, kind, action: str) -> dict:
             raise _fail(f"file must have one of the suffixes {', '.join(AUDIO_SUFFIXES)}")
     elif action == "voice-sample":
         check_voice(req.get("voice"))
-    elif action == "make-film":
+    elif action in ("make-film", "export-mp4"):
         _check_film_ready(project, meta, film)
         req["film"] = film
     elif action in ("phone", "review", "fix"):
@@ -336,7 +370,7 @@ def _check_video(req: dict, root: Path, kind, action: str) -> dict:
 
 
 def _check_film_ready(project: Path, meta: dict, film: dict) -> None:
-    """Refuses a request that assembles a film (make-film, fix) on a project that cannot make one: no scene, style
+    """Refuses a request that makes a film (make-film, export-mp4, fix) on a project that cannot make one: no scene, style
     samples waiting, or own music without a track."""
     if not scene_ids(project):
         raise _fail("the storyboard has no scene")
@@ -367,3 +401,55 @@ def _check_fix(req: dict, project: Path, n: int) -> None:
     missing = [k for k in findings if k not in listed]
     if missing:
         raise _fail(f"findings {missing} are not in the review of film {n}")
+
+
+def _seconds(v: object) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def scene_mark(m: object) -> dict:
+    """A mark on a frame of a playing scene, in frame pixels: `{point: {x, y}}` or `{rect: {x, y, w, h}}` with a
+    positive w and h; 400 otherwise."""
+    if isinstance(m, dict) and len(m) == 1 and isinstance(m.get("point"), dict):
+        p = m["point"]
+        if all(_seconds(p.get(k)) for k in ("x", "y")):
+            return {"point": {"x": p["x"], "y": p["y"]}}
+    if isinstance(m, dict) and len(m) == 1 and isinstance(m.get("rect"), dict):
+        r = m["rect"]
+        if all(_seconds(r.get(k)) for k in ("x", "y", "w", "h")) and r["w"] > 0 and r["h"] > 0:
+            return {"rect": {k: r[k] for k in ("x", "y", "w", "h")}}
+    raise _fail("mark must be {point: {x, y}} or {rect: {x, y, w, h}} in frame pixels, with a positive w and h")
+
+
+def _check_mark_scene(req: dict, project: Path) -> None:
+    """The fields of a comment on a paused frame of an HTML scene's latest page (`page_of_scene`), rendered or not:
+    `scene`, `version` (that page version: a scene version, or a world version for a world scene), `t` (scene time),
+    `mark`, `ids`, `marked`, `text`. `marked` is the still with the mark under comments/<scene>/, drawn by the page
+    from the page's scene.mp4, or null (the page version has no render); the agent then makes it with
+    media:short-video's `stills`. `world` and `world_t` are set from the page (null for a scene without a world)."""
+    scene = scene_named(project, req)
+    page = page_of_scene(project, scene)
+    n = _int(req, "version")
+    if page is None or page["n"] != n:
+        raise _fail(f"version {n} is not the latest page version of scene {scene}")
+    t, duration = req.get("t"), page["duration"]
+    if not _seconds(t) or t < 0 or (_seconds(duration) and t > duration):
+        raise _fail(f"t must be a time in seconds from 0 to the scene's length ({duration})")
+    req["world"] = page["world"]
+    req["world_t"] = round(page["start"] + t, 3) if page["world"] else None
+    req["mark"] = scene_mark(req.get("mark"))
+    ids = req.get("ids")
+    if (not isinstance(ids, list) or len(ids) > IDS_MAX
+            or not all(isinstance(i, str) and 0 < len(i) <= ID_MAX for i in ids)):
+        raise _fail("ids must be a list of element ids")
+    text = _str(req, "text", empty=False)
+    if len(text) > TEXT_MAX:
+        raise _fail(f"text must be at most {TEXT_MAX} characters")
+    if req.get("marked") is None:
+        req["marked"] = None
+        return
+    marked = resolve_abs(req.get("marked"), "marked")
+    m = SCENE_MARKED.fullmatch(marked.name)
+    if marked.parent != project / COMMENTS / scene or not m or int(m.group(1)) != n or not marked.is_file():
+        raise _fail(f"marked must be an existing {project / COMMENTS / scene / f'v{n}-t<t>-<k>.png'}")
+    req["marked"] = str(marked)

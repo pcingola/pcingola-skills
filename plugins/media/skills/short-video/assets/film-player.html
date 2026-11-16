@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>__TITLE__</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0e0e10; color: #e8e8ea;
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #player { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100%;
+    padding: 16px; gap: 10px; }
+  #stage { position: relative; background: #000; overflow: hidden;
+    width: min(100%, calc((100vh - 120px) * var(--ar))); aspect-ratio: var(--ar); }
+  #stage > * { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; visibility: hidden; }
+  #stage > .on { visibility: visible; }
+  #stage .missing { display: flex; align-items: center; justify-content: center; color: #888; font-size: 18px; }
+  #controls { width: min(100%, calc((100vh - 120px) * var(--ar))); display: flex; flex-direction: column; gap: 6px; }
+  #bar { position: relative; height: 34px; cursor: pointer; touch-action: none; }
+  #track { position: absolute; left: 0; right: 0; top: 6px; height: 6px; background: #2c2c32; border-radius: 3px; }
+  #fill { position: absolute; left: 0; top: 6px; height: 6px; background: #e8e8ea; border-radius: 3px; width: 0; }
+  .mark { position: absolute; top: 2px; width: 2px; height: 14px; background: #8a8a94; }
+  .name { position: absolute; top: 18px; font-size: 11px; color: #9a9aa4; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; padding-left: 4px; }
+  #row { display: flex; align-items: center; gap: 12px; }
+  button { background: #2c2c32; color: #e8e8ea; border: 0; border-radius: 4px; padding: 6px 12px; font: inherit;
+    cursor: pointer; min-width: 64px; }
+  button:hover { background: #3a3a42; }
+  #time { font-variant-numeric: tabular-nums; }
+  #scene { color: #9a9aa4; flex: 1; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #player:fullscreen { padding: 0; background: #000; }
+  #player:fullscreen #stage { width: min(100vw, calc((100vh - 70px) * var(--ar))); }
+  #player:fullscreen #controls { width: min(100vw, calc((100vh - 70px) * var(--ar))); padding: 0 8px 8px; }
+</style>
+</head>
+<body>
+<div id="player">
+  <div id="stage"></div>
+  <div id="controls">
+    <div id="bar"><div id="track"></div><div id="fill"></div></div>
+    <div id="row">
+      <button id="play" type="button">Play</button>
+      <span id="time">0:00.0 / 0:00.0</span>
+      <span id="scene"></span>
+      <button id="full" type="button">Fullscreen</button>
+    </div>
+  </div>
+</div>
+<script>
+const FILM = /*__FILM__*/null;
+(function () {
+  "use strict";
+  const segs = FILM.segments;
+  const stage = document.getElementById("stage");
+  const bar = document.getElementById("bar");
+  const fill = document.getElementById("fill");
+  const playBtn = document.getElementById("play");
+  const timeEl = document.getElementById("time");
+  const sceneEl = document.getElementById("scene");
+  document.documentElement.style.setProperty("--ar", FILM.width + " / " + FILM.height);
+
+  let t = 0, playing = false, base = 0, p0 = 0, active = -1, seq = 0;
+  const waits = {};                       // seq -> resolve of a pending seek
+  const readyLeft = new Set();
+  let readyDone;
+  const ready = new Promise(r => { readyDone = r; });
+
+  // One layer per segment: an iframe for a page, a <video> for a rendered non-HTML scene, a card for a missing one.
+  const layers = segs.map((s, k) => {
+    let el;
+    if (s.kind === "page") {
+      el = document.createElement("iframe");
+      el.setAttribute("allow", "autoplay; fullscreen");
+      el.srcdoc = s.page;
+      readyLeft.add(k);
+    } else if (s.kind === "video") {
+      el = document.createElement("video");
+      el.src = s.video;
+      el.preload = "auto";
+      el.playsInline = true;
+    } else {
+      el = document.createElement("div");
+      el.className = "missing";
+      el.textContent = s.label;
+    }
+    stage.appendChild(el);
+    return el;
+  });
+  if (!readyLeft.size) readyDone();
+  setTimeout(() => readyDone(), 20000);
+
+  const audios = FILM.audio.map(a => {
+    const el = new Audio(a.src);
+    el.preload = "auto";
+    el.volume = Math.min(1, a.volume);
+    return { el, start: a.start, duration: a.duration };
+  });
+
+  window.addEventListener("message", ev => {
+    const m = ev.data;
+    if (!m || typeof m.type !== "string" || typeof m.k !== "number") return;
+    const layer = layers[m.k];
+    if (!layer || layer.contentWindow !== ev.source) return;
+    if (m.type === "film:ready") {
+      if (m.errors && m.errors.length) console.warn("scene page " + m.k + ":", m.errors);
+      readyLeft.delete(m.k);
+      post(m.k, local(m.k, t));
+      if (!readyLeft.size) readyDone();
+    } else if (m.type === "film:seeked" && waits[m.seq]) {
+      waits[m.seq]();
+      delete waits[m.seq];
+    }
+  });
+
+  function segAt(x) {
+    let k = 0;
+    for (let i = 0; i < segs.length; i++) if (segs[i].start <= x + 1e-9) k = i;
+    return k;
+  }
+  function local(k, x) { return Math.min(Math.max(0, x - segs[k].start), segs[k].duration); }
+  function post(k, lt) {
+    const id = ++seq;
+    const p = new Promise(r => { waits[id] = r; });
+    layers[k].contentWindow.postMessage({ type: "film:seek", seq: id, t: lt, still: !playing }, "*");
+    return p;
+  }
+  function fmt(x) {
+    const m = Math.floor(x / 60), s = x - 60 * m;
+    return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1);
+  }
+  function sceneOf(k, lt) {
+    let id = segs[k].scenes[0].id;
+    for (const s of segs[k].scenes) if (s.start <= lt + 1e-9) id = s.id;
+    return id;
+  }
+
+  // Show time x: the segment's layer, its page seeked, its video and every audio track in step.
+  function show(x) {
+    t = Math.min(Math.max(0, x), FILM.duration);
+    const k = segAt(t), lt = local(k, t), s = segs[k];
+    let done = Promise.resolve();
+    if (k !== active) {
+      layers.forEach((el, i) => el.classList.toggle("on", i === k));
+      layers.forEach((el, i) => { if (i !== k && segs[i].kind === "video") el.pause(); });
+      active = k;
+    }
+    if (s.kind === "page" && !readyLeft.has(k)) done = post(k, lt);
+    else if (s.kind === "video") {
+      const v = layers[k];
+      if (playing) {
+        if (v.paused) { v.currentTime = lt; v.play().catch(() => {}); }
+        else if (Math.abs(v.currentTime - lt) > 0.25) v.currentTime = lt;
+      } else if (Math.abs(v.currentTime - lt) > 0.01) {
+        done = new Promise(r => v.addEventListener("seeked", r, { once: true }));
+        v.pause();
+        v.currentTime = lt;
+      }
+    }
+    for (const a of audios) {
+      const at = t - a.start;
+      if (playing && at >= 0 && at < a.duration) {
+        if (a.el.paused) { a.el.currentTime = at; a.el.play().catch(() => {}); }
+        else if (Math.abs(a.el.currentTime - at) > 0.25) a.el.currentTime = at;
+      } else if (!a.el.paused) a.el.pause();
+    }
+    fill.style.width = (100 * t / FILM.duration) + "%";
+    timeEl.textContent = fmt(t) + " / " + fmt(FILM.duration);
+    sceneEl.textContent = sceneOf(k, lt);
+    return done;
+  }
+
+  function tick() {
+    if (!playing) return;
+    const x = base + (performance.now() - p0) / 1000;
+    if (x >= FILM.duration) { show(FILM.duration); pause(); return; }
+    show(x);
+    requestAnimationFrame(tick);
+  }
+  function play() {
+    if (playing) return;
+    if (t >= FILM.duration - 1e-3) t = 0;
+    playing = true; base = t; p0 = performance.now();
+    playBtn.textContent = "Pause";
+    requestAnimationFrame(tick);
+  }
+  function pause() {
+    playing = false;
+    playBtn.textContent = "Play";
+    audios.forEach(a => a.el.pause());
+    layers.forEach((el, i) => { if (segs[i].kind === "video") el.pause(); });
+  }
+  function seek(x) {
+    if (playing) { base = Math.min(Math.max(0, x), FILM.duration); p0 = performance.now(); }
+    return show(x);
+  }
+
+  // Scrub bar with a mark and a name at each scene start.
+  for (const s of segs) for (const sc of s.scenes) {
+    const at = 100 * (s.start + sc.start) / FILM.duration;
+    const mark = document.createElement("div");
+    mark.className = "mark"; mark.style.left = at + "%";
+    const name = document.createElement("div");
+    name.className = "name"; name.style.left = at + "%";
+    name.style.maxWidth = (100 * sc.duration / FILM.duration) + "%";
+    name.textContent = sc.id; name.title = sc.id;
+    bar.append(mark, name);
+  }
+  function scrub(ev) {
+    const r = bar.getBoundingClientRect();
+    seek(FILM.duration * Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)));
+  }
+  bar.addEventListener("pointerdown", ev => {
+    bar.setPointerCapture(ev.pointerId);
+    scrub(ev);
+    const move = e => scrub(e);
+    bar.addEventListener("pointermove", move);
+    bar.addEventListener("pointerup", () => bar.removeEventListener("pointermove", move), { once: true });
+  });
+
+  function fullscreen() {
+    const p = document.getElementById("player");
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (p.requestFullscreen) p.requestFullscreen();
+  }
+  playBtn.addEventListener("click", () => (playing ? pause() : play()));
+  document.getElementById("full").addEventListener("click", fullscreen);
+  document.addEventListener("keydown", ev => {
+    if (ev.key === " ") { ev.preventDefault(); playing ? pause() : play(); }
+    else if (ev.key === "ArrowLeft") { ev.preventDefault(); seek(t - (ev.shiftKey ? 5 : 1)); }
+    else if (ev.key === "ArrowRight") { ev.preventDefault(); seek(t + (ev.shiftKey ? 5 : 1)); }
+    else if (ev.key === "Home") seek(0);
+    else if (ev.key === "End") seek(FILM.duration);
+    else if (ev.key === "f") fullscreen();
+  });
+
+  // A time in the URL fragment (film.html#t=12.5) opens the film paused at that time.
+  function hashTime() {
+    const m = /(?:^#|&)t=([0-9]*\.?[0-9]+)/.exec(location.hash);
+    return m ? Math.min(Math.max(0, parseFloat(m[1])), FILM.duration) : 0;
+  }
+  window.addEventListener("hashchange", () => { pause(); seek(hashTime()); });
+  show(hashTime());
+  const opened = ready.then(() => show(t));
+  // For scripts and tests: film.seek(t) resolves once the frame at t is drawn; film.opened once the first frame is.
+  window.film = { ready, opened, seek, play, pause, duration: FILM.duration, segments: segs.length,
+                  get time() { return t; }, get playing() { return playing; } };
+})();
+</script>
+</body>
+</html>

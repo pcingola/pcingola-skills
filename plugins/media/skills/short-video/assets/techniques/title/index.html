@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<style>
+  :root {
+    --bg: #0f1420;
+    --glow-1: #1f3a5f;      /* drifting light behind the text */
+    --glow-2: #4a2f1e;
+    --text: #e8ecf4;
+    --muted: #8b95a8;
+    --accent: #ff8a3d;      /* kicker and rule */
+    --font: Inter, "Helvetica Neue", Arial, sans-serif;
+    --font-title: Inter, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: var(--font); color: var(--text); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: var(--bg); }
+  .blob { position: absolute; width: 1400px; height: 1400px; border-radius: 50%; filter: blur(40px); opacity: 0.85; }
+  #blob-1 { left: -300px; top: -500px; background: radial-gradient(circle, var(--glow-1) 0%, transparent 65%); }
+  #blob-2 { left: 900px; top: 200px; background: radial-gradient(circle, var(--glow-2) 0%, transparent 65%); }
+  #block { position: absolute; left: 180px; top: 330px; width: 1560px; }
+  #kicker { font-size: 36px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); opacity: 0; }
+  #title { font-family: var(--font-title); font-size: 120px; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; margin-top: 22px; }
+  #title .line { display: block; overflow: hidden; padding-bottom: 8px; }
+  #title .word { display: inline-block; }
+  #rule { width: 360px; height: 6px; background: var(--accent); margin-top: 40px; transform-origin: 0 50%; }
+  #subtitle { font-size: 40px; color: var(--muted); margin-top: 34px; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="title" data-start="0" data-duration="6"
+     data-full-length data-width="1920" data-height="1080" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="6" data-full-length data-track-index="0"></div>
+  <div id="anchored" class="bg">
+    <div id="blob-1" class="blob"></div>
+    <div id="blob-2" class="blob"></div>
+  </div>
+  <!-- overlays fixed to the frame here -->
+  <div id="block">
+    <div id="kicker">A short film</div>
+    <div id="title">
+      <span class="line"><span class="word">Sequencing</span> <span class="word">cost</span></span>
+      <span class="line"><span class="word">per</span> <span class="word">human</span> <span class="word">genome</span></span>
+    </div>
+    <div id="rule"></div>
+    <div id="subtitle">From the first draft genome to routine clinical sequencing</div>
+  </div>
+</div>
+<script>
+  // Title. The kicker fades in, the title words rise out of their line masks one after another, the rule draws
+  // from the left, the subtitle follows; the light behind the text drifts and the block eases in scale the whole
+  // time, so the hold is never still.
+  const D = 6;
+  const tl = gsap.timeline({ paused: true });
+  tl.fromTo("#blob-1", { x: 0, y: 0 }, { x: 260, y: 120, duration: D, ease: "sine.inOut" }, 0);
+  tl.fromTo("#blob-2", { x: 0, y: 0 }, { x: -320, y: -80, duration: D, ease: "sine.inOut" }, 0);
+  tl.fromTo("#block", { scale: 0.985, transformOrigin: "0% 50%" }, { scale: 1.02, duration: D, ease: "none" }, 0);
+  tl.fromTo("#kicker", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 0.2);
+  tl.fromTo("#title .word", { yPercent: 110 }, { yPercent: 0, duration: 0.7, stagger: 0.12, ease: "power3.out" }, 0.45);
+  tl.fromTo("#rule", { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "power2.inOut" }, 1.3);
+  tl.fromTo("#subtitle", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 1.7);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["title"] = tl;
+</script>
+</body>
+</html>

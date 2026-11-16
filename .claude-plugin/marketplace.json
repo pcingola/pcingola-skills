@@ -15,7 +15,7 @@
     {
       "name": "media",
       "source": "./plugins/media",
-      "description": "Image, music and voiceover generation with the models of the model config (API providers, Ollama or local diffusers models), short narrated videos, image-to-image video effects, infographics, slide deck authoring, and standalone HTML animations with a point-and-comment editor."
+      "description": "Image, music and voiceover generation with the models of the model config (API providers, Ollama or local diffusers models), short narrated videos, image-to-image video effects, infographics and slide deck authoring."
     },
     {
       "name": "dev",

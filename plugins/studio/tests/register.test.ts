@@ -622,6 +622,54 @@ test('stop of the running request ends its turn; the next prompt names it', asyn
   expect(w.prompts[2]).toMatch(/^A request from the Studio page/)
 })
 
+test('done follows a turn that ended with the answer; another end sends a note, a stopped one neither', async ($, on) => {
+  const w = world(on)
+  await startStudio($, w)
+
+  await sendRequest(w, 'r1')
+  await begin($, w, 't1', w.prompts[0] ?? '')
+  await finish($, w, 't1')
+  expect(events(w, 'done')).toEqual([{ kind: 'done', id: 'r1' }])
+  // `done` reaches the server before the state that drops the request.
+  const kinds = w.sent.filter(s => s.path === '/event').map(s => s.body.kind)
+  expect(kinds.lastIndexOf('done')).toBeLessThan(kinds.lastIndexOf('state'))
+
+  await sendRequest(w, 'r2')
+  await begin($, w, 't2', w.prompts[1] ?? '')
+  await $.turn.complete({ ...end('t2'), reason: 'max_turns' } as TurnEnd)
+  await w.clock.settle()
+  expect(events(w, 'done')).toHaveLength(1)
+  expect(events(w, 'note')).toEqual([{ kind: 'note', request: 'r2', agent: null, time: expect.any(Number),
+    text: 'The turn ended without finishing this request (max_turns).' }])
+
+  await sendRequest(w, 'r3')
+  await begin($, w, 't3', w.prompts[2] ?? '')
+  w.write(JSON.stringify({ type: 'stop', id: 'r3' }))
+  await w.clock.settle()
+  await $.turn.complete({ ...end('t3'), reason: 'aborted' } as TurnEnd)
+  await w.clock.settle()
+  expect(events(w, 'done')).toHaveLength(1)
+  expect(events(w, 'note')).toHaveLength(1)
+
+  // A terminal turn runs no request: neither.
+  await begin($, w, 't4', 'what is in this folder?')
+  await finish($, w, 't4')
+  expect(events(w, 'done')).toHaveLength(1)
+})
+
+test('a mark-scene request reaches the prompt unchanged', async ($, on) => {
+  const w = world(on)
+  await startStudio($, w)
+  const req = request('m1', { action: 'mark-scene', kind: 'short-video', skill: 'videos', project: '/studio/short-video/f',
+    scene: 'intro', version: 2, t: 1.5, world: null, world_t: null, mark: { rect: { x: 10, y: 20, w: 300, h: 100 } },
+    ids: ['title'], marked: '/studio/short-video/f/comments/intro/v2-t1.50-1.png', text: 'larger' })
+  delete (req as Record<string, unknown>).brief
+  w.write(JSON.stringify({ type: 'request', request: req }))
+  await w.clock.settle()
+  expect(w.prompts[0]).toContain('`studio:videos`')
+  expect(w.prompts[0]).toContain(JSON.stringify(req, null, 2))
+})
+
 test('stop of a waiting request takes it out of the queue; a submitted one ends when it starts', async ($, on) => {
   const w = world(on)
   await startStudio($, w)

@@ -14,6 +14,8 @@ through `asset()`.
 
 from __future__ import annotations
 
+import math
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -43,6 +45,23 @@ def _read(path: Path) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{path} must be a mapping")
     return data
+
+
+# `init --length S` accepts this fraction of S either side before `validate` warns about the length.
+LENGTH_TOLERANCE = 0.1
+
+
+def set_length(path: Path, seconds: float) -> None:
+    """Set `length.min_seconds` and `length.max_seconds` in the settings file `path` (a copy of
+    `assets/settings.yaml`) to `seconds` less and more `LENGTH_TOLERANCE`, keeping its comments."""
+    text = path.read_text(encoding="utf-8")
+    for key, value in (("min_seconds", math.floor(seconds * (1 - LENGTH_TOLERANCE))),
+                       ("max_seconds", math.ceil(seconds * (1 + LENGTH_TOLERANCE)))):
+        text, n = re.subn(rf"^(  {key}:) .*$", rf"\g<1> {value}", text, count=1, flags=re.M)
+        if n != 1:
+            raise ValueError(f"{path}: no `length.{key}` line")
+    path.write_text(text, encoding="utf-8")
+    _load.cache_clear()
 
 
 def merge(base: dict, over: dict) -> dict:
