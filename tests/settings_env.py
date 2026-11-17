@@ -75,6 +75,12 @@ def model_entry(task: str) -> dict:
     return config_sections()["providers"][provider]["models"][model]
 
 
+def kind_model(kind: str) -> str:
+    """The model id `<provider>:<model>` of the first model of the first provider of `kind` in TEST_CONFIG."""
+    name, spec = next((n, p) for n, p in config_sections()["providers"].items() if p["kind"] == kind)
+    return f"{name}:{next(iter(spec['models']))}"
+
+
 def _uv_dir(*args: str) -> str:
     return subprocess.run(["uv", *args], capture_output=True, text=True, check=True).stdout.strip()
 

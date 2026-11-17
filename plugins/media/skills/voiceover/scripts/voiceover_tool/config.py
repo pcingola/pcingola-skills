@@ -12,7 +12,6 @@ The speech and align models, their providers, weights and default voices are in 
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from plugin_settings import Plugin, config, error  # noqa: F401 - re-exported
@@ -25,19 +24,6 @@ OLD_NAMES = ("kokoro", "chatterbox")
 # Appended to a config error about a missing provider or model.
 TEMPLATE_HINT = ("; the setup:settings template has a provider entry for each local speech kind (kokoro, chatterbox, "
                  "vllm-omni) and for the word aligner (kind torchaudio, `tasks.align`)")
-
-
-# The uv project of the Chatterbox environment, and that environment's name next to voiceover's own under the
-# wrapper's PLUGIN_ENV_DIR (lib/uv_env.sh's rule for `skills/voiceover/scripts/chatterbox`).
-CHATTERBOX_PROJECT = Path(__file__).resolve().parents[1] / "chatterbox"
-CHATTERBOX_ENV_NAME = "voiceover-scripts-chatterbox"
-
-
-def chatterbox_env() -> Path | None:
-    """The Chatterbox environment, `<PLUGIN_ENV_DIR parent>/voiceover-scripts-chatterbox/.venv`; None when
-    PLUGIN_ENV_DIR is unset (not run through the wrapper), since uv's default `.venv` would sit in the plugin."""
-    v = os.environ.get("PLUGIN_ENV_DIR")
-    return Path(v).parent / CHATTERBOX_ENV_NAME / ".venv" if v else None
 
 
 def weights_dir() -> Path:

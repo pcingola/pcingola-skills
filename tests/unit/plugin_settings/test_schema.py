@@ -62,6 +62,18 @@ def test_old_layout_lists_every_old_key_with_its_new_path():
                for line in got)
 
 
+def test_chatterbox_environment_keys_removed():
+    """A chatterbox provider of the worker layout (`python`, `start_timeout`, `timeout`) fails at load with the key's
+    path and that Chatterbox runs in the caller's process (old_keys.py `OLD_KIND_KEYS`); a provider of another kind
+    keeps its `timeout`."""
+    got = problems({"providers": {"cb": {"kind": "chatterbox", "python": "/py", "start_timeout": 60, "timeout": 60},
+                                  "o": {"kind": "ollama", "timeout": 60}}})
+    for key in ("python", "start_timeout", "timeout"):
+        assert any(line.startswith(f"providers.cb.{key}: removed: Chatterbox runs in the caller's process")
+                   for line in got), got
+    assert not any(line.startswith("providers.o.") for line in got), got
+
+
 def test_unknown_section_and_key_fail_with_their_path():
     """A misspelt section, a key a section or provider kind does not have, and an unknown task fail with their
     YAML path."""
@@ -79,9 +91,8 @@ def test_unknown_section_and_key_fail_with_their_path():
     ({"kind": "kokoro", "models": {"m": {**KOKORO_MODEL, "langs": {}}}},
      "providers.p.models.m.langs: Dictionary should have at least 1 item after validation, not 0"),
     ({"kind": "torchaudio", "models": {"MMS_FA": None}}, "providers.p.models.MMS_FA.url: required for kind torchaudio"),
-    ({"kind": "chatterbox", "python": "/py", "models": {"m": {"url": "https://x"}}},
+    ({"kind": "chatterbox", "models": {"m": {"url": "https://x"}}},
      "providers.p.models.m.files: required for kind chatterbox"),
-    ({"kind": "chatterbox", "models": {}}, "providers.p.python: required for kind chatterbox"),
     ({"kind": "vllm-omni", "python": "/py", "models": {"m": {"repo": "r", "deploy": "d"}}},
      "providers.p.models.m.memory: required for kind vllm-omni"),
     ({"kind": "vllm-omni", "python": "/py", "models": {"m": {"repo": "r", "deploy": "d", "memory": 0}}},

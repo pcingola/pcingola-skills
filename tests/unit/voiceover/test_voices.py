@@ -11,7 +11,7 @@ from tests.settings_env import write_config
 from tests.unit.voiceover.cli_run import voiceover
 from voiceover_tool.voices import reference_path
 
-CHATTERBOX = {"kind": "chatterbox", "python": "/nonexistent/python",
+CHATTERBOX = {"kind": "chatterbox",
               "models": {"chatterbox-turbo": {"url": "http://127.0.0.1:1", "files": ["a"]}}}
 
 

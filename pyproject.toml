@@ -43,6 +43,20 @@ dev = [
     "torchvision==0.26.*",
     "num2words",
     "soundfile",
+    "chatterbox-tts==0.1.7",
+    "setuptools<81",
+]
+
+# chatterbox-tts pins older torch, transformers, diffusers, numpy and safetensors; the same overrides as
+# media:voiceover's pyproject.toml
+[tool.uv]
+override-dependencies = [
+    "torch==2.11.*",
+    "torchaudio==2.11.*",
+    "transformers==5.22.2",
+    "diffusers==0.43.0",
+    "numpy==2.4.4",
+    "safetensors==0.8.0",
 ]
 
 [tool.uv.sources]

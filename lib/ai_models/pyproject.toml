@@ -35,6 +35,15 @@ kokoro = [
     "kokoro-onnx>=0.6.1,<0.7",
     "numpy",
 ]
+# Chatterbox Turbo speech on the CPU (chatterbox.py): chatterbox-tts pins torch 2.6, transformers 5.2.0,
+# diffusers 0.29 and numpy 1, and runs on the versions of the diffusers extra; a project that installs it overrides
+# those pins (media:voiceover's pyproject.toml). resemble-perth (its watermark) imports pkg_resources, which
+# setuptools 81 removes.
+chatterbox = [
+    "chatterbox-tts==0.1.7",
+    "soundfile",
+    "setuptools<81",
+]
 # forced alignment (align.py): torchaudio 2.11, its last release, keeps forced_align
 align = [
     "torch>=2.9",

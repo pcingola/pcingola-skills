@@ -3,7 +3,8 @@
 The layout had the sections `models` (now `tasks`), `diffusers` (now the `models` of the diffusers provider) and
 `settings` (upper-case keys, now sections), and the provider keys `predict_models` and `memory_share`. A provider
 of kind kokoro, torchaudio, chatterbox or vllm-omni held its one model's keys, and every provider the speech
-voices; these are now keys of `providers.<p>.models.<m>` (`MODEL_KEYS`)."""
+voices; these are now keys of `providers.<p>.models.<m>` (`MODEL_KEYS`). A provider of kind chatterbox ran its
+model in a worker process of its own environment; it now runs in the caller's process (`OLD_KIND_KEYS`)."""
 
 from __future__ import annotations
 
@@ -60,6 +61,13 @@ MODEL_KEYS = ("model_url", "voices_url", "langs", "url", "files", "repo", "deplo
               "voice", "voices")
 OLD_PROVIDER_KEYS.update({k: f"moved to providers.{{p}}.models.<m>.{k}" for k in MODEL_KEYS})
 
+# Keys that a provider of one kind had and has no longer, by kind.
+CHATTERBOX_IN_PROCESS = ("removed: Chatterbox runs in the caller's process (media:voiceover's environment), so the "
+                         "provider has no environment of its own; delete the key")
+OLD_KIND_KEYS: dict[str, dict[str, str]] = {
+    "chatterbox": {k: CHATTERBOX_IN_PROCESS for k in ("python", "start_timeout", "timeout")},
+}
+
 
 def _setting_error(key: str, value: Any) -> str:
     if key in OLD_SETTINGS:
@@ -87,6 +95,6 @@ def old_key_errors(raw: dict[str, Any]) -> list[str]:
     if isinstance(providers, dict):
         for name, spec in providers.items():
             if isinstance(spec, dict):
-                errors += [f"providers.{name}.{k}: {v.format(p=name)}" for k, v in OLD_PROVIDER_KEYS.items()
-                           if k in spec]
+                old = OLD_PROVIDER_KEYS | OLD_KIND_KEYS.get(str(spec.get("kind")), {})
+                errors += [f"providers.{name}.{k}: {v.format(p=name)}" for k, v in old.items() if k in spec]
     return errors

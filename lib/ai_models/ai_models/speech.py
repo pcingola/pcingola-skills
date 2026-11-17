@@ -10,7 +10,7 @@
                                         provider's `style` format; no speed
     kokoro                              Kokoro in process on the CPU (`kokoro`); 24 kHz WAV; speed 0.5 to 2;
                                         no instructions
-    chatterbox                          Chatterbox Turbo in a worker of its own environment (`chatterbox`);
+    chatterbox                          Chatterbox Turbo in process on the CPU (`chatterbox`);
                                         24 kHz WAV; voice cloning; no speed, no instructions
 
 `TRAITS` gives what each kind of `SPEECH_KINDS` takes (`Traits`): its default voice, speed range, instructions,
@@ -175,6 +175,14 @@ def wav(pcm: bytes, rate: int) -> bytes:
         w.setframerate(rate)
         w.writeframes(pcm[: len(pcm) - len(pcm) % 2])
     return buf.getvalue()
+
+
+def float_wav(samples, rate: int) -> bytes:
+    """A 16-bit mono WAV file of float samples in [-1, 1] (any array shape; values outside are clipped)."""
+    import numpy as np
+
+    pcm = (np.clip(np.asarray(samples, dtype=np.float32).reshape(-1), -1.0, 1.0) * 32767).astype("<i2")
+    return wav(pcm.tobytes(), int(rate))
 
 
 async def _openai(client, model: str, text: str, voice: str, instructions: str | None, fmt: str,

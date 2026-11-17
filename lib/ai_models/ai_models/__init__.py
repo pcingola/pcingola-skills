@@ -9,7 +9,8 @@
     speech   `speak`, `voices`, `check` (OpenAI-style `audio/speech`, Gemini TTS, vLLM-Omni, Kokoro, Chatterbox)
     omni     the vLLM-Omni server of a `vllm-omni` provider, one per process
     kokoro   Kokoro in process on the CPU (extra `ai-models[kokoro]`)
-    chatterbox  Chatterbox Turbo in a worker process of its own environment
+    chatterbox  Chatterbox Turbo in process on the CPU (extra `ai-models[chatterbox]`)
+    cpu      torch's CPU threads on the fast cores (`performance_threads`)
     align    `aligner` (forced alignment of speech against its text, torchaudio, extra `ai-models[align]`)
     weights  weight files of the kokoro, chatterbox and torchaudio kinds
     music    `compose` (Google predict and stream models, local diffusers)

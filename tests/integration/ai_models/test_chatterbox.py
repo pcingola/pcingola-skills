@@ -1,74 +1,54 @@
-"""Chatterbox Turbo through `ai_models.speech` (docs/ai_models.md, Local speech and alignment): the worker in the
-environment of the config's `chatterbox` provider, on the CPU, with the built-in voice and with a cloned one. The
-provider is the first of kind `chatterbox` in the user's config.yaml (or the file SKILLS_CONFIG names); its model is
-`chatterbox-turbo`, its weights in the provider's `dir`, else where media:voiceover keeps them."""
+"""Chatterbox Turbo through `ai_models.speech` (docs/ai_models.md, Local speech and alignment): the model of the
+`chatterbox` provider of tests/config.yaml, loaded in this process on the CPU, with the built-in voice and with a
+cloned one."""
 
 import io
 import wave
 
 import numpy as np
-
-from pathlib import Path
-
-from plugin_settings import Plugin
+import pytest
 
 from ai_models import AIModelsError, config, speech
-from tests.prereq import requires
+from tests.settings_env import TEST_CONFIG, kind_model
 
-MODEL = "chatterbox-turbo"
-# The weights directory media:voiceover passes (its plugin data directory's `voiceover/`), for a provider without `dir`.
-WEIGHTS = Plugin.of(Path(__file__).resolve().parents[3] / "plugins/media/skills/voiceover").data_dir() / "voiceover"
+MODEL = kind_model("chatterbox")
 
 
-def provider() -> str | None:
-    try:
-        providers = config.load().providers
-    except AIModelsError:
-        return None
-    return next((n for n, p in providers.items() if p.kind == "chatterbox"), None)
+@pytest.fixture(autouse=True)
+def _config():
+    """TEST_CONFIG in use for the test."""
+    config.use(TEST_CONFIG)
+    yield
+    config.use(None)
 
 
-NAME = provider()
-
-
-def speak(text: str, **kw) -> bytes:
-    return speech.speak(text, weights_dir=WEIGHTS, **kw)
-
-
-def read(data: bytes) -> tuple[np.ndarray, int]:
-    with wave.open(io.BytesIO(data)) as w:
+def speak(text: str, **kw) -> tuple[np.ndarray, int]:
+    """The samples (float in [-1, 1]) and the rate of `text` spoken by MODEL."""
+    with wave.open(io.BytesIO(speech.speak(text, model=MODEL, **kw))) as w:
         return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(np.float32) / 32768, w.getframerate()
 
 
-@requires(NAME is not None, "config.yaml has no provider of kind chatterbox (setup:settings describes it)")
+def write_wav(path, samples: np.ndarray, rate: int) -> str:
+    """`samples` written to `path` as a 16-bit mono WAV file; its path as a string."""
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes((samples * 32767).astype("<i2").tobytes())
+    return str(path)
+
+
 def test_builtin_and_cloned_voice(tmp_path):
-    """The built-in voice gives 24 kHz speech of plausible length; two takes joined (over 5 s) are a reference
-    recording the model clones in the same worker; a reference of 5 s or less is refused by the worker, which keeps
-    answering."""
-    model = f"{NAME}:{MODEL}"
-    a, rate = read(speak("The heart pumps blood through the body.", model=model))
-    b, _ = read(speak("Count slowly from one to ten, then stop.", model=model))
+    """The built-in voice gives 24 kHz speech of plausible length; that take three times (over 5 s) is a reference
+    recording the loaded model clones; a reference of 5 s or less is refused; the model then speaks in the built-in
+    voice again."""
+    a, rate = speak("The heart pumps blood through the body.")
     assert rate == 24_000 and 1.0 < a.size / rate < 10 and float(np.abs(a).max()) > 0.01
-    ref = tmp_path / "ref.wav"
-    joined = np.concatenate([a, np.zeros(rate // 2, np.float32), b, np.zeros(rate // 2, np.float32), a])
-    with wave.open(str(ref), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes((joined * 32767).astype("<i2").tobytes())
+    gap = np.zeros(rate // 2, np.float32)
+    joined = np.concatenate([a, gap, a, gap, a])
     assert joined.size / rate > 5
-    c, _ = read(speak("This is a cloned voice.", model=model, voice=str(ref)))
+    c, _ = speak("This is a cloned voice.", voice=write_wav(tmp_path / "ref.wav", joined, rate))
     assert 0.5 < c.size / rate < 10 and float(np.abs(c).max()) > 0.01
-    short = tmp_path / "short.wav"
-    with wave.open(str(short), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(rate)
-        w.writeframes((a[: 2 * rate] * 32767).astype("<i2").tobytes())
-    try:
-        speak("Too short.", model=model, voice=str(short))
-    except AIModelsError as e:
-        assert "longer than 5 s" in str(e)
-    else:
-        raise AssertionError("a reference of 2 s was accepted")
-    assert read(speak("Still here.", model=model))[0].size > 0
+    with pytest.raises(AIModelsError, match="longer than 5 s"):
+        speak("Too short.", voice=write_wav(tmp_path / "short.wav", a[: 2 * rate], rate))
+    assert speak("Still here.")[0].size > 0

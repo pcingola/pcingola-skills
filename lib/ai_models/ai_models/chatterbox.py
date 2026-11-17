@@ -1,92 +1,50 @@
-"""Chatterbox Turbo (provider kind `chatterbox`): local speech with zero-shot voice cloning, in its own environment.
-
-chatterbox-tts pins torch 2.6, so the model runs in a separate Python environment (`python` of the provider), in
-one worker process per calling process (`chatterbox_worker.py`), started on the first `speak` and stopped at exit
-(`atexit`). When the caller dies, the worker's stdin reaches its end and the worker's request loop ends. The worker runs on the CPU, so it
-takes no GPU lock. Requests and answers are JSON lines over the worker's stdin and stdout, read by a thread so that
-a wait has a limit: `start_timeout` (seconds, default 600) for the load, `timeout` (default 600) per answer. Its
-stderr goes to a log file whose tail an error quotes; the log's directory is removed when the worker ends cleanly.
+"""Chatterbox Turbo (provider kind `chatterbox`): local speech with zero-shot voice cloning, on the CPU, in the
+caller's process (extra `ai-models[chatterbox]`).
 
 A model entry (`providers.<p>.models.<m>`, `ChatterboxModel`) names its files, `files` under the repository URL
-`url`, downloaded by this process to `weights.model_dir`; each model has its own worker.
-A voice is `default` (the model's built-in voice) or the path of a reference recording longer than 5 s; the model
-uses its first 10 to 15 s and copies the speaker and also the delivery, microphone and room. The output is a
-24 kHz WAV file with Resemble's Perth watermark (inaudible). There is no speed or style control.
+`url`, downloaded to `weights.model_dir`. The model is loaded once per weights directory and stays loaded for the life
+of the process (`local.unload` drops it); it needs no GPU and no local-model lock. One synthesis runs at a time
+(`_lock`), because the loaded model holds the conditioning of one voice, on the fast cores of the CPU
+(`cpu.performance_threads`).
+
+A voice is `default` (the model's built-in voice) or the path of a reference recording longer than
+`MIN_REFERENCE_SECONDS`; the model uses its first 10 to 15 s and copies the speaker and also the delivery,
+microphone and room. The output is a 24 kHz WAV file with Resemble's Perth watermark (inaudible). There is no speed
+or style control.
 """
 
 from __future__ import annotations
 
-import atexit
-import json
-import queue
-import shutil
-import subprocess
-import tempfile
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from plugin_settings import ChatterboxModel, ChatterboxProvider, ProviderKind
 
-from . import omni, weights
-from .errors import AIModelsError, ConfigError
+from . import cpu, local, weights
+from .errors import AIModelsError
 
 KIND = ProviderKind.CHATTERBOX
 DEFAULT_VOICE = "default"
-WORKER = Path(__file__).with_name("chatterbox_worker.py")
-STOP_SECONDS = 30.0
-
-_workers: dict[str, "Worker"] = {}
-_lock = threading.Lock()  # one worker start or request at a time
+DEVICE = "cpu"
+MIN_REFERENCE_SECONDS = 5.0
+SAMPLE_RATE = 24_000
 
 
 @dataclass
-class Worker:
-    """A running worker: its process, its stderr log, and the queue its stdout lines arrive on ("" at the end)."""
+class Loaded:
+    """A loaded model: `tts` (`ChatterboxTurboTTS`), the conditioning of its built-in voice, and the reference
+    recording whose conditioning `tts` holds now (None: the built-in voice)."""
 
-    proc: subprocess.Popen
-    log: Path
-    lines: queue.Queue = field(default_factory=queue.Queue)
+    tts: Any
+    builtin: Any
+    reference: str | None = None
 
-    def __post_init__(self) -> None:
-        threading.Thread(target=self._read, daemon=True).start()
 
-    def _read(self) -> None:
-        for line in self.proc.stdout:
-            self.lines.put(line)
-        self.lines.put("")
-
-    def ask(self, request: dict[str, Any], seconds: float) -> dict[str, Any]:
-        """Send one request line (none for an empty `request`) and return the answer line; `AIModelsError` when the
-        worker has exited or gave no answer in `seconds`, which then stops it."""
-        try:
-            if request:
-                self.proc.stdin.write(json.dumps(request) + "\n")
-                self.proc.stdin.flush()
-            line = self.lines.get(timeout=seconds)
-        except (BrokenPipeError, OSError):
-            line = ""
-        except queue.Empty:
-            self.stop()
-            raise AIModelsError(f"the Chatterbox worker gave no answer in {seconds:.0f} s:\n{omni.tail(self.log)}")
-        if not line:
-            self.proc.wait()
-            raise AIModelsError(f"the Chatterbox worker exited with code {self.proc.returncode}:\n"
-                                f"{omni.tail(self.log)}")
-        return json.loads(line)
-
-    def stop(self) -> None:
-        """Close its stdin, which ends it, and remove the log's directory when it exits with code 0; kill it after
-        `STOP_SECONDS`, keeping the log."""
-        try:
-            self.proc.stdin.close()
-            self.proc.wait(STOP_SECONDS)
-        except (OSError, subprocess.TimeoutExpired):
-            self.proc.kill()
-            self.proc.wait()
-        if self.proc.returncode == 0:
-            shutil.rmtree(self.log.parent, ignore_errors=True)
+_models: dict[Path, Loaded] = {}
+_lock = threading.Lock()  # one load or synthesis at a time when callers run in several threads
+local.on_unload(_models.clear)
 
 
 def fetch(spec: ChatterboxProvider, entry: ChatterboxModel, model: str) -> Path:
@@ -98,26 +56,20 @@ def fetch(spec: ChatterboxProvider, entry: ChatterboxModel, model: str) -> Path:
     return d
 
 
-def worker(spec: ChatterboxProvider, entry: ChatterboxModel, name: str, model: str) -> Worker:
-    """The worker of provider `name`'s `model`, started on the first call of the process. Callers in several
-    threads (`asyncio.to_thread`) share it, one request at a time (`_lock`)."""
-    key = f"{name}:{model}"
-    if key in _workers and _workers[key].proc.poll() is None:
-        return _workers[key]
-    python = str(spec.python)
+def _load(spec: ChatterboxProvider, entry: ChatterboxModel, model: str) -> Loaded:
+    """The loaded model of provider `spec`'s `model`, loaded on the first call; the caller holds `_lock`."""
     d = fetch(spec, entry, model)
-    log = Path(tempfile.mkdtemp(prefix="ai-models-chatterbox-")) / "worker.log"
-    with log.open("wb") as err:
-        try:
-            proc = subprocess.Popen([python, "-I", str(WORKER), str(d)], stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=err, text=True, start_new_session=True)
-        except OSError as e:
-            raise ConfigError(f"provider {name!r}: cannot run {python}: {e}") from e
-    w = Worker(proc, log)
-    atexit.register(w.stop)
-    w.ask({}, spec.start_timeout)  # the ready line
-    _workers[key] = w
-    return w
+    if d not in _models:
+        import numpy as np
+        from chatterbox.tts_turbo import ChatterboxTurboTTS
+
+        tts = ChatterboxTurboTTS.from_local(str(d), DEVICE)
+        # Under numpy 2 the loudness gain (a float64 scalar) promotes the float32 reference to float64, which the
+        # mel filter matmul rejects.
+        norm = tts.norm_loudness
+        tts.norm_loudness = lambda wav, sr, target_lufs=-27: np.asarray(norm(wav, sr, target_lufs), dtype=np.float32)
+        _models[d] = Loaded(tts, tts.conds)
+    return _models[d]
 
 
 def reference(voice: str) -> str | None:
@@ -130,13 +82,38 @@ def reference(voice: str) -> str | None:
     return str(p.resolve())
 
 
+def check_reference(path: str) -> None:
+    """`AIModelsError` when the recording at `path` is unreadable or not longer than `MIN_REFERENCE_SECONDS`."""
+    import soundfile as sf
+
+    try:
+        seconds = sf.info(path).duration
+    except (RuntimeError, OSError) as e:
+        raise AIModelsError(f"{path}: not a readable recording: {e}") from e
+    if seconds <= MIN_REFERENCE_SECONDS:
+        raise AIModelsError(f"{path}: {seconds:.1f} s; a reference must be longer than {MIN_REFERENCE_SECONDS:g} s")
+
+
+def use_voice(m: Loaded, ref: str | None) -> None:
+    """Condition `m` on the reference recording `ref`, or on the built-in voice for None; a no-op when it is
+    conditioned on `ref` already."""
+    if ref == m.reference:
+        return
+    if ref is None:
+        m.tts.conds = m.builtin
+    else:
+        check_reference(ref)
+        m.tts.prepare_conditionals(ref)
+    m.reference = ref
+
+
 def speak(spec: ChatterboxProvider, entry: ChatterboxModel, name: str, model: str, text: str, voice: str) -> bytes:
     """A 24 kHz WAV file of `text` in `voice`."""
+    from .speech import float_wav
+
     ref = reference(voice)
-    with _lock, tempfile.TemporaryDirectory(prefix="ai-models-chatterbox-") as tmp:
-        out = Path(tmp) / "speech.wav"
-        answer = worker(spec, entry, name, model).ask({"text": text, "reference": ref, "out": str(out)},
-                                               spec.timeout)
-        if "error" in answer:
-            raise AIModelsError(f"{name}:{model}: {answer['error']}")
-        return out.read_bytes()
+    with _lock, cpu.performance_threads():
+        m = _load(spec, entry, model)
+        use_voice(m, ref)
+        audio = m.tts.generate(text).detach().cpu().numpy()
+    return float_wav(audio, int(getattr(m.tts, "sr", SAMPLE_RATE)))

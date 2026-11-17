@@ -460,7 +460,7 @@ def test_film_voice_of_the_earlier_form_maps_its_backend(tmp_path):
     cfg.write_text("providers:\n"
                    "  kokoro: {kind: kokoro, models: {kokoro-v1.0: {model_url: 'http://127.0.0.1:1/m', "
                    "voices_url: 'http://127.0.0.1:1/v', langs: {af_: en-us}}}}\n"
-                   "  cb: {kind: chatterbox, python: /nonexistent, models: {chatterbox-turbo: {url: 'http://127.0.0.1:1', "
+                   "  cb: {kind: chatterbox, models: {chatterbox-turbo: {url: 'http://127.0.0.1:1', "
                    "files: [a]}}}\n"
                    "tasks: {speech: 'kokoro:kokoro-v1.0'}\n")
     (tmp_path / "routes.md").write_text("| task | model | when | why |\n|---|---|---|---|\n"

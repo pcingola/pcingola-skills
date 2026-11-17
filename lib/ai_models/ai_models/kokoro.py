@@ -68,14 +68,11 @@ def voices(spec: KokoroProvider, entry: KokoroModel, name: str, bare: str) -> li
 def speak(spec: KokoroProvider, entry: KokoroModel, name: str, bare: str, text: str, voice: str,
           speed: float) -> bytes:
     """A 24 kHz WAV file of `text` in `voice`."""
-    import numpy as np
-
-    from .speech import wav
+    from .speech import float_wav
 
     language = lang(entry, f"{name}:{bare}", voice)
     k = model(spec, entry, bare)
     if voice not in k.get_voices():
         raise AIModelsError(f"{name}:{bare} has no voice {voice!r}; `voices` lists them")
     samples, rate = k.create(text, voice=voice, speed=speed, lang=language)
-    pcm = (np.clip(np.asarray(samples, dtype=np.float32).reshape(-1), -1.0, 1.0) * 32767).astype("<i2")
-    return wav(pcm.tobytes(), int(rate))
+    return float_wav(samples, rate)

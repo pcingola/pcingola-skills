@@ -1,33 +1,19 @@
 """`ai_models.speech` for the local speech kinds and what each kind takes (docs/ai_models.md, Local speech and
 alignment): defaults, checks, voice listing and configuration errors, without loading a model."""
 
-import subprocess
-import sys
-
 import pytest
 
 from ai_models import AIModelsError, ConfigError, align, chatterbox, kokoro, speech
 from plugin_settings import SPEECH_KINDS
-from plugin_settings import ChatterboxModel, ChatterboxProvider, KokoroModel
+from plugin_settings import KokoroModel
 
 KOKORO_MODEL = {"model_url": "http://127.0.0.1:1/m.onnx", "voices_url": "http://127.0.0.1:1/v.bin",
                 "langs": {"af_": "en-us", "bm_": "en-gb"}}
 KOKORO = {"kind": "kokoro", "models": {"kokoro-v1.0": KOKORO_MODEL}}
 CHATTERBOX_MODEL = {"url": "http://127.0.0.1:1", "files": ["a.pt"]}
-CHATTERBOX = {"kind": "chatterbox", "python": "/nonexistent/python", "models": {"chatterbox-turbo": CHATTERBOX_MODEL}}
+CHATTERBOX = {"kind": "chatterbox", "models": {"chatterbox-turbo": CHATTERBOX_MODEL}}
 OMNI_MODEL = {"repo": "org/tts", "deploy": "tts.yaml", "memory": 70}
 OMNI = {"kind": "vllm-omni", "python": "/nonexistent/python", "models": {"drama-3": OMNI_MODEL}}
-
-
-def chatterbox_spec(tmp_path, python: str, **kw) -> ChatterboxProvider:
-    """A chatterbox provider whose model files exist, so the worker starts without a download."""
-    d = tmp_path / "w" / "chatterbox-turbo"
-    d.mkdir(parents=True)
-    (d / "a.pt").write_bytes(b"x")
-    return ChatterboxProvider(**{**CHATTERBOX, "python": python, "dir": str(tmp_path / "w"), **kw})
-
-
-CB_ENTRY = ChatterboxModel(**CHATTERBOX_MODEL)
 
 
 def test_default_voices_and_checks(write_config):
@@ -76,32 +62,21 @@ def test_kokoro_language_of_a_voice():
         kokoro.lang(entry, "k:m", "ff_siwis")
 
 
-def test_chatterbox_worker_errors(tmp_path):
-    """An interpreter that cannot run is a `ConfigError` naming the provider; a worker that exits before its ready
-    line is an `AIModelsError` with its exit code; a voice that is neither `default` nor a file is refused."""
-    with pytest.raises(ConfigError, match="cannot run"):
-        chatterbox.worker(chatterbox_spec(tmp_path / "a", str(tmp_path / "no-python")), CB_ENTRY, "cb",
-                          "chatterbox-turbo")
-    with pytest.raises(AIModelsError, match="exited with code 1"):
-        chatterbox.worker(chatterbox_spec(tmp_path / "b", "/bin/false"), CB_ENTRY, "cb2", "chatterbox-turbo")
+def test_chatterbox_voice_and_reference_checks(tmp_path):
+    """A Chatterbox voice is `default` (None, the built-in voice) or a recording file, else refused; a reference
+    recording of 5 s or less and a file that is not a recording are refused before the model sees them."""
     with pytest.raises(AIModelsError, match="neither 'default' nor a reference recording"):
         chatterbox.reference("bob")
     assert chatterbox.reference("default") is None
-
-
-def test_chatterbox_load_timeout_and_log_cleanup(tmp_path):
-    """A worker that gives no ready line within `start_timeout` is stopped with an error naming the limit; a worker
-    that exits with code 0 when stopped takes its log directory with it."""
-    spec = chatterbox_spec(tmp_path, sys.executable, start_timeout=0.01)
-    with pytest.raises(AIModelsError, match="no answer in 0 s"):
-        chatterbox.worker(spec, CB_ENTRY, "cb3", "chatterbox-turbo")
-    log = tmp_path / "logdir" / "worker.log"
-    log.parent.mkdir()
-    log.write_text("")
-    proc = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()"], stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE, text=True)
-    chatterbox.Worker(proc, log).stop()
-    assert proc.returncode == 0 and not log.parent.exists()
+    short = tmp_path / "short.wav"
+    short.write_bytes(speech.wav(bytes(2 * 2 * 24_000), 24_000))
+    assert chatterbox.reference(str(short)) == str(short.resolve())
+    with pytest.raises(AIModelsError, match="2.0 s; a reference must be longer than 5 s"):
+        chatterbox.check_reference(str(short))
+    text = tmp_path / "notes.txt"
+    text.write_text("not audio", encoding="utf-8")
+    with pytest.raises(AIModelsError, match="not a readable recording"):
+        chatterbox.check_reference(str(text))
 
 
 def test_align_model_of_another_kind_refused(write_config):

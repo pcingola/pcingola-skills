@@ -32,8 +32,7 @@
 # endpoint), diffusers (local models in process, GPU), vllm-omni (a local
 # speech model served by vLLM-Omni), kokoro and chatterbox (local speech on the
 # CPU), torchaudio (the word aligner of media:voiceover).
-# timeout (seconds per request, default 600): the remote kinds, chatterbox and
-# vllm-omni.
+# timeout (seconds per request, default 600): the remote kinds and vllm-omni.
 # Required keys: openrouter and azure need api_key; azure also base_url and
 # api_version; openai needs api_key without base_url (the OpenAI API); google
 # needs api_key, except a Vertex provider with Google Cloud credentials.
@@ -277,16 +276,11 @@ providers:
       MMS_FA:
         url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt
   # Chatterbox Turbo, local speech with voice cloning from one recording, on
-  # the CPU, in a worker process of its own environment (chatterbox-tts pins
-  # torch 2.6). The provider: python (required), the environment's
-  # interpreter: media:voiceover's `setup --chatterbox` builds it under the
-  # media data directory and prints it; dir as for kokoro; start_timeout:
-  # seconds the load may take (default 600). Each model: url and files
-  # (required), its files, downloaded to <dir>/<model>/. The voice default is
-  # the model's built-in voice.
+  # the CPU, in media:voiceover's process. The provider: dir as for kokoro.
+  # Each model: url and files (required), its files, downloaded to
+  # <dir>/<model>/. The voice default is the model's built-in voice.
   #chatterbox:
   #  kind: chatterbox
-  #  python: /path/to/env/bin/python
   #  models:
   #    chatterbox-turbo:
   #      url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master

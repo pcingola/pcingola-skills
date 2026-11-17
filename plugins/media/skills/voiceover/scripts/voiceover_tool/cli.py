@@ -13,9 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -174,35 +172,10 @@ def _cmd_voices(args: argparse.Namespace) -> int:
     return 0
 
 
-def setup_chatterbox() -> Path:
-    """Sync the Chatterbox uv project (`config.CHATTERBOX_PROJECT`, locked) into `config.chatterbox_env()`; return
-    that environment's python. `ValueError` when not run through the wrapper or when uv fails."""
-    venv = config.chatterbox_env()
-    if venv is None:
-        raise ValueError("PLUGIN_ENV_DIR is not set, so the Chatterbox environment has no place outside the plugin "
-                         "directory; run voiceover through its wrapper voiceover.sh")
-    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
-    env["UV_PROJECT_ENVIRONMENT"] = str(venv)
-    uv = shutil.which("uv")
-    if uv is None:
-        raise ValueError("uv is not on PATH")
-    done = subprocess.run([uv, "sync", "--frozen", "--project", str(config.CHATTERBOX_PROJECT)], env=env,
-                          stdout=sys.stderr)
-    if done.returncode != 0:
-        raise ValueError(f"uv sync of {config.CHATTERBOX_PROJECT} failed with code {done.returncode}")
-    return venv / "bin" / "python"
-
-
 def _cmd_setup(args: argparse.Namespace) -> int:
     from ai_models import speech
 
     try:
-        if args.chatterbox:
-            python = setup_chatterbox()
-            print(python)
-            print(f"Chatterbox environment ready; give the `chatterbox` provider entry of config.yaml `python: {python}` "
-                  "(the setup:settings template has the entry)", file=sys.stderr)
-            return 0
         speech.fetch(args.model, config.weights_dir())
         clip_aligner()
     except (AIModelsError, ValueError) as e:
@@ -264,11 +237,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", default=None, help="Speech model id <provider>:<model> (default: tasks.speech)")
     p.set_defaults(func=_cmd_voices)
 
-    p = sub.add_parser("setup", help="Download the weights of the speech and align models, or build the Chatterbox "
-                                     "environment")
+    p = sub.add_parser("setup", help="Download the weights of the speech and align models")
     p.add_argument("--model", default=None, help="Speech model id <provider>:<model> (default: tasks.speech)")
-    p.add_argument("--chatterbox", action="store_true",
-                   help="Build the Python environment the chatterbox provider runs its worker in, and print its python")
     p.set_defaults(func=_cmd_setup)
 
     p = sub.add_parser("add-voice", help="Store a reference recording as a voice (models that clone a voice: "

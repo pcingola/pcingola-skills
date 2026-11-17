@@ -73,7 +73,7 @@ def test_speech_models_from_the_routes(tmp_path):
                        providers={"k": {"kind": "kokoro", "models": {"kokoro-v1.0": {
                                       "model_url": "http://127.0.0.1:1/m.onnx", "voices_url": "http://127.0.0.1:1/v.bin",
                                       "langs": {"af_": "en-us"}}}},
-                                  "cb": {"kind": "chatterbox", "python": "/nonexistent", "models": {
+                                  "cb": {"kind": "chatterbox", "models": {
                                       "chatterbox-turbo": {"url": "http://127.0.0.1:1", "files": ["a"]}}},
                                   "oai": {"kind": "openai", "api_key": "k"},
                                   "local": {"kind": "diffusers", "models": {"x": {"repo": "x/x"}}}},

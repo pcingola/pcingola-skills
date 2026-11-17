@@ -1,6 +1,6 @@
 # The settings file of the unit and integration tests: the tiny models that tests load or call.
 # In-process tests name it with `config.use(TEST_CONFIG)`; child processes get it in SKILLS_CONFIG
-# (tests/settings_env.py). No remote provider, no api_key. Weights of the kokoro and torchaudio
+# (tests/settings_env.py). No remote provider, no api_key. Weights of the kokoro, chatterbox and torchaudio
 # providers go under ~/.cache/pcingola-skills-tests/; diffusers models use the default Hugging Face
 # cache. Tests read a copy with `~` expanded to the real home (settings_env.TEST_CONFIG), so child
 # processes, whose HOME is temporary, share these directories.
@@ -72,6 +72,14 @@ providers:
         voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
         langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}
         voice: af_heart
+  # Chatterbox Turbo, the smallest Chatterbox model (350M), on the CPU; not a task: tests name it by kind.
+  chatterbox:
+    kind: chatterbox
+    dir: ~/.cache/pcingola-skills-tests/chatterbox
+    models:
+      chatterbox-turbo:
+        url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master
+        files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]
   torchaudio:
     kind: torchaudio
     dir: ~/.cache/pcingola-skills-tests/torchaudio

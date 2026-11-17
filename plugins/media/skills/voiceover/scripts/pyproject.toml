@@ -11,8 +11,12 @@ dependencies = [
     "psutil",
     # the settings file config.yaml (lib/plugin_settings, git source)
     "plugin-settings",
-    # the length of a reference recording (add-voice)
+    # the length of a reference recording (add-voice, and Chatterbox's check of a reference)
     "soundfile",
+    # Chatterbox Turbo in this process on the CPU (ai_models.chatterbox), on the versions of `override-dependencies`;
+    # resemble-perth (its watermark) imports pkg_resources, which setuptools 81 removes
+    "chatterbox-tts==0.1.7",
+    "setuptools<81",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +30,24 @@ cuda = ["torch==2.11.*", "torchaudio==2.11.*"]
 
 [tool.uv]
 conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
+# chatterbox-tts 0.1.7 pins torch 2.6, transformers 5.2.0, diffusers 0.29, numpy 1 and safetensors 0.5.3; it runs on
+# the versions of the root test environment, tested with Chatterbox Turbo's built-in and cloned voices on the CPU.
+# The overrides set those versions. torch and torchaudio are not overrides, which would drop the index of each extra
+# (`tool.uv.sources`): chatterbox-tts's metadata (`dependency-metadata`, its own list with torch and torchaudio
+# unpinned) leaves them to the extras.
+override-dependencies = [
+    "transformers==5.22.2",
+    "diffusers==0.43.0",
+    "numpy==2.4.4",
+    "safetensors==0.8.0",
+]
+dependency-metadata = [
+    { name = "chatterbox-tts", version = "0.1.7", requires-dist = [
+        "numpy", "librosa==0.11.0", "s3tokenizer", "torch", "torchaudio", "transformers", "diffusers",
+        "resemble-perth>=1.0.0", "conformer==0.3.2", "safetensors", "spacy-pkuseg", "pykakasi==2.3.0", "gradio==6.8.0",
+        "pyloudnorm", "omegaconf",
+    ] },
+]
 
 [tool.uv.sources]
 # Linux (aarch64 and x86_64): the CPU build (extra cpu) or the CUDA 13.0 build (extra cuda); PyPI's build on macOS
