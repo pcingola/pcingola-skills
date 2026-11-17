@@ -80,6 +80,16 @@ providers:
       chatterbox-turbo:
         url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master
         files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]
+  # Random weights, the Drama 3 classes of fish-speech (NVIDIA GPU only); not a task: tests name it by kind. A
+  # folder that the session fixture of tests/integration/ai_models writes with tests/tiny_fish.py when it is
+  # missing. It never ends on its own, so every request runs to `max_frames` (32 frames, 1.5 s).
+  fish:
+    kind: fish
+    models:
+      drama-3-tiny:
+        repo: ~/.cache/pcingola-skills-tests/tiny-fish
+        memory: 6
+        max_frames: 32
   torchaudio:
     kind: torchaudio
     dir: ~/.cache/pcingola-skills-tests/torchaudio

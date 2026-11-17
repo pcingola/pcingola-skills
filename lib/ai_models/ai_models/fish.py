@@ -10,9 +10,10 @@ waiting for the previous holder's memory and for local Ollama models that unload
 (`_lock`).
 
 `speak` cuts the text at its style tags (`fish_span.split_spans`) and sends each span as one `generate_long`
-request, with fish-speech's sampling defaults (temperature 0.7, top-p 0.7, top-k 30). The voice is always
-`default`: the first span of a speaker in the process is kept as its `Take` (`fish_takes.Takes`), and its text and
-codes are the reference of every later span of that speaker. The answer is one WAV file at the codec's rate
+request, with fish-speech's sampling defaults (temperature 0.7, top-p 0.7, top-k 30) and at most `max_frames`
+audio frames per request when the entry sets it. The voice is always `default`: the first span of a speaker in the
+process is kept as its `Take` (`fish_takes.Takes`), and its text and codes are the reference of every later span
+of that speaker. The answer is one WAV file at the codec's rate
 (44.1 kHz), the spans joined in order. `style` (optional) is a format string with `{instructions}` and `{text}`
 that puts the caller's instructions into each span without a style tag of its own.
 """
@@ -124,15 +125,17 @@ def _load(entry: FishModel, name: str, model: str) -> Loaded:
     return _models[model_id]
 
 
-def _codes(m: Loaded, text: str, reference: Take | None):
-    """The codec codes [codebooks, frames] of `text`, with `reference` as the voice when given; `AIModelsError`
-    when the model answers no audio frame."""
+def _codes(m: Loaded, text: str, reference: Take | None, max_frames: int | None):
+    """The codec codes [codebooks, frames] of `text`, with `reference` as the voice when given and at most
+    `max_frames` frames per text chunk (None: fish-speech's default); `AIModelsError` when the model answers no audio
+    frame."""
     import torch
     from fish_speech.models.text2semantic.inference import generate_long
 
     ref = {} if reference is None else {"prompt_text": [reference.text], "prompt_tokens": [reference.codes]}
+    cap = {} if max_frames is None else {"max_new_tokens": max_frames}
     codes = [r.codes for r in generate_long(model=m.model, device=DEVICE, decode_one_token=m.decode_one_token,
-                                            text=text, compile=False, **ref) if r.action == "sample"]
+                                            text=text, compile=False, **ref, **cap) if r.action == "sample"]
     if not codes:
         raise AIModelsError(f"the model answered no audio for {text[:80]!r}")
     return torch.cat(codes, 1)
@@ -153,7 +156,7 @@ def _span_audio(m: Loaded, model_id: str, span: Span, entry: FishModel, instruct
     from fish_speech.models.text2semantic.inference import decode_to_audio
 
     reference = takes.get(model_id, speaker)
-    codes = _codes(m, span.said(entry.style, instructions), reference)
+    codes = _codes(m, span.said(entry.style, instructions), reference, entry.max_frames)
     audio = decode_to_audio(codes.to(m.model.device), m.codec).float().cpu().numpy()
     if reference is None:
         takes.keep(model_id, speaker, Take(joined([audio], m.rate), span.styled(entry.style, instructions),

@@ -55,13 +55,15 @@ def _test_config() -> Path:
 
 # The settings file of the unit and integration tests: the tiny models tests load or call (_test_config).
 TEST_CONFIG = _test_config()
+# The settings file of tests/models/: the full-size models of that suite. It has no `~` path.
+MODELS_CONFIG = Path(__file__).resolve().parent / "models" / "config.yaml"
 
 
-def config_sections() -> dict:
-    """The sections of TEST_CONFIG."""
+def config_sections(file: Path = TEST_CONFIG) -> dict:
+    """The sections of the settings file `file`."""
     import yaml
 
-    return yaml.safe_load(TEST_CONFIG.read_text(encoding="utf-8"))
+    return yaml.safe_load(file.read_text(encoding="utf-8"))
 
 
 def task_model(task: str) -> str:
@@ -69,16 +71,28 @@ def task_model(task: str) -> str:
     return config_sections()["tasks"][task]
 
 
+def entry(model_id: str, file: Path = TEST_CONFIG) -> dict:
+    """The entry `providers.<provider>.models.<model>` of `model_id` (`<provider>:<model>`) in the settings file
+    `file`."""
+    provider, model = model_id.split(":", 1)
+    return config_sections(file)["providers"][provider]["models"][model]
+
+
 def model_entry(task: str) -> dict:
-    """The entry `providers.<provider>.models.<model>` of the model of `task` in TEST_CONFIG."""
-    provider, model = task_model(task).split(":", 1)
-    return config_sections()["providers"][provider]["models"][model]
+    """The entry of the model of `task` in TEST_CONFIG."""
+    return entry(task_model(task))
 
 
-def kind_model(kind: str) -> str:
-    """The model id `<provider>:<model>` of the first model of the first provider of `kind` in TEST_CONFIG."""
-    name, spec = next((n, p) for n, p in config_sections()["providers"].items() if p["kind"] == kind)
+def kind_model(kind: str, file: Path = TEST_CONFIG) -> str:
+    """The model id `<provider>:<model>` of the first model of the first provider of `kind` in the settings file
+    `file`."""
+    name, spec = next((n, p) for n, p in config_sections(file)["providers"].items() if p["kind"] == kind)
     return f"{name}:{next(iter(spec['models']))}"
+
+
+def kind_entry(kind: str, file: Path = TEST_CONFIG) -> dict:
+    """The entry of `kind_model(kind, file)` in the settings file `file`."""
+    return entry(kind_model(kind, file), file)
 
 
 def _uv_dir(*args: str) -> str:

@@ -1,7 +1,14 @@
 # The settings file of tests/models/: the full-size models of that suite, which only
 # `scripts/tests.sh models` runs. No api_key: a test of a remote provider copies the key of the
 # provider of the same kind from the user's config into a temporary config.
-providers: {}
+providers:
+  # Fish Audio Drama 3 (35B MoE, FP8 experts, 39 GB) through fish-speech on the GPU; 44 GB at its peak.
+  fish:
+    kind: fish
+    models:
+      drama-3:
+        repo: fishaudio/drama-3
+        memory: 44
 tasks: {}
 # Below the 900 s subprocess timeouts of this suite, so a held lock fails a test with the holder's PID
 # before its subprocess times out.
