@@ -1,14 +1,26 @@
-"""`image-gen generate` with the `image` and `image_edit` models of the user's `ai_models` config (real model
-calls): a generation, then an edit of that image."""
+"""`image-gen generate` with the `image` and `image_edit` models of tests/config.yaml (real model calls on the tiny
+local models): a generation, then an edit of that image."""
 
 import contextlib
 import io
 import struct
 from pathlib import Path
 
+import pytest
 from image_gen_tool import cli
 
+from ai_models import config
+from tests.settings_env import TEST_CONFIG
+
 PROMPT = "A single red apple on a plain white table, flat illustration, no text"
+
+
+@pytest.fixture(autouse=True)
+def _config():
+    """TEST_CONFIG in use for the test."""
+    config.use(TEST_CONFIG)
+    yield
+    config.use(None)
 
 
 def generate(*argv: str) -> tuple[int, str, str]:
@@ -29,6 +41,8 @@ def png_size(path: Path) -> tuple[int, int]:
 
 
 def test_generate_then_edit(tmp_path):
+    """`generate` writes a PNG with the `image` model, then edits it with `--ref` and `--aspect 3:2` on the
+    `image_edit` model; the edit is wider than tall."""
     first = tmp_path / "apple.png"
     code, out, err = generate("--prompt", PROMPT, "--out", str(first))
     assert code == 0, err

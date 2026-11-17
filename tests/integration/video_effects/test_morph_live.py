@@ -1,8 +1,8 @@
-"""`keys` without --end, every keyframe generated with the image-gen wrapper
-and the `image_edit` model of the user's `ai_models` config.yaml (1K, low
-quality on OpenAI-style models), then `morph --from` through the
-video-effects wrapper. A missing config, provider or key fails the first
-image-gen call with image-gen's message."""
+"""`keys` without --end, every keyframe generated with `image-gen generate`
+and the `image_edit` model of tests/config.yaml, then `morph --from` of
+video-effects. Each CLI runs as `python -m` in a child process of the root
+`dev` environment (the working tree's lib/), with the user's settings file
+hidden and TEST_CONFIG in SKILLS_CONFIG."""
 
 import json
 import shutil
@@ -15,10 +15,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 from tests.prereq import requires
+from tests.settings_env import TEST_CONFIG
+from tests.subproc import child_env, run_module
 
-ROOT = Path(__file__).resolve().parents[3]
-VIDEO_EFFECTS = ROOT / "plugins/media/skills/video-effects/scripts/video-effects.sh"
-IMAGE_GEN = ROOT / "plugins/media/skills/image-gen/scripts/image-gen.sh"
+VIDEO_EFFECTS = "video_effects_tool"
+IMAGE_GEN = "image_gen_tool"
+# The CLIs' environment: no user settings file, the tiny models of tests/config.yaml.
+ENV = child_env(SKILLS_CONFIG=str(TEST_CONFIG))
 STYLE = "soft watercolour painting on textured paper, gentle washes of colour, visible brush strokes"
 
 
@@ -38,8 +41,9 @@ def drawing(path: Path) -> Path:
     return path
 
 
-def run(*cmd: str | Path) -> subprocess.CompletedProcess:
-    return subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
+def run(module: str, *argv: str | Path) -> subprocess.CompletedProcess:
+    """`python -m <module> <argv>` in ENV, for at most 25 s (below the 30 s test timeout)."""
+    return run_module(module, [str(a) for a in argv], ENV)
 
 
 def generate(entry: dict) -> subprocess.CompletedProcess:
@@ -52,9 +56,9 @@ def generate(entry: dict) -> subprocess.CompletedProcess:
 @requires(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class TestMorphLive(unittest.TestCase):
     def test_keys_generate_morph(self) -> None:
-        """keys then image-gen for every listed keyframe with the config's image_edit model, then morph --from through the wrapper:
-        size, fps, frame count, strip and sidecar inputs equal to the chain. Guards that keys.json entries are
-        valid image-gen arguments and that generated keys render."""
+        """keys, then image-gen for every listed keyframe with the image_edit model of tests/config.yaml, then
+        morph --from: size, fps, frame count, strip and sidecar inputs equal to the chain. Guards that keys.json
+        entries are valid image-gen arguments and that generated keys render."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             start = drawing(tmp / "start.png")

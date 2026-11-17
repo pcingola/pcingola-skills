@@ -1,7 +1,11 @@
 # The settings file of the unit and integration tests: the tiny models that tests load or call.
 # In-process tests name it with `config.use(TEST_CONFIG)`; child processes get it in SKILLS_CONFIG
 # (tests/settings_env.py). No remote provider, no api_key. Weights of the kokoro and torchaudio
-# providers go under ~/.cache/pcingola-skills-tests/; diffusers models use the Hugging Face cache.
+# providers go under ~/.cache/pcingola-skills-tests/; diffusers models use the default Hugging Face
+# cache. Tests read a copy with `~` expanded to the real home (settings_env.TEST_CONFIG), so child
+# processes, whose HOME is temporary, share these directories.
+huggingface:
+  home: ~/.cache/huggingface
 providers:
   ollama:
     kind: ollama
@@ -14,6 +18,8 @@ providers:
         steps: 2
         guidance: 1.0
         inpaint: Flux2KleinInpaintPipeline
+        # Small images keep the image-gen and video-effects tests fast.
+        image: {max_edge: 512, min_edge: 256}
       # Random weights, the LTX-Video 0.9.5 pipeline class.
       ltx-tiny:
         repo: optimum-intel-internal-testing/tiny-random-ltx-video-0.9.5

@@ -5,7 +5,8 @@ Settings come only from the settings file `<config dir>/plugins/data/config.yaml
 so the user's file would set them for the code under test. `isolated` points
 HOME, CLAUDE_CONFIG_DIR and CLAUDE_PLUGIN_DATA at a temporary directory of this
 process, where no settings file exists. A test that needs a setting writes a
-config.yaml with `write_config` and passes its path in SKILLS_CONFIG. uv keeps
+config.yaml with `write_config` and passes its path in SKILLS_CONFIG; TEST_CONFIG
+is tests/config.yaml with `~` already expanded to the real home. uv keeps
 its real cache, Python installs and configuration, and git its global
 configuration (credential helper for the git dependencies); the wrapper's
 environment is built once per test process under the temporary plugin data
@@ -28,8 +29,32 @@ MARKETPLACE = json.loads(
     (Path(__file__).resolve().parents[1] / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
 )["name"]
 
-# The settings file of the unit and integration tests: the tiny models tests load or call.
-TEST_CONFIG = Path(__file__).resolve().parent / "config.yaml"
+_ROOT = Path(tempfile.mkdtemp(prefix="skills-settings-"))
+atexit.register(shutil.rmtree, _ROOT, ignore_errors=True)
+
+
+def _expand_home(value: object) -> object:
+    """`value` with every string that starts with `~` expanded with this process's HOME, in nested maps and lists."""
+    if isinstance(value, dict):
+        return {k: _expand_home(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand_home(v) for v in value]
+    return str(Path(value).expanduser()) if isinstance(value, str) and value.startswith("~") else value
+
+
+def _test_config() -> Path:
+    """tests/config.yaml written under the temporary directory with its `~` paths expanded with the real HOME, so a
+    child process with the temporary HOME of `isolated` uses the same weight directories and Hugging Face cache."""
+    import yaml
+
+    data = yaml.safe_load((Path(__file__).resolve().parent / "config.yaml").read_text(encoding="utf-8"))
+    path = _ROOT / "test-config.yaml"
+    path.write_text(yaml.safe_dump(_expand_home(data)), encoding="utf-8")
+    return path
+
+
+# The settings file of the unit and integration tests: the tiny models tests load or call (_test_config).
+TEST_CONFIG = _test_config()
 
 
 def task_model(task: str) -> str:
@@ -37,9 +62,6 @@ def task_model(task: str) -> str:
     import yaml
 
     return yaml.safe_load(TEST_CONFIG.read_text(encoding="utf-8"))["tasks"][task]
-
-_ROOT = Path(tempfile.mkdtemp(prefix="skills-settings-"))
-atexit.register(shutil.rmtree, _ROOT, ignore_errors=True)
 
 
 def _uv_dir(*args: str) -> str:
