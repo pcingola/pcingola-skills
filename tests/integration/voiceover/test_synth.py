@@ -1,45 +1,27 @@
-"""Integration: real `voiceover synth` with the Kokoro model and the MMS_FA aligner of the config template.
+"""Integration: real `voiceover synth` with the `speech` and `align` models of tests/config.yaml.
 
-Runs the CLI in a child process with a config holding the template's `kokoro` and `torchaudio` providers, whose
-`dir` is the default one of this machine's media plugin (`voiceover/` in its data directory), so the weights earlier
-runs downloaded are reused; the first run downloads them (about 1.6 GB).
+Runs the CLI in a child process of the root `dev` environment with the user's settings file hidden and TEST_CONFIG in
+SKILLS_CONFIG.
 """
 
 import json
 import subprocess
-import sys
 import tempfile
 import unittest
 import wave
 from pathlib import Path
 
-import yaml
-from plugin_settings import Plugin
+from tests.settings_env import TEST_CONFIG, model_entry, task_model
+from tests.subproc import child_env, run_module
 
-from tests.settings_env import write_config
-from tests.subproc import child_env
-
-ROOT = Path(__file__).resolve().parents[3]
-EXAMPLE = ROOT / "plugins/setup/skills/settings/assets/config.example.yaml"
-SCRIPTS = ROOT / "plugins/media/skills/voiceover/scripts"
 SCRIPT = ("The heart pumps blood through the body.\n\nCount to five.\nIn 1995, about 42% of pumps failed.\n"
           "[calm] Keep it quiet.\n")
+ENV = child_env(SKILLS_CONFIG=str(TEST_CONFIG))
 
 
-def template_config(path: Path) -> Path:
-    """A config with the template's `kokoro` and `torchaudio` providers, `dir` the media plugin's default weights
-    directory, and its `speech` and `align` models."""
-    t = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
-    weights = str(Plugin.of(SCRIPTS).data_dir() / "voiceover")
-    return write_config(path, providers={k: {**t["providers"][k], "dir": weights} for k in ("kokoro", "torchaudio")},
-                        tasks={k: t["tasks"][k] for k in ("speech", "align")})
-
-
-def synth(script: Path, out: Path, config: Path, *args: str) -> subprocess.CompletedProcess:
-    env = child_env(SKILLS_CONFIG=str(config), HOME=str(Path.home()))
-    env["PYTHONPATH"] = f"{SCRIPTS}:{env['PYTHONPATH']}"
-    return subprocess.run([sys.executable, "-m", "voiceover_tool", "synth", "--script", str(script),
-                           "--out-dir", str(out), *args], capture_output=True, text=True, timeout=1200, env=env)
+def synth(script: Path, out: Path, *args: str) -> subprocess.CompletedProcess:
+    """`voiceover synth` of `script` into `out` with `args`, for at most 25 s."""
+    return run_module("voiceover_tool", ["synth", "--script", str(script), "--out-dir", str(out), *args], ENV)
 
 
 class TestSynth(unittest.TestCase):
@@ -48,11 +30,10 @@ class TestSynth(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.TemporaryDirectory()
         tmp = Path(cls._tmp.name)
-        cls.config = template_config(tmp / "config.yaml")
         cls.script = tmp / "script.txt"
         cls.script.write_text(SCRIPT.replace("[calm] ", ""), encoding="utf-8")
         cls.out = tmp / "out"
-        r = synth(cls.script, cls.out, cls.config)
+        r = synth(cls.script, cls.out)
         if r.returncode != 0:
             raise AssertionError(f"synth failed ({r.returncode}):\n{r.stderr}")
         cls.stdout = r.stdout
@@ -69,13 +50,13 @@ class TestSynth(unittest.TestCase):
 
     def test_wav_duration_matches_timing(self) -> None:
         """voiceover synth with Kokoro writes a 24 kHz mono WAV whose length equals timing.json's duration, with the
-        model of tasks.speech and its default voice af_heart.
+        model of tasks.speech and the default voice of its entry.
         Guards the default model and voice and the duration bookkeeping on real audio."""
         with wave.open(str(self.out / "narration.wav")) as w:
             self.assertEqual((w.getnchannels(), w.getsampwidth(), w.getframerate()), (1, 2, 24000))
             duration = w.getnframes() / w.getframerate()
         self.assertAlmostEqual(duration, self.timing["duration"], places=3)
-        self.assertEqual((self.timing["model"], self.timing["voice"]), ("kokoro:kokoro-v1.0", "af_heart"))
+        self.assertEqual((self.timing["model"], self.timing["voice"]), (task_model("speech"), model_entry("speech")["voice"]))
 
     def test_words_monotonic_inside_sentences(self) -> None:
         """voiceover synth aligns every sentence with MMS_FA, a blank line skipped, numbers and percent included,
@@ -115,7 +96,7 @@ class TestSynth(unittest.TestCase):
         script = self.script.with_name("styled.txt")
         script.write_text(SCRIPT, encoding="utf-8")
         out = self.out.with_name("styled")
-        r = synth(script, out, self.config, "--no-align")
+        r = synth(script, out, "--no-align")
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("would speak aloud", r.stderr)
         self.assertFalse(out.exists())

@@ -17,12 +17,13 @@ from pathlib import Path
 from tests.prereq import requires
 from tests.integration.short_video import wrapper_env
 from tests.integration.short_video.wrapper_env import NODE_DIR
+from tests.settings_env import model_entry, task_model
 from short_video_tool import config, manim_scene, media, mix, scenes, settings, state, storyboard, versions
 
 DURATION = 2.0
 TIMING = {
     "audio": "narration.wav", "sample_rate": 24000, "duration": DURATION,
-    "model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0,
+    "model": task_model("speech"), "voice": model_entry("speech")["voice"], "speed": 1.0,
     "sentences": [{
         "index": 1, "text": "Hello world.", "start": 0.25, "end": 1.4, "aligned": True,
         "words": [{"text": "Hello", "start": 0.25, "end": 0.7}, {"text": "world.", "start": 0.75, "end": 1.4}],

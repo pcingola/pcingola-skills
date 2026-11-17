@@ -1,7 +1,7 @@
 """`music analyze` through the CLI on synthetic clips made with FFmpeg.
 
-Signal and images run offline; the model analysis uses the `audio` model of the
-`ai_models` config.
+Signal and images run offline; the model analysis uses the `audio` model of
+tests/config.yaml.
 """
 
 import contextlib
@@ -14,7 +14,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
 from music_tool import cli
+from plugin_settings import use
+
+from tests.prereq import require_ollama
+from tests.settings_env import TEST_CONFIG
 
 SCRIPTS = Path(__file__).resolve().parents[3] / "plugins/media/skills/music/scripts"
 
@@ -101,12 +106,17 @@ class TestAnalyze(unittest.TestCase):
         self.assertIn("no model for task 'audio'", (out / "summary.md").read_text())
 
     def test_model(self) -> None:
-        """`music analyze --only model` with the config's `audio` model returns a description and a style-brief verdict and
-        `no brief` for the missing clip brief. Guards the describe requests against the real Vertex route and
-        its schema handling."""
+        """`music analyze --only model` with the `audio` model of tests/config.yaml returns a description, a
+        style-brief verdict and `no brief` for the missing clip brief. Guards the describe requests against a real
+        audio model and their schema handling."""
+        require_ollama("audio")
         out = Path(self._tmp.name) / "model"
-        code = analyze([str(self.dir / "drums.wav"), "--only", "model", "--brief", "instrumental drum loop",
-                        "--out-dir", str(out)])
+        use(TEST_CONFIG)
+        try:
+            code = analyze([str(self.dir / "drums.wav"), "--only", "model", "--brief", "instrumental drum loop",
+                            "--out-dir", str(out)])
+        finally:
+            use(None)
         self.assertEqual(code, 0)
         m = self.report(out, "drums")["model"]
         self.assertEqual(m["status"], "ok", m)

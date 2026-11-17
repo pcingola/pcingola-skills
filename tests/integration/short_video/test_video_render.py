@@ -15,13 +15,13 @@ from pathlib import Path
 
 from ai_models import config as ai_config
 from tests.prereq import requires
-from tests.settings_env import TEST_CONFIG
+from tests.settings_env import TEST_CONFIG, model_entry, task_model
 from short_video_tool import media, settings, state, storyboard, versions, video_scene
 
 DURATION = 3.0
 TIMING = {
     "audio": "narration.wav", "sample_rate": 24000, "duration": DURATION,
-    "model": "kokoro:kokoro-v1.0", "voice": "af_heart", "speed": 1.0,
+    "model": task_model("speech"), "voice": model_entry("speech")["voice"], "speed": 1.0,
     "sentences": [{"index": 1, "text": "A red ball rolls.", "start": 0.25, "end": 2.6, "aligned": True,
                    "words": [{"text": "A", "start": 0.25, "end": 0.35}]}],
 }
