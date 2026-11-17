@@ -44,6 +44,14 @@ providers:
         width: 128
         height: 96
         max_frames: 9
+      # Random weights, the ACE-Step pipeline classes: noise at 48 kHz. A folder that the session fixture of
+      # tests/integration/music writes with tests/tiny_ace_step.py when it is missing.
+      ace-step-tiny:
+        repo: ~/.cache/pcingola-skills-tests/tiny-ace-step
+        steps: 2
+        guidance: 1.0
+        duration_arg: audio_duration
+        lyrics_arg: lyrics
       # Random weights, the Kandinsky S2V modular pipeline of the diffusers tests. Its text RoPE has
       # 128 positions, so the prompt is short.
       s2v-tiny:
@@ -81,6 +89,7 @@ tasks:
   image_multi_ref: local:klein-tiny
   video: local:ltx-tiny
   presenter: local:s2v-tiny
+  music: local:ace-step-tiny
   speech: kokoro:kokoro-v1.0-int8
   align: torchaudio:MMS_FA
 # A test waits at most this long for another process that holds the local models, below the 25 s

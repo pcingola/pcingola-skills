@@ -2,6 +2,7 @@
 pipeline loads. The cases that load a pipeline are in tests/integration/ai_models/test_local.py."""
 
 import io
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -46,6 +47,16 @@ def test_mask_needs_a_reference_and_an_inpaint_pipeline():
     ref = BinaryImage(data=b"\x89PNG", media_type="image/png")
     with pytest.raises(ConfigError, match="inpaint"):
         ImageGenerator(local.DiffusersImageModel("local:no-inpaint", mask=b"m")).generate_sync("x", images=[ref])
+
+
+def test_local_folder_repo(tmp_path):
+    """`local.local_folder`: an absolute or `~` path in `repo` is a folder loaded as is (no cache lookup), a
+    repository id is not a folder, and a path that is not a folder raises ConfigError."""
+    assert local.local_folder(str(tmp_path)) == tmp_path
+    assert local.local_folder("~") == Path.home()
+    assert local.local_folder(NO_REPO) is None
+    with pytest.raises(ConfigError, match="not a folder"):
+        local.local_folder(str(tmp_path / "missing"))
 
 
 def test_pipe_kwargs_order_and_optional_guidance():

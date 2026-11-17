@@ -73,7 +73,8 @@ The package reads two sections, `providers` and `tasks`, and `network.extra_ca_c
   limits of an image model of an OpenAI kind), `voice` and `voices` (a speech model) and, for `google`, `predict`
   (Music). A remote provider serves any model id. A provider of a local kind serves only the models listed; the
   `kokoro`, `chatterbox`, `torchaudio` and `vllm-omni` entries are in Local speech and alignment and Speech models of
-  vLLM-Omni. A `diffusers` entry has `repo` (a Hugging Face repository), `steps`, `guidance` (optional: without it
+  vLLM-Omni. A `diffusers` entry has `repo` (a Hugging Face repository, or a folder of a saved pipeline as an
+  absolute or `~` path, loaded with no cache lookup), `steps`, `guidance` (optional: without it
   no `guidance_scale` is passed), `args` (optional: more pipeline call arguments, after steps and guidance and
   before the caller's) and `skip` (optional: pipeline components loaded as None), and the keys of its role, which
   make the role. An image model adds `inpaint` (the diffusers pipeline class for an edit with a mask, built over

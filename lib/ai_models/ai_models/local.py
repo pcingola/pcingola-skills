@@ -2,7 +2,8 @@
 pipeline cache and device of every local model (video: `video`).
 
 A model is `providers.<p>.models.<name>` of a diffusers provider in the config (`DiffusersModel`): `repo`
-(a Hugging Face repo, loaded with `DiffusionPipeline.from_pretrained`; weights go to the Hugging Face cache),
+(a Hugging Face repo, loaded with `DiffusionPipeline.from_pretrained`, weights in the Hugging Face cache; or a local
+folder, an absolute or `~` path),
 `steps`, `guidance` (optional: without it no `guidance_scale` is passed), `inpaint` (a
 diffusers pipeline class for mask edits, built over the loaded modules with `from_pipe`),
 `args` (optional: more pipeline call arguments, after steps and guidance and before the
@@ -84,7 +85,8 @@ def device() -> str:
 
 
 def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline", skip: Sequence[str] = ()):
-    """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules.
+    """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules. `repo` is a
+    Hugging Face repository id or a local folder (`local_folder`), which is loaded as is, with no cache lookup.
     `cls` is the diffusers class to load: a `DiffusionPipeline` class (`model_index.json`), or a `ModularPipeline`
     class (`modular_model_index.json`, loaded with `load_components`, `_modular`); the components in `skip` are
     loaded as None (a modular pipeline: not loaded). A load first takes
@@ -524,18 +526,32 @@ def _modular(cls, repo: str, skip: Sequence[str]):
     bfloat16 on the CPU, except those in `skip`."""
     import torch
 
-    pipe = cls.from_pretrained(repo)
+    pipe = cls.from_pretrained(str(local_folder(repo) or repo))
     pipe.load_components([n for n in pipe.pretrained_component_names if n not in skip], dtype=torch.bfloat16)
     return pipe
 
 
+def local_folder(repo: str) -> Path | None:
+    """The folder `repo` names when it is a path (absolute, or starting with `~`), else None (a Hugging Face
+    repository id). A path that is not a folder raises `ConfigError`."""
+    if not repo.startswith(("/", "~")):
+        return None
+    folder = Path(repo).expanduser()
+    if not folder.is_dir():
+        raise ConfigError(f"diffusers model repo {repo!r} is a path but not a folder")
+    return folder
+
+
 def _from_pretrained(cls, repo: str, **kwargs):
-    """`cls.from_pretrained` from the cached snapshot folder of `repo`, else with a download.
+    """`cls.from_pretrained` from the folder `repo` names (`local_folder`), else from the cached snapshot folder of
+    the repository `repo`, else with a download.
     Loading the repository id fetches every weight file of each component folder, including
     alternative shardings the pipeline never reads, and `local_files_only` refuses a snapshot
     that lacks any of them; a folder load reads only the files the pipeline names."""
     from huggingface_hub import try_to_load_from_cache
 
+    if (folder := local_folder(repo)) is not None:
+        return cls.from_pretrained(str(folder), **kwargs)
     index = try_to_load_from_cache(repo, "model_index.json")
     if isinstance(index, str):
         try:

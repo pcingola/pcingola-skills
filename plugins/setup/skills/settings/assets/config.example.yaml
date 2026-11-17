@@ -100,8 +100,9 @@ providers:
   #  location: us-central1
 
   # Local models (kind diffusers). Each entry: repo (required, a Hugging Face
-  # repository), steps, guidance (without it no guidance_scale is passed, for a
-  # pipeline that has no such argument), args (a mapping of more pipeline call
+  # repository, or a folder of a saved pipeline as an absolute or ~ path),
+  # steps, guidance (without it no guidance_scale is passed, for a pipeline
+  # that has no such argument), args (a mapping of more pipeline call
   # arguments, after steps and guidance and before the caller's) and skip (a
   # list of pipeline components loaded as None, such as a text encoder the
   # model does not use). The keys of each role below make the entry a model of

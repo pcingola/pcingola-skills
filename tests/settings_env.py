@@ -57,11 +57,22 @@ def _test_config() -> Path:
 TEST_CONFIG = _test_config()
 
 
-def task_model(task: str) -> str:
-    """The model id `<provider>:<model>` of `task` in TEST_CONFIG."""
+def config_sections() -> dict:
+    """The sections of TEST_CONFIG."""
     import yaml
 
-    return yaml.safe_load(TEST_CONFIG.read_text(encoding="utf-8"))["tasks"][task]
+    return yaml.safe_load(TEST_CONFIG.read_text(encoding="utf-8"))
+
+
+def task_model(task: str) -> str:
+    """The model id `<provider>:<model>` of `task` in TEST_CONFIG."""
+    return config_sections()["tasks"][task]
+
+
+def model_entry(task: str) -> dict:
+    """The entry `providers.<provider>.models.<model>` of the model of `task` in TEST_CONFIG."""
+    provider, model = task_model(task).split(":", 1)
+    return config_sections()["providers"][provider]["models"][model]
 
 
 def _uv_dir(*args: str) -> str:

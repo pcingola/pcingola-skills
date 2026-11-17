@@ -13,7 +13,7 @@ from .diffusers_role import DiffusersRole
 
 
 class DiffusersModel(Strict):
-    """`repo` (Hugging Face repository), `steps`, `guidance` (none: no `guidance_scale`), `args` (more call
+    """`repo` (Hugging Face repository, or a local folder of a saved pipeline as an absolute or `~` path), `steps`, `guidance` (none: no `guidance_scale`), `args` (more call
     arguments, after steps and guidance), `skip` (components loaded as None)."""
 
     role: ClassVar[DiffusersRole]
