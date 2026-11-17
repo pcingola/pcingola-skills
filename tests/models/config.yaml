@@ -1,6 +1,7 @@
 # The settings file of tests/models/: the full-size models of that suite, which only
-# `scripts/tests.sh models` runs. No api_key: a test of a remote provider copies the key of the
-# provider of the same kind from the user's config into a temporary config.
+# `scripts/tests.sh models` runs. A test uses it through `models_config` of tests/models/conftest.py,
+# which keeps the provider of the test's model and, for a remote provider, copies the api_key and endpoint
+# of the provider of the same kind from the user's config. This file has no api_key and no endpoint.
 providers:
   # Fish Audio Drama 3 (35B MoE, FP8 experts, 39 GB) through fish-speech on the GPU; 44 GB at its peak.
   fish:
@@ -9,6 +10,19 @@ providers:
       drama-3:
         repo: fishaudio/drama-3
         memory: 44
+  # Remote speech (tests/models/test_remote.py): every model with a voice.
+  azure:
+    kind: azure
+    api_version: 2025-04-01-preview
+    models:
+      gpt-4o-mini-tts: {voice: alloy}
+  # Remote speech and music: Gemini TTS, and Lyria 2 on the Vertex predict endpoint.
+  vertex:
+    kind: google
+    vertex: true
+    models:
+      gemini-3.8-flash-tts: {voice: Kore}
+      lyria-002: {predict: true}
 tasks: {}
 # Below the 900 s subprocess timeouts of this suite, so a held lock fails a test with the holder's PID
 # before its subprocess times out.

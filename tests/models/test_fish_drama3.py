@@ -12,6 +12,7 @@ import pytest
 from loguru import logger
 
 from ai_models import config, local, speech
+from tests.models.conftest import models_config
 from tests.settings_env import MODELS_CONFIG, kind_model
 from tests.wav import read
 
@@ -29,10 +30,10 @@ TEXTS = {
 
 
 @pytest.fixture(scope="module")
-def drama3():
-    """MODELS_CONFIG in use and MODEL loaded by a first sentence, which becomes the narrator's reference take for
-    the tests; the model is unloaded after the module."""
-    config.use(MODELS_CONFIG)
+def drama3(tmp_path_factory):
+    """The settings of MODEL (`models_config`) in use and MODEL loaded by a first sentence, which becomes the
+    narrator's reference take for the tests; the model is unloaded after the module."""
+    config.use(models_config(tmp_path_factory.mktemp("settings") / "config.yaml", MODEL))
     speech.speak("Hello, this is the narrator of these tests.", model=MODEL)
     yield
     local.unload()

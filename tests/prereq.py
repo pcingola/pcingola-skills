@@ -1,4 +1,4 @@
-"""`requires`: a test or test class fails with a clear message when a tool, key or
+"""`requires` and `require`: a test or test class fails with a clear message when a tool, key or
 model it needs is missing. Tests never skip."""
 from __future__ import annotations
 
@@ -27,12 +27,17 @@ def require_ollama(*tasks: str) -> None:
     assert not missing, f"missing prerequisite: Ollama lacks {', '.join(missing)}; run ollama pull {' '.join(missing)}"
 
 
+def require(ok: object, reason: str) -> None:
+    """Fail the running test with `reason` when `ok` is false."""
+    if not ok:
+        raise AssertionError(f"missing prerequisite: {reason}")
+
+
 def requires(ok: object, reason: str):
     """Decorate a test function or a unittest.TestCase class; when `ok` is false
     the test fails with `reason`."""
     def check() -> None:
-        if not ok:
-            raise AssertionError(f"missing prerequisite: {reason}")
+        require(ok, reason)
 
     def deco(obj):
         if isinstance(obj, type):
