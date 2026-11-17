@@ -199,9 +199,10 @@ class TestFit(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             src, dest = Path(tmp) / "in.mp4", Path(tmp) / "out.mp4"
             subprocess.run([media.which("ffmpeg"), "-v", "error", "-f", "lavfi", "-i",
-                            "testsrc=size=512x768:rate=25:duration=0.4", "-pix_fmt", "yuv420p", src], check=True)
+                            "testsrc=size=512x768:rate=25:duration=0.4", "-pix_fmt", "yuv420p", src],
+                           check=True, timeout=25)
             video_scene.fill(src, dest, 0.4, presenter_scene.FIT)
             out = subprocess.run([media.which("ffprobe"), "-v", "error", "-select_streams", "v:0", "-show_entries",
                                   "stream=width,height", "-of", "csv=p=0", dest],
-                                 capture_output=True, text=True, check=True).stdout.strip()
+                                 capture_output=True, text=True, check=True, timeout=25).stdout.strip()
         self.assertEqual(out, f"{v['width']},{v['height']}")

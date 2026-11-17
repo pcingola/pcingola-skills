@@ -36,7 +36,7 @@ def run(*argv: str) -> tuple[int, str, str]:
 def probe(path: Path) -> dict:
     out = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries",
                           "stream=width,height,r_frame_rate,nb_read_frames,codec_name,pix_fmt", "-of", "json",
-                          str(path)], capture_output=True, text=True, check=True).stdout
+                          str(path)], capture_output=True, text=True, check=True, timeout=25).stdout
     return json.loads(out)["streams"][0]
 
 

@@ -22,7 +22,7 @@ def plugin_env_dir() -> Path:
     done = subprocess.run(
         ["bash", "-c", 'source "$1" && plugin_env "$2" && printf %s "$PLUGIN_ENV_DIR"', "_",
          str(UV_ENV), str(config.SCRIPTS_DIR)],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, timeout=25
     )
     return Path(done.stdout)
 
@@ -34,6 +34,6 @@ NODE_DIR = ENV_DIR / "node"
 MANIM_VENV = ENV_DIR.parent / config.MANIM_ENV_NAME / ".venv"
 
 
-def run(*args: str | Path, timeout: float = 1200) -> subprocess.CompletedProcess:
-    """Run short-video.sh with `args`."""
+def run(*args: str | Path, timeout: float = 25) -> subprocess.CompletedProcess:
+    """Run short-video.sh with `args`, for at most `timeout` seconds (below the 30 s test timeout)."""
     return subprocess.run([str(WRAPPER), *map(str, args)], capture_output=True, text=True, timeout=timeout)

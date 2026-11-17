@@ -45,7 +45,7 @@ Brief: Hold.
 
 
 def _ffmpeg(*args: str) -> None:
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, timeout=25)
 
 
 @requires(shutil.which("ffmpeg") is not None, "ffmpeg not installed (brew install ffmpeg)")

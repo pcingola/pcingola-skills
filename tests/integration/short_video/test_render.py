@@ -35,7 +35,7 @@ ANIMATION = """const tl = gsap.timeline({ paused: true });
 
 
 def _ffmpeg(*args: str) -> None:
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, timeout=25)
 
 
 @requires(scenes.node_ready(NODE_DIR, config.NODE_SRC), "HyperFrames node_modules missing; run plugins/media/skills/short-video/scripts/short-video.sh setup")
@@ -116,7 +116,7 @@ class TestRender(unittest.TestCase):
             raw = subprocess.run(
                 ["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(self.scene_mp4), "-frames:v", "1",
                  "-vf", "crop=200:120:140:140,format=gray", "-f", "rawvideo", "-"],
-                check=True, capture_output=True,
+                check=True, capture_output=True, timeout=25
             ).stdout
             return sum(1 for b in raw if b > 240)
 
@@ -274,7 +274,7 @@ class TestRenderWithoutImage(unittest.TestCase):
             raw = subprocess.run(
                 ["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(self.scene_mp4), "-frames:v", "1",
                  "-vf", "crop=400:100:600:450,format=gray", "-f", "rawvideo", "-"],
-                check=True, capture_output=True,
+                check=True, capture_output=True, timeout=25
             ).stdout
             return sum(1 for b in raw if b > 240)
 

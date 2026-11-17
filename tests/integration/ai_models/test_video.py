@@ -31,7 +31,7 @@ def _config():
 def streams(clip) -> list[dict]:
     """The streams of the MP4 `clip`, read with ffprobe."""
     out = subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(clip)],
-                         capture_output=True, text=True, check=True)
+                         capture_output=True, text=True, check=True, timeout=25)
     return json.loads(out.stdout)["streams"]
 
 

@@ -107,7 +107,7 @@ class TestBackgroundVideo(unittest.TestCase):
             for length, n_errors in ((6.2, 0), (10.0, 0), (4.0, 1)):
                 subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
                                 f"color=c=black:s=16x16:r=30:d={length}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                                str(sdir / "background.mp4")], check=True)
+                                str(sdir / "background.mp4")], check=True, timeout=25)
                 with self.subTest(length=length):
                     errors = scenes.check_videos(sdir, self.PAGE, 6.2, 30)
                     self.assertEqual(len(errors), n_errors)

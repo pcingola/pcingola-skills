@@ -131,7 +131,7 @@ class TestClassify(unittest.TestCase):
                 "    except files.FileError as e:\n        print(e)\n")
         env = {**os.environ, "PATH": str(empty), "PYTHONPATH": os.pathsep.join(sys.path)}
         out = subprocess.run([sys.executable, "-c", code, str(p), str(small), str(notes)], env=env,
-                             capture_output=True, text=True, timeout=60).stdout
+                             capture_output=True, text=True, timeout=25).stdout
         self.assertEqual(out.count("ffmpeg is not on PATH"), 2, out)
 
 if __name__ == "__main__":

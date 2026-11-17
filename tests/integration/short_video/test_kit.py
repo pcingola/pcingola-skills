@@ -42,7 +42,8 @@ def three_ok() -> bool:
 
 
 def chrome() -> str:
-    done = subprocess.run([str(HYPERFRAMES), "browser", "path"], cwd=NODE_DIR, capture_output=True, text=True)
+    done = subprocess.run([str(HYPERFRAMES), "browser", "path"], cwd=NODE_DIR, capture_output=True, text=True,
+                          timeout=25)
     assert done.returncode == 0, done.stderr
     return done.stdout.strip().splitlines()[-1]
 

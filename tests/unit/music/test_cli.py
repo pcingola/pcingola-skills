@@ -21,7 +21,7 @@ def music(tmp_path):
 
     def run(*argv: str) -> tuple[int, str]:
         p = subprocess.run([sys.executable, "-m", "music_tool", "generate", *argv], env=env, capture_output=True,
-                           text=True, timeout=60)
+                           text=True, timeout=25)
         return p.returncode, p.stderr
 
     return run
@@ -118,5 +118,5 @@ def test_wrapper_local_extra(tmp_path, text, extra):
     script = "\n".join([f"source {SCRIPTS.parents[2] / 'lib/uv_env.sh'}", *wrapper[start:end], 'printf %s "$EXTRA"'])
     p = subprocess.run(["bash", "-euc", script], env={"PATH": os.environ["PATH"], "HOME": str(tmp_path),
                                                      "SKILLS_CONFIG": str(config)},
-                       capture_output=True, text=True, timeout=30)
+                       capture_output=True, text=True, timeout=25)
     assert p.returncode == 0 and p.stdout == extra, p.stderr

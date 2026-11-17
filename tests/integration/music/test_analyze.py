@@ -29,7 +29,7 @@ PAD = "(0.2*sin(2*PI*220*t)+0.15*sin(2*PI*277.18*t)+0.15*sin(2*PI*329.63*t))*(0.
 
 def make(path: Path, expr: str, seconds: int = 20) -> None:
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"aevalsrc='{expr}':s=44100:d={seconds}",
-                    "-ac", "2", str(path)], check=True)
+                    "-ac", "2", str(path)], check=True, timeout=25)
 
 
 def analyze(argv: list[str]) -> int:
@@ -104,7 +104,7 @@ class TestAnalyze(unittest.TestCase):
         env = {**os.environ, "SKILLS_CONFIG": str(config),
                "PYTHONPATH": os.pathsep.join([str(SCRIPTS), os.environ.get("PYTHONPATH", "")])}
         p = subprocess.run([sys.executable, "-m", "music_tool", "analyze", str(self.dir / "pad.mp3"), "--only",
-                            "model", "--out-dir", str(out)], env=env, capture_output=True, text=True, timeout=120)
+                            "model", "--out-dir", str(out)], env=env, capture_output=True, text=True, timeout=25)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(self.report(out, "pad")["model"]["status"], "skipped")
         self.assertIn("no model for task 'audio'", (out / "summary.md").read_text())

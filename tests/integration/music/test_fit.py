@@ -11,7 +11,7 @@ from music_tool.fit import fit
 
 def probe(path: Path) -> tuple[float, str]:
     out = subprocess.run(["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)],
-                         capture_output=True, text=True, check=True).stdout
+                         capture_output=True, text=True, check=True, timeout=25).stdout
     info = json.loads(out)
     return float(info["format"]["duration"]), info["streams"][0]["codec_name"]
 
@@ -23,7 +23,7 @@ class TestFit(unittest.TestCase):
         cls.dir = Path(cls._tmp.name)
         cls.tone = cls.dir / "tone.wav"
         subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=30",
-                        "-ac", "2", "-ar", "44100", str(cls.tone)], check=True)
+                        "-ac", "2", "-ar", "44100", str(cls.tone)], check=True, timeout=25)
 
     @classmethod
     def tearDownClass(cls) -> None:

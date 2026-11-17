@@ -311,7 +311,7 @@ class TestCli(TmpCase):
     def run_cli(self, brand_path: list[Path] | None, *argv: str, **extra: str) -> subprocess.CompletedProcess:
         """`python -m brand_tool <argv>` in a child process with `brand.path` brand_path."""
         return subprocess.run([sys.executable, "-m", "brand_tool", *argv], capture_output=True, text=True,
-                              env=self.env(brand_path, **extra))
+                              env=self.env(brand_path, **extra), timeout=25)
 
     def test_show_prints_folder_then_yaml(self) -> None:
         """`brand show` prints the resolved folder on the first line, then brand.yaml

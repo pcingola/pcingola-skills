@@ -118,13 +118,13 @@ class TestAmbienceKey(unittest.TestCase):
 
 
 def _ffmpeg(*args) -> None:
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *map(str, args)], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *map(str, args)], check=True, timeout=25)
 
 
 def _samples(path: Path, start: float, end: float) -> array.array:
     """The float samples (channels interleaved) of `path` between `start` and `end` seconds."""
     raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-af", f"atrim={start}:{end}", "-f", "f32le",
-                          "-"], capture_output=True, check=True).stdout
+                          "-"], capture_output=True, check=True, timeout=25).stdout
     return array.array("f", raw)
 
 

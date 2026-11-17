@@ -76,7 +76,7 @@ def test_refused_load_releases_the_lock(tmp_path):
             second.kill()
     finally:
         first.kill()
-        first.wait()
+        first.wait(timeout=5)
 
 
 GPU_HOLDER = """
@@ -120,7 +120,7 @@ def test_free_memory_comes_back_after_the_holder_exits(tmp_path):
             second.kill()
     finally:
         first.kill()
-        first.wait()
+        first.wait(timeout=5)
 
 
 PLAIN_GPU_HOLDER = """
@@ -155,7 +155,7 @@ def test_memory_error_names_a_process_that_holds_gpu_memory(tmp_path):
         assert f"process {holder.pid} " in str(local.memory_error("some/model", "it needs 9 GB"))
     finally:
         holder.stdin.close()
-        holder.wait(20)
+        holder.wait(timeout=20)
 
 
 @NEEDS_CUDA

@@ -20,7 +20,7 @@ print(Tokenizer(EspeakConfig(data_path=sys.argv[1])).phonemize("The heart pumps 
 
 def phonemize(data_path: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, "-c", PHONEMIZE, data_path], capture_output=True, text=True, timeout=120
+        [sys.executable, "-c", PHONEMIZE, data_path], capture_output=True, text=True, timeout=25
     )
 
 

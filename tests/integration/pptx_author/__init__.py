@@ -31,7 +31,7 @@ PRESENTATION_TEMPLATE = BRAND_PPTX_DIR / "presentation.pptx"
 
 
 def run_cli(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([PPTX_TOOL, *args], capture_output=True, text=True, cwd=PROJECT_DIR)
+    return subprocess.run([PPTX_TOOL, *args], capture_output=True, text=True, cwd=PROJECT_DIR, timeout=25)
 
 
 def fresh_dir(name: str) -> Path:

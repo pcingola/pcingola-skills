@@ -241,7 +241,7 @@ class TestLengthAndValidate(unittest.TestCase):
 
 
 def _ffmpeg(*args: str) -> None:
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, timeout=25)
 
 
 def _testsrc(path: Path, seconds: float, size: str = f"{W}x{H}", fps: int = FPS) -> Path:

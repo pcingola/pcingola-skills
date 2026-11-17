@@ -84,7 +84,7 @@ class TestMorphLive(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             probe = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
                                     "-show_entries", "stream=width,height,r_frame_rate,nb_read_frames", "-of", "json",
-                                    str(out)], capture_output=True, text=True, check=True).stdout
+                                    str(out)], capture_output=True, text=True, check=True, timeout=25).stdout
             info = json.loads(probe)["streams"][0]
             self.assertEqual((info["width"], info["height"]), (640, 360))
             self.assertEqual(info["r_frame_rate"], "24/1")

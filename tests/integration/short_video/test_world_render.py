@@ -80,7 +80,7 @@ class TestWorldRender(unittest.TestCase):
         def square_x(path: Path, t: float) -> int:
             raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(path), "-frames:v", "1",
                                   "-vf", "crop=1920:1:0:540,format=gray", "-f", "rawvideo", "-"],
-                                 check=True, capture_output=True).stdout
+                                 check=True, capture_output=True, timeout=25).stdout
             return next(i for i, b in enumerate(raw) if b > 240)
 
         end_left = square_x(self.outs[0], 1.0 - 1 / self.fps)

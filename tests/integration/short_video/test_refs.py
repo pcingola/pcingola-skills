@@ -17,7 +17,7 @@ FFMPEG = shutil.which("ffmpeg") is not None
 
 
 def _lavfi(out: Path, src: str, *args: str) -> None:
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", src, *args, str(out)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", src, *args, str(out)], check=True, timeout=25)
 
 
 @requires(FFMPEG, "ffmpeg on PATH")

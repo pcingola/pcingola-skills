@@ -22,8 +22,9 @@ def child_env(env: dict[str, str] | None = None, **extra: str) -> dict[str, str]
     return out
 
 
-def run_python(code: str, env: dict[str, str], timeout: float | None = None) -> subprocess.CompletedProcess:
-    """Run `code` (dedented) with `python -c` in environment `env`, for at most `timeout` seconds."""
+def run_python(code: str, env: dict[str, str], timeout: float = 25) -> subprocess.CompletedProcess:
+    """Run `code` (dedented) with `python -c` in environment `env`, for at most `timeout` seconds (below the 30 s
+    test timeout)."""
     return subprocess.run([sys.executable, "-c", textwrap.dedent(code)], capture_output=True, text=True, env=env,
                           timeout=timeout)
 

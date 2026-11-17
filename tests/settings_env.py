@@ -96,7 +96,7 @@ def kind_entry(kind: str, file: Path = TEST_CONFIG) -> dict:
 
 
 def _uv_dir(*args: str) -> str:
-    return subprocess.run(["uv", *args], capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(["uv", *args], capture_output=True, text=True, check=True, timeout=25).stdout.strip()
 
 
 # Resolved with the real HOME, before any environment is changed.

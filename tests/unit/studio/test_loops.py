@@ -56,7 +56,7 @@ def test_watch_parent_exits_when_parent_gone():
     """The parent loop exits when the process that started the wrapper is gone. Guards the fast exit when Claude
     Code ends (uv run sits between it and Python, so the server's own parent id does not change)."""
     child = subprocess.Popen([sys.executable, "-c", "pass"])
-    child.wait()
+    child.wait(timeout=5)
     codes = []
     watch_parent(child.pid, codes.append, interval=0)
     assert codes == [0]
@@ -144,9 +144,9 @@ def test_main_prints_ready(tmp_path):
             assert json.loads(r.read())["root"] == str(root.resolve())
         assert (root / "images").is_dir()
         parent.kill()
-        parent.wait()
+        parent.wait(timeout=5)
         assert proc.wait(timeout=10) == 0
     finally:
         parent.kill()
         proc.kill()
-        proc.wait()
+        proc.wait(timeout=5)

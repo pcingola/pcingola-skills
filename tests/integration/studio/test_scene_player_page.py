@@ -32,12 +32,13 @@ def render(path: Path, duration: float = DURATION) -> None:
     """A scene.mp4 of one colour, 1280x720 at 30 fps, as H.264 like media:short-video's renders."""
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
                     f"color=c=0x{''.join(f'{c:02x}' for c in BACKGROUND)}:s=1280x720:d={duration}:r=30",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True, timeout=25)
 
 
 def chrome() -> str:
     """The Chromium HyperFrames renders scenes with."""
-    done = subprocess.run([str(HYPERFRAMES), "browser", "path"], cwd=NODE_DIR, capture_output=True, text=True)
+    done = subprocess.run([str(HYPERFRAMES), "browser", "path"], cwd=NODE_DIR, capture_output=True, text=True,
+                          timeout=25)
     assert done.returncode == 0, done.stderr
     return done.stdout.strip().splitlines()[-1]
 

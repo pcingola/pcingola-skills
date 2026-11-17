@@ -36,7 +36,7 @@ model. In listening tests, `gemini-2.5-pro-tts` over-acted, or with a style
 became slow and flat; `gemini-3.8-flash-tts` sounded natural with and without
 a style; gpt-4o-mini-tts has an audible synthetic buzz in the model's own
 output. Gemini takes `--style` literally: "unhurried pace" gives long pauses.
-Ollama's `lfm3-audio` has odd, uncontrolled intonation: it is for tests, not
+Ollama's `lfm3-audio` has odd, uncontrolled intonation: it is for quick drafts, not
 for narration.
 
 A model of provider kind `fish` (Fish Audio Drama 3) runs on the local

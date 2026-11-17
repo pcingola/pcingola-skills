@@ -32,6 +32,6 @@ def test_small_file_sent_as_is(tmp_path):
 def test_transcoded_to_mp3(tmp_path, name, formats):
     """M4A always, and FLAC for a provider that takes WAV and MP3 only, go as MP3."""
     f = tmp_path / name
-    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=440:d=1", str(f)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=440:d=1", str(f)], check=True, timeout=25)
     data, mime = describe.audio_payload(f, formats)
     assert mime == "audio/mpeg" and data != f.read_bytes()

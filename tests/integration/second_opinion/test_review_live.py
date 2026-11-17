@@ -10,12 +10,12 @@ from second_opinion_tool import files
 
 
 def ffmpeg(*args: str) -> None:
-    subprocess.run(["ffmpeg", "-v", "error", "-y", *args], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", *args], check=True, timeout=25)
 
 
 def probe(path: Path) -> list[dict]:
     out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,height",
-                          "-of", "json", str(path)], capture_output=True, check=True, text=True).stdout
+                          "-of", "json", str(path)], capture_output=True, check=True, text=True, timeout=25).stdout
     return json.loads(out)["streams"]
 
 

@@ -47,7 +47,7 @@ def test_second_process_waits_for_the_lock(tmp_path):
             second.kill()
     finally:
         first.kill()
-        first.wait()
+        first.wait(timeout=5)
     assert (tmp_path / local.LOCK_FILE).exists()
 
 
@@ -90,7 +90,7 @@ def test_waiter_returns_after_the_holder_exits(tmp_path):
             second.kill()
     finally:
         first.kill()
-        first.wait()
+        first.wait(timeout=5)
 
 
 UNLOADER = """
@@ -120,7 +120,7 @@ def test_unload_releases_the_lock_at_once(tmp_path):
         assert time.monotonic() - started < 10
     finally:
         first.kill()
-        first.wait()
+        first.wait(timeout=5)
 
 
 IMPATIENT = """
@@ -148,7 +148,7 @@ def test_lock_wait_limits_the_wait(tmp_path):
         assert "within 1 s (local_models.lock_wait)" in out
     finally:
         first.kill()
-        first.wait()
+        first.wait(timeout=5)
 
 
 def test_holder_text_has_size_and_release():

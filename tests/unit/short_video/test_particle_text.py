@@ -43,7 +43,7 @@ def to_texture(payload: dict, rgb: np.ndarray, x: np.ndarray, y: np.ndarray) -> 
 
 def run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-m", "short_video_tool", "particle-text", *args],
-                          capture_output=True, text=True, env=child_env(), cwd=cwd)
+                          capture_output=True, text=True, env=child_env(), cwd=cwd, timeout=25)
 
 
 @pytest.mark.parametrize("font", [TTF, WOFF2], ids=["ttf", "woff2"])

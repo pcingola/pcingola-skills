@@ -162,7 +162,7 @@ providers:
         duration_arg: audio_duration
         lyrics_arg: lyrics
         min_crest_db: 10
-      # ACE-Step 1.5 XL turbo, for tests and quick drafts; saturates: loud,
+      # ACE-Step 1.5 XL turbo, for quick drafts; saturates: loud,
       # compressed sound (more steps do not change it). No min_crest_db: it is
       # chosen knowing that.
       ace-step:
@@ -229,7 +229,7 @@ providers:
         buckets: [[512, 512], [512, 768], [768, 512]]
         audio_rate: 16000
         output: videos
-      # Kandinsky S2V 1.0 Lite distilled (2B transformer), for tests.
+      # Kandinsky S2V 1.0 Lite distilled (2B transformer), for a quick draft or test film.
       kandinsky-s2v-lite:
         repo: kandinskylab/Kandinsky-S2V-1.0-Lite-distill-Diffusers
         pipeline: KandinskyS2VDistilledModularPipeline
@@ -238,7 +238,7 @@ providers:
         buckets: [[512, 512], [512, 768], [768, 512]]
         audio_rate: 16000
         output: videos
-      # LTX-Video 0.9.5 at small size and few steps, for tests.
+      # LTX-Video 0.9.5 at small size and few steps, for a quick draft or test film.
       ltx-video-small:
         repo: Lightricks/LTX-Video-0.9.5
         pipeline: LTXImageToVideoPipeline
@@ -371,13 +371,13 @@ tasks:
   #video: local:ltx-video
   #video: local:kandinsky-6
   #presenter: local:kandinsky-s2v
-  # Small local models for the integration tests and a quick test film: real
+  # Small local models for a quick draft or test film: real
   # models at small size and few steps, low quality output.
   #image: local:flux2-klein-4b
   #image_best: local:flux2-klein-4b
   #image_edit: local:flux2-klein-4b
   #image_multi_ref: local:flux2-klein-4b
-  #speech: ollama:lfm3-audio   # tests only: odd, uncontrolled intonation, no style or speed
+  #speech: ollama:lfm3-audio   # drafts only: odd, uncontrolled intonation, no style or speed
   #music: local:ace-step
   #video: local:ltx-video-small
   #presenter: local:kandinsky-s2v-lite

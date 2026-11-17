@@ -64,13 +64,13 @@ shots:
 
 
 def ffmpeg(*args: str) -> None:
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, timeout=25)
 
 
 def probe(path: Path) -> dict:
     out = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                           "stream=width,height,r_frame_rate,nb_frames:format=duration", "-of", "json", str(path)],
-                         capture_output=True, text=True, check=True).stdout
+                         capture_output=True, text=True, check=True, timeout=25).stdout
     return json.loads(out)
 
 

@@ -264,7 +264,7 @@ def _repo_files() -> tuple[Path, ...]:
     .venv or __pycache__ are left out)."""
     out = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "plugins"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
+        cwd=ROOT, capture_output=True, text=True, check=True, timeout=25
     ).stdout
     return tuple(sorted(ROOT / f for f in out.split("\0") if f))
 
@@ -486,7 +486,7 @@ def _shell_data_dir(plugin_root: Path, env: dict[str, str]) -> Path:
         f'set -eu -o pipefail; source "{plugin_root}/lib/uv_env.sh"; '
         f'plugin_env "{plugin_root}/lib"; echo "$PLUGIN_ENV_DIR"'
     )
-    out = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+    out = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, timeout=25)
     assert out.returncode == 0, out.stderr
     return Path(out.stdout.strip().split("/env/")[0])
 

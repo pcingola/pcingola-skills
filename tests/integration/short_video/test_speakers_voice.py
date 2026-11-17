@@ -71,7 +71,7 @@ class TestSpeakersVoice(unittest.TestCase):
         tmp = Path(cls._tmp.name)
         (tmp / "imgs").mkdir()
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=640x360",
-                        "-frames:v", "1", str(tmp / "imgs" / "a.png")], check=True)
+                        "-frames:v", "1", str(tmp / "imgs" / "a.png")], check=True, timeout=25)
         cls.project = p = tmp / "film"
         _run("short_video_tool", "init", p, "--images", tmp / "imgs")
         (p / "storyboard.md").write_text(STORYBOARD, encoding="utf-8")

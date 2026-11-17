@@ -20,7 +20,7 @@ PPTX_TOOL = str(PROJECT_DIR / "plugins" / "docs" / "skills" / "pptx" / "scripts"
 
 
 def run_cli(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([PPTX_TOOL, *args], capture_output=True, text=True, cwd=PROJECT_DIR)
+    return subprocess.run([PPTX_TOOL, *args], capture_output=True, text=True, cwd=PROJECT_DIR, timeout=25)
 
 
 def has_libreoffice() -> bool:

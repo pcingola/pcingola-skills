@@ -28,7 +28,7 @@ MUSIC_HZ = 220
 
 
 def _ffmpeg(*args: str) -> None:
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, timeout=25)
 
 
 def _goertzel(samples: list[float], freq: float) -> float:
@@ -97,7 +97,7 @@ class TestAssemble(unittest.TestCase):
         raw = subprocess.run(
             ["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(length), "-i", str(self.film),
              "-ac", "1", "-ar", str(SR), "-f", "s16le", "-"],
-            check=True, capture_output=True,
+            check=True, capture_output=True, timeout=25
         ).stdout
         return [x / 32768 for x in struct.unpack(f"<{len(raw) // 2}h", raw)]
 
@@ -133,7 +133,7 @@ class TestAssemble(unittest.TestCase):
         being applied in the second pass."""
         err = subprocess.run(
             ["ffmpeg", "-nostats", "-i", str(self.film), "-map", "0:a", "-af", "ebur128", "-f", "null", "-"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, timeout=25
         ).stderr
         summary = err[err.rindex("Summary:"):]
         lufs = float(summary.split("I:")[1].split("LUFS")[0])
@@ -206,7 +206,7 @@ class TestAssemble(unittest.TestCase):
         raw = subprocess.run(
             ["ffmpeg", "-v", "error", "-ss", "5.0", "-t", "0.9", "-i", str(film),
              "-ac", "1", "-ar", str(SR), "-f", "s16le", "-"],
-            check=True, capture_output=True,
+            check=True, capture_output=True, timeout=25
         ).stdout
         gap = [x / 32768 for x in struct.unpack(f"<{len(raw) // 2}h", raw)]
         self.assertLess(_goertzel(gap, MUSIC_HZ), 1e-3)
@@ -232,7 +232,7 @@ def _bright_pixels(video: Path, t: float) -> int:
     raw = subprocess.run(
         ["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(video), "-frames:v", "1",
          "-vf", "crop=700:120:1220:960,format=gray", "-f", "rawvideo", "-"],
-        check=True, capture_output=True,
+        check=True, capture_output=True, timeout=25
     ).stdout
     return sum(1 for b in raw if b > 100)
 
@@ -272,7 +272,7 @@ class TestCreditFile(unittest.TestCase):
             raw = subprocess.run(
                 ["ffmpeg", "-v", "error", "-ss", "1", "-i", str(out), "-frames:v", "1",
                  "-vf", "crop=700:120:1220:960,format=gray", "-f", "rawvideo", "-"],
-                check=True, capture_output=True,
+                check=True, capture_output=True, timeout=25
             ).stdout
             self.assertGreater(sum(1 for b in raw if b < 180), 300)
 
@@ -289,7 +289,7 @@ def _gold(video: Path, t: float, box: tuple[int, int, int, int],
     raw = subprocess.run(
         ["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(video), "-frames:v", "1",
          "-vf", f"crop={w}:{h}:{x}:{y},format=rgb24", "-f", "rawvideo", "-"],
-        check=True, capture_output=True,
+        check=True, capture_output=True, timeout=25
     ).stdout
     px = [tuple(raw[i:i + 3]) for i in range(0, len(raw), 3)]
     return [q for q in px if all(abs(a - b) <= 40 for a, b in zip(q, color))]

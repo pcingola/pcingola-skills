@@ -10,7 +10,7 @@ from tests.subproc import child_env
 
 def _critic(project, config) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-m", "short_video_tool", "critic", "-p", str(project)],
-                          capture_output=True, text=True, env=child_env(SKILLS_CONFIG=str(config)))
+                          capture_output=True, text=True, env=child_env(SKILLS_CONFIG=str(config)), timeout=25)
 
 
 def test_critic_model(tmp_path):

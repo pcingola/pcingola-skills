@@ -42,8 +42,8 @@ def server(tmp_path: Path, config: Path):
     finally:
         parent.kill()
         proc.kill()
-        proc.wait()
-        parent.wait()
+        proc.wait(timeout=5)
+        parent.wait(timeout=5)
 
 
 def get_models(url: str) -> dict:

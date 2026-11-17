@@ -93,7 +93,7 @@ class TestLibRender(unittest.TestCase):
         width = settings.get()["video"]["width"]
         raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(path), "-frames:v", "1",
                               "-vf", f"crop={width}:1:0:{self.top + 100},format=gray", "-f", "rawvideo", "-"],
-                             check=True, capture_output=True).stdout
+                             check=True, capture_output=True, timeout=25).stdout
         return next(i for i, b in enumerate(raw) if b > 240)
 
     def test_installed_libs_match_pins(self) -> None:

@@ -42,7 +42,7 @@ HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is n
 
 
 def _ffmpeg(*args: str) -> None:
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, timeout=25)
 
 
 def _video(path: Path) -> dict:

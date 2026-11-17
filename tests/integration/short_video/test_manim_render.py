@@ -3,18 +3,17 @@ and a film assembled from an HTML scene and a manim scene.
 
 The voice versions are made by hand (a tone WAV and its timing.json; the
 voiceover skill is not used). The Manim environment
-(`config.manim_env()`) is created by uv on first use; the tests fail when it
-cannot be.
+(`config.manim_env()`) must exist: the tests fail with the command that builds
+it when it does not.
 """
 import json
-import os
 import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from tests.prereq import requires
+from tests.prereq import require, requires
 from tests.integration.short_video import wrapper_env
 from tests.integration.short_video.fast_render import FPS, set_fps
 from tests.integration.short_video.wrapper_env import NODE_DIR
@@ -67,21 +66,26 @@ Brief: A square on "world".
 
 
 def _ffmpeg(*args: str) -> None:
-    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, timeout=25)
+
+
+# The command that builds the Manim environment, as the first manim render through short-video.sh does.
+MANIM_BUILD = (f"UV_PROJECT_ENVIRONMENT={wrapper_env.MANIM_VENV} uv run --project {config.MANIM_PROJECT} "
+               "manim --version")
 
 
 def _manim_ready() -> str | None:
-    """None when the Manim environment runs, else the reason it does not."""
+    """None when ffmpeg is installed and the Manim environment exists and runs, else the reason it does not.
+    The check never builds the environment: building it takes minutes."""
     if shutil.which("ffmpeg") is None:
         return "ffmpeg not installed (brew install ffmpeg)"
-    if shutil.which("uv") is None:
-        return "uv not installed"
-    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
-    env["UV_PROJECT_ENVIRONMENT"] = str(wrapper_env.MANIM_VENV)
-    proc = subprocess.run(["uv", "run", "--project", str(config.MANIM_PROJECT), "manim", "--version"],
-                          env=env, capture_output=True, text=True, timeout=1200)
+    manim = wrapper_env.MANIM_VENV / "bin" / "manim"
+    if not manim.is_file():
+        return f"the Manim environment {wrapper_env.MANIM_VENV} does not exist; build it with: {MANIM_BUILD}"
+    proc = subprocess.run([str(manim), "--version"], capture_output=True, text=True, timeout=20)
     if proc.returncode != 0:
-        return "the Manim environment could not be created: " + (proc.stderr or proc.stdout).strip()[-500:]
+        return (f"the Manim environment does not run ({(proc.stderr or proc.stdout).strip()[-300:]}); "
+                f"rebuild it with: {MANIM_BUILD}")
     return None
 
 
@@ -115,8 +119,7 @@ class TestManimRender(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         reason = _manim_ready()
-        if reason:
-            raise AssertionError(f"missing prerequisite: {reason}")
+        require(reason is None, reason)
         cls._tmp = tempfile.TemporaryDirectory()
         cls.project = p = Path(cls._tmp.name) / "manim_project"
         for d in ("images", "sources", "voice", "scenes", "music", "film"):
@@ -177,7 +180,7 @@ class TestManimRender(unittest.TestCase):
             raw = subprocess.run(
                 ["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(self.scene_mp4), "-frames:v", "1",
                  "-vf", "crop=120:120:120:120,format=gray", "-f", "rawvideo", "-"],
-                check=True, capture_output=True,
+                check=True, capture_output=True, timeout=25
             ).stdout
             return sum(1 for b in raw if b > 240)
 
@@ -197,7 +200,7 @@ class TestManimRender(unittest.TestCase):
                 return subprocess.run(
                     ["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(mp4), "-frames:v", "1",
                      "-vf", "scale=192:108,format=gray", "-f", "rawvideo", "-"],
-                    check=True, capture_output=True,
+                    check=True, capture_output=True, timeout=25
                 ).stdout
 
             def changed(a: float, b: float) -> int:
