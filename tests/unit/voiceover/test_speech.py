@@ -14,9 +14,8 @@ from voiceover_tool.timing import build_timing
 
 OAI = {"kind": "openai", "base_url": "http://127.0.0.1:1/v1"}
 GOOGLE = {"kind": "google", "api_key": "k"}
-# A vllm-omni provider whose python does not exist, so any server start fails.
-OMNI = {"kind": "vllm-omni", "python": "/nonexistent",
-        "models": {"drama-3": {"repo": "x/drama-3", "deploy": "fish_omni.yaml", "memory": 70}}}
+# A fish provider whose repository does not exist; the tests stop before any load.
+FISH = {"kind": "fish", "models": {"drama-3": {"repo": "x/drama-3"}}}
 KOKORO = {"kind": "kokoro", "models": {"kokoro-v1.0": {"model_url": "http://127.0.0.1:1/m.onnx",
                                                        "voices_url": "http://127.0.0.1:1/v.bin",
                                                        "langs": {"af_": "en-us"}}}}
@@ -83,11 +82,11 @@ def test_timing_records_the_model_and_style_only_when_set():
 
 
 def test_lines_as_the_model_takes_them(tmp_path):
-    """`Narrator.lines` reads speakers and inline tags for a model that takes tags (vllm-omni), a leading `[style]`
+    """`Narrator.lines` reads speakers and inline tags for a model that takes tags (fish), a leading `[style]`
     for one that takes styles (OpenAI), and literal text without tags for one that takes neither (Kokoro)."""
     config = write_config(tmp_path / "config.yaml",
                           providers={"oai": OAI, "k": KOKORO,
-                                     "f": OMNI},
+                                     "f": FISH},
                           tasks={"speech": "oai:tts-1"})
     imports = "from voiceover_tool.speech import Narrator"
     lines = ["[whisper] Keep it quiet.", "@guest Well [laughs] maybe that's fair."]
@@ -109,7 +108,7 @@ def test_speakers_and_params_refused_by_a_model_that_takes_none(tmp_path):
     refused before any request; a `--param` that is not KEY=VALUE is refused; a line of only tags is refused."""
     config = write_config(tmp_path / "config.yaml",
                           providers={"k": KOKORO,
-                                     "f": OMNI},
+                                     "f": FISH},
                           tasks={"speech": "k:kokoro-v1.0"})
     script = tmp_path / "s.txt"
     script.write_text("@host Hello.\n")
@@ -130,24 +129,22 @@ def test_speakers_and_params_refused_by_a_model_that_takes_none(tmp_path):
 
 
 def test_speakers_checked_before_any_request(tmp_path):
-    """With a model that takes tags, a `--speaker` name that is not a speaker name or that no line uses, an `@Name`
-    line, and a speaker recording without transcript are refused before the server starts (its python does not
-    exist, so any start would fail otherwise); a missing narrator recording too. Guards a typo found after a 5 min
-    model load."""
+    """With a fish model, a `--speaker` name that is not a speaker name or that no line uses, an `@Name` line, and a
+    voice other than `default` for a speaker or the narrator are refused before the model loads (its repository
+    does not exist, so a load would fail otherwise). Guards a typo found after a 4 min model load."""
     voices_dir = tmp_path / "voices"
     voices_dir.mkdir()
     (voices_dir / "anna.wav").write_bytes(b"RIFF")
     config = write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices_dir)},
-                          providers={"f": OMNI},
+                          providers={"f": FISH},
                           tasks={"speech": "f:drama-3"})
     script = tmp_path / "s.txt"
     script.write_text("@host Hello.\n@guest Hi.\n")
     synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
     for args, message in [(("--speaker", "Host=anna"), "lowercase letters"),
                           (("--speaker", "hots=anna"), "no `@name` line of the script has that speaker"),
-                          (("--speaker", "host=anna"), "has no transcript"),
-                          (("--speaker", "host=bob"), "unknown voice 'bob'"),
-                          (("--voice", "bob"), "unknown voice 'bob'")]:
+                          (("--speaker", "host=anna"), "has only the voice 'default'"),
+                          (("--voice", "bob"), "has only the voice 'default'")]:
         p = voiceover(*synth, *args, SKILLS_CONFIG=str(config))
         assert p.returncode == 1 and message in p.stderr, (args, p.stderr)
     script.write_text("@Host Hello.\n")
@@ -157,21 +154,22 @@ def test_speakers_checked_before_any_request(tmp_path):
 
 
 def test_first_takes_per_speaker_written(tmp_path):
-    """`Narrator.first_takes` gives the first `default` take of the narrator and of each made-up speaker that
-    `omni.keep_take` kept, and `write_takes` writes them as `voice.wav` and `voice-<name>.wav` with transcripts."""
-    config = write_config(tmp_path / "config.yaml", providers={"f": OMNI},
+    """`Narrator.first_takes` gives the first take of the narrator and of each made-up speaker that `fish.takes` kept,
+    and `write_takes` writes them as `voice.wav` and `voice-<name>.wav` with transcripts."""
+    config = write_config(tmp_path / "config.yaml", providers={"f": FISH},
                           tasks={"speech": "f:drama-3"})
     code = f"""
-from ai_models import omni
+from ai_models import fish
+from ai_models.fish_take import Take
 from voiceover_tool.cli import write_takes
 from voiceover_tool.speech import Narrator
 n = Narrator()
 lines = n.lines(["Hi.", "@guest Hello.", "@host Hey.", "@guest Again."])
 n.prepare(lines, "default")
-omni.keep_take("f:drama-3", None, "default", b"N", "Hi.")
-omni.keep_take("f:drama-3", "guest", "default", b"G", "Hello.")
-omni.keep_take("f:drama-3", "guest", "default", b"G2", "Again.")
-omni.keep_take("f:drama-3", "host", "/some/ref.wav", b"H", "Hey.")
+fish.takes.keep("f:drama-3", None, Take(b"N", "Hi.", None))
+fish.takes.keep("f:drama-3", "guest", Take(b"G", "Hello.", None))
+fish.takes.keep("f:drama-3", "guest", Take(b"G2", "Again.", None))
+fish.takes.keep("other:drama-3", "host", Take(b"H", "Hey.", None))
 print(sorted(p.name for p in write_takes(__import__("pathlib").Path({str(tmp_path)!r}), n.first_takes())))
 """
     done = run_python(code, child_env(SKILLS_CONFIG=str(config)))

@@ -1,8 +1,7 @@
-"""Reference recordings for the speech models that clone a voice (provider kinds chatterbox and vllm-omni).
+"""Reference recordings for the speech models that clone a voice (provider kind chatterbox).
 
-A voice is `<name>.<suffix>` in `config.voices_dir()`, with its transcript `<name>.txt` beside it (a vllm-omni
-model needs it), or a path to a recording. `default` is the model's own voice. A recording must be longer than
-`MIN_REFERENCE_SECONDS`.
+A voice is `<name>.<suffix>` in `config.voices_dir()`, or a path to a recording. `default` is the model's own voice.
+A recording must be longer than `MIN_REFERENCE_SECONDS`.
 """
 
 from __future__ import annotations
@@ -40,9 +39,8 @@ def reference_path(voice: str) -> Path | None:
     raise ValueError(f"unknown voice {voice!r}: no {voice}.wav in {d}; add one with `voiceover.sh add-voice NAME FILE`")
 
 
-def add_voice(name: str, src: str | Path, force: bool = False, text: str | None = None) -> Path:
-    """Copy a reference recording to `<voices dir>/<name><suffix>`, and its transcript `text` (when given) to
-    `<voices dir>/<name>.txt`."""
+def add_voice(name: str, src: str | Path, force: bool = False) -> Path:
+    """Copy a reference recording to `<voices dir>/<name><suffix>`."""
     if not NAME_RE.match(name) or name == DEFAULT_VOICE:
         raise ValueError(f"voice name {name!r}: use lowercase letters, digits, '-' and '_' (not {DEFAULT_VOICE!r})")
     src = Path(src).expanduser()
@@ -62,9 +60,4 @@ def add_voice(name: str, src: str | Path, force: bool = False, text: str | None 
         p.unlink()
     dest = d / f"{name}{src.suffix.lower()}"
     shutil.copyfile(src, dest)
-    transcript = dest.with_suffix(".txt")
-    if text:
-        transcript.write_text(text.strip() + "\n")
-    else:
-        transcript.unlink(missing_ok=True)
     return dest

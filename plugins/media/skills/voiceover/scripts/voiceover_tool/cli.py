@@ -33,7 +33,7 @@ WAV_NAME = "narration.wav"
 TIMING_NAME = "timing.json"
 # The tasks `routes` prints the rows of.
 ROUTE_TASKS = ("speech",)
-VOICE_NAME = "voice.wav"  # the first take of a `default` vllm-omni voice, with its transcript `voice.txt`
+VOICE_NAME = "voice.wav"  # the first take of a fish model's voice, with its transcript `voice.txt`
 
 # (trimmed clip, sample rate) -> AlignFn for that clip
 ClipAligner = Callable[[np.ndarray, int], AlignFn]
@@ -185,7 +185,7 @@ def _cmd_setup(args: argparse.Namespace) -> int:
 
 def _cmd_add_voice(args: argparse.Namespace) -> int:
     try:
-        print(voices.add_voice(args.name, args.file, force=args.force, text=args.text))
+        print(voices.add_voice(args.name, args.file, force=args.force))
     except (ValueError, OSError, RuntimeError) as e:
         config.error(str(e))
     return 0
@@ -242,12 +242,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_cmd_setup)
 
     p = sub.add_parser("add-voice", help="Store a reference recording as a voice (models that clone a voice: "
-                                         "chatterbox, vllm-omni)")
+                                         "chatterbox)")
     p.add_argument("name", help="Voice name, e.g. alice")
     p.add_argument("file", help="Recording of the speaker, longer than 5 s (10-20 s of clean speech)")
     p.add_argument("--force", action="store_true", help="Replace an existing voice of that name")
-    p.add_argument("--text", default=None,
-                   help="Transcript of the recording; needed to use the voice with a vllm-omni speech model")
     p.set_defaults(func=_cmd_add_voice)
 
     p = sub.add_parser("play", help="Open a media file in VLC")

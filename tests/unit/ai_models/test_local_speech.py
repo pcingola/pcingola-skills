@@ -12,22 +12,22 @@ KOKORO_MODEL = {"model_url": "http://127.0.0.1:1/m.onnx", "voices_url": "http://
 KOKORO = {"kind": "kokoro", "models": {"kokoro-v1.0": KOKORO_MODEL}}
 CHATTERBOX_MODEL = {"url": "http://127.0.0.1:1", "files": ["a.pt"]}
 CHATTERBOX = {"kind": "chatterbox", "models": {"chatterbox-turbo": CHATTERBOX_MODEL}}
-OMNI_MODEL = {"repo": "org/tts", "deploy": "tts.yaml", "memory": 70}
-OMNI = {"kind": "vllm-omni", "python": "/nonexistent/python", "models": {"drama-3": OMNI_MODEL}}
+FISH_MODEL = {"repo": "org/tts"}
+FISH = {"kind": "fish", "models": {"drama-3": FISH_MODEL}}
 
 
 def test_default_voices_and_checks(write_config):
     """A model entry's `voice` replaces its kind's default voice and its `voices` are the list, for a local and a
     remote model; `check` refuses a speed outside the kind's range or with a kind without speed, and instructions
-    with a kind that takes none; a vllm-omni model takes instructions only with `style`; a model of a kind without
-    speech models is refused (`TASK_KINDS`)."""
+    with a kind that takes none; a fish model takes instructions only with `style` and has one voice; a model of a
+    kind without speech models is refused (`TASK_KINDS`)."""
     george = {"voice": "bm_george", "voices": ["bm_george"]}
     write_config({"providers": {"k": KOKORO, "k2": {"kind": "kokoro", "models": {
                                     "kokoro-v1.0": {**KOKORO_MODEL, **george}}},
                                 "o": {"kind": "openai", "base_url": "http://127.0.0.1:9/v1",
                                       "models": {"tts2": {"voice": "ash"}}},
                                 "g": {"kind": "google", "api_key": "k"},
-                                "f": OMNI, "fs": {**OMNI, "models": {"drama-3": {**OMNI_MODEL,
+                                "f": FISH, "fs": {**FISH, "models": {"drama-3": {**FISH_MODEL,
                                                                                  "style": "[{instructions}] {text}"}}},
                                 "cb": CHATTERBOX, "local": {"kind": "diffusers", "models": {"flux": {"repo": "r"}}}},
                   "tasks": {"speech": "k:kokoro-v1.0"}})
@@ -37,6 +37,7 @@ def test_default_voices_and_checks(write_config):
     assert speech.voices("o:tts") == ["marin"] and speech.voices("g:tts") == ["Kore"]
     assert speech.voices("o:tts2") == ["ash"]
     assert speech.voices("cb:chatterbox-turbo") == ["default"]
+    assert speech.voices("f:drama-3") == ["default"] and speech.model_of("f:drama-3").traits.one_voice
     assert speech.check(speed=1.5).id == "k:kokoro-v1.0"
     assert speech.check("o:tts", speed=3.0, instructions="calm").kind == "openai"
     for model, kw, message in [("k:kokoro-v1.0", {"speed": 3.0}, "between 0.5 and 2"),
@@ -44,7 +45,9 @@ def test_default_voices_and_checks(write_config):
                                ("g:tts", {"speed": 1.2}, "ask for the pace in the instructions"),
                                ("cb:chatterbox-turbo", {"speed": 1.2}, "no speed setting"),
                                ("cb:chatterbox-turbo", {"instructions": "calm"}, "takes no instructions"),
-                               ("f:drama-3", {"instructions": "whisper"}, "takes no instructions")]:
+                               ("f:drama-3", {"instructions": "whisper"}, "takes no instructions"),
+                               ("fs:drama-3", {"speed": 1.2}, "ask for the pace in the instructions"),
+                               ("fs:drama-3", {"params": {"seed": 7}}, "takes no request parameters")]:
         with pytest.raises(AIModelsError, match=message):
             speech.check(model, **kw)
     assert speech.check("fs:drama-3", instructions="whisper").instructions

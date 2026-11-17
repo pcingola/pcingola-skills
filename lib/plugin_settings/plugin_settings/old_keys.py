@@ -2,9 +2,10 @@
 
 The layout had the sections `models` (now `tasks`), `diffusers` (now the `models` of the diffusers provider) and
 `settings` (upper-case keys, now sections), and the provider keys `predict_models` and `memory_share`. A provider
-of kind kokoro, torchaudio, chatterbox or vllm-omni held its one model's keys, and every provider the speech
-voices; these are now keys of `providers.<p>.models.<m>` (`MODEL_KEYS`). A provider of kind chatterbox ran its
-model in a worker process of its own environment; it now runs in the caller's process (`OLD_KIND_KEYS`)."""
+of kind kokoro, torchaudio or chatterbox held its one model's keys, and every provider the speech voices; these are
+now keys of `providers.<p>.models.<m>` (`MODEL_KEYS`). A provider of kind chatterbox ran its model in a worker
+process of its own environment; it now runs in the caller's process (`OLD_KIND_KEYS`). A provider of kind vllm-omni
+served Fish Audio Drama 3 from a vLLM-Omni server; kind fish runs it in the caller's process (`OLD_KINDS`)."""
 
 from __future__ import annotations
 
@@ -47,18 +48,14 @@ VOICEOVER_MODEL_DIR = "VOICEOVER_MODEL_DIR"
 VOICEOVER_OBSOLETE = ("no longer read: the speech and align models are tasks.speech and tasks.align and their "
                       "providers; copy the provider entries kokoro and torchaudio (and chatterbox for cloned voices) "
                       "and tasks.speech and tasks.align of the setup:settings template into config.yaml")
-DRAMA3_MEMORY_GB = 70  # the `memory` the config template gives Fish Audio Drama 3
-
 OLD_PROVIDER_KEYS: dict[str, str] = {
     "predict_models": "moved: providers.{p}.models.<m>.predict: true for each listed model",
-    "memory_share": ("replaced by memory, the GB the server's stages take together "
-                     f"(Fish Audio Drama 3: {DRAMA3_MEMORY_GB})"),
+    "memory_share": "replaced by providers.{p}.models.<m>.memory of kind fish, the GB the model takes at its peak",
 }
 
 
 # Keys of a model that a provider held in the earlier layout.
-MODEL_KEYS = ("model_url", "voices_url", "langs", "url", "files", "repo", "deploy", "memory", "overhead", "style",
-              "voice", "voices")
+MODEL_KEYS = ("model_url", "voices_url", "langs", "url", "files", "repo", "memory", "style", "voice", "voices")
 OLD_PROVIDER_KEYS.update({k: f"moved to providers.{{p}}.models.<m>.{k}" for k in MODEL_KEYS})
 
 # Keys that a provider of one kind had and has no longer, by kind.
@@ -66,6 +63,14 @@ CHATTERBOX_IN_PROCESS = ("removed: Chatterbox runs in the caller's process (medi
                          "provider has no environment of its own; delete the key")
 OLD_KIND_KEYS: dict[str, dict[str, str]] = {
     "chatterbox": {k: CHATTERBOX_IN_PROCESS for k in ("python", "start_timeout", "timeout")},
+}
+
+# Provider kinds that no longer exist, with what replaces each.
+OLD_KINDS: dict[str, str] = {
+    "vllm-omni": ("replaced by kind fish, which runs Fish Audio Drama 3 through fish-speech in the caller's process "
+                  "(media:voiceover's environment); the provider keys python, args, env, start_timeout and timeout "
+                  "and the model keys deploy and overhead are gone; each model keeps repo and style, and memory is "
+                  "now the GB the model takes at its peak (default: Drama 3's)"),
 }
 
 
@@ -95,6 +100,8 @@ def old_key_errors(raw: dict[str, Any]) -> list[str]:
     if isinstance(providers, dict):
         for name, spec in providers.items():
             if isinstance(spec, dict):
-                old = OLD_PROVIDER_KEYS | OLD_KIND_KEYS.get(str(spec.get("kind")), {})
+                if (kind := str(spec.get("kind"))) in OLD_KINDS:
+                    errors.append(f"providers.{name}.kind: {kind}: {OLD_KINDS[kind]}")
+                old = OLD_PROVIDER_KEYS | OLD_KIND_KEYS.get(kind, {})
                 errors += [f"providers.{name}.{k}: {v.format(p=name)}" for k, v in old.items() if k in spec]
     return errors

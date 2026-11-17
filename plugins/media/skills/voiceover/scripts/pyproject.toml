@@ -7,7 +7,7 @@ dependencies = [
     "ai-models[kokoro]",
     "numpy",
     "num2words",
-    # the local-model lock and free memory of ai_models.local (speech models of kind vllm-omni)
+    # the free memory of ai_models.local before a load (speech models of kind fish)
     "psutil",
     # the settings file config.yaml (lib/plugin_settings, git source)
     "plugin-settings",
@@ -22,30 +22,48 @@ dependencies = [
 [project.optional-dependencies]
 # torch and torchaudio (what ai-models[align] needs) for the torchaudio aligner and the resampling of a speech
 # model's answer to 24 kHz, both on the CPU; torchaudio 2.11 is the release the align extra pins. The extras list them
-# directly, not ai-models[align], because uv selects an extra's index only for a direct requirement. The wrapper voiceover.sh takes exactly one of the two
-# extras: `cuda` when config.yaml has a provider of kind vllm-omni (ai_models.omni reads the GPU's memory with this
-# torch), else `cpu`. On macOS both are PyPI's build.
+# directly, not ai-models[align], because uv selects an extra's index only for a direct requirement. The wrapper
+# voiceover.sh takes exactly one of the two extras: `cuda` when config.yaml has a provider of kind fish, else `cpu`.
+# On macOS both are PyPI's build. The `cuda` extra also has Fish Audio's fish-speech (ai_models.fish, NVIDIA only, so
+# Linux only) and torchcodec, which its `torchaudio.load` of a reference voice needs and it does not declare.
 cpu = ["torch==2.11.*", "torchaudio==2.11.*"]
-cuda = ["torch==2.11.*", "torchaudio==2.11.*"]
+cuda = [
+    "torch==2.11.*",
+    "torchaudio==2.11.*",
+    "fish-speech; sys_platform == 'linux'",
+    "torchcodec>=0.17; sys_platform == 'linux'",
+]
 
 [tool.uv]
 conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
 # chatterbox-tts 0.1.7 pins torch 2.6, transformers 5.2.0, diffusers 0.29, numpy 1 and safetensors 0.5.3; it runs on
 # the versions of the root test environment, tested with Chatterbox Turbo's built-in and cloned voices on the CPU.
-# The overrides set those versions. torch and torchaudio are not overrides, which would drop the index of each extra
-# (`tool.uv.sources`): chatterbox-tts's metadata (`dependency-metadata`, its own list with torch and torchaudio
-# unpinned) leaves them to the extras.
+# fish-speech (commit of `tool.uv.sources`) pins torch 2.8.0, torchaudio 2.8.0, transformers 5.19.0, pydantic 2.9.2
+# and tokenizers 0.23.2, and depends on pyaudio, which it does not use and which needs the portaudio headers; Fish
+# Audio Drama 3 ran on torch 2.11.0+cu130 and transformers 5.22.2. descript-audiotools (through fish-speech) pins
+# protobuf below 3.20, and its tensorboard protos need protobuf 6.31.1 or later. The overrides set those versions.
+# torch and torchaudio are not overrides, which would drop the index of each extra (`tool.uv.sources`): the metadata
+# of chatterbox-tts and fish-speech (`dependency-metadata`, each its own list with those pins removed and fish-speech
+# without pyaudio) leaves them to the extras.
 override-dependencies = [
     "transformers==5.22.2",
     "diffusers==0.43.0",
     "numpy==2.4.4",
     "safetensors==0.8.0",
+    "protobuf>=6.31.1",
 ]
 dependency-metadata = [
     { name = "chatterbox-tts", version = "0.1.7", requires-dist = [
         "numpy", "librosa==0.11.0", "s3tokenizer", "torch", "torchaudio", "transformers", "diffusers",
         "resemble-perth>=1.0.0", "conformer==0.3.2", "safetensors", "spacy-pkuseg", "pykakasi==2.3.0", "gradio==6.8.0",
         "pyloudnorm", "omegaconf",
+    ] },
+    { name = "fish-speech", version = "3.0.0", requires-dist = [
+        "numpy", "torch", "torchaudio", "transformers", "hydra-core>=1.3.2", "natsort>=8.4.0", "einops>=0.7.0",
+        "librosa>=0.10.1", "kui>=1.6.0", "uvicorn>=0.30.0", "loguru>=0.6.0", "pyrootutils>=1.0.4", "resampy>=0.4.3",
+        "einx[torch]==0.2.2", "pydub", "modelscope==1.17.1", "opencc-python-reimplemented==0.1.7", "silero-vad",
+        "ormsgpack", "tiktoken>=0.8.0", "pydantic", "cachetools", "descript-audio-codec", "safetensors", "tokenizers",
+        "soundfile>=0.12.1",
     ] },
 ]
 
@@ -61,6 +79,7 @@ torchaudio = [
 ]
 ai-models = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/ai_models", branch = "main" }
 plugin-settings = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/plugin_settings", branch = "main" }
+fish-speech = { git = "https://github.com/fishaudio/fish-speech", rev = "0f8a12e8a651062fdee9c33a894bdccd3a8513f1" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

@@ -11,7 +11,7 @@ Provider kinds and the Pydantic-AI provider each builds:
                 `api_key`, else Google Cloud credentials (`project`, `location`,
                 `credentials`: a service-account JSON file, else Application Default Credentials)
     diffusers   local images and music in process (`local`), no provider
-    vllm-omni, kokoro, chatterbox   local speech (`speech`), no provider
+    fish, kokoro, chatterbox   local speech (`speech`), no provider
     torchaudio  forced alignment (`align`), no provider
 
 Remote clients trust certifi's roots plus `network.extra_ca_cert` (`tls`). Every key, endpoint and API version a

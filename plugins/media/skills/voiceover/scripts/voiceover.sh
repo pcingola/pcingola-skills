@@ -13,9 +13,9 @@ done
 # uv environment outside the plugin directory (lib/uv_env.sh)
 source "$PLUGIN_ROOT/lib/uv_env.sh"
 plugin_env "$SCRIPT_DIR"
-# The `cuda` extra (the CUDA build of torch on Linux) when the settings file config.yaml has a provider of kind
-# vllm-omni, whose client reads the GPU's memory with torch; else the `cpu` extra
+# The `cuda` extra (the CUDA build of torch on Linux, and fish-speech) when the settings file config.yaml has a
+# provider of kind fish, which runs Fish Audio's model on the GPU in this process; else the `cpu` extra
 CONFIG="${SKILLS_CONFIG:-$(_config_dir)/plugins/data/config.yaml}"
 EXTRA="--extra cpu"
-if grep -qsE '^[^#]*kind:[[:space:]]*.?vllm-omni' "${CONFIG/#\~/$HOME}"; then EXTRA="--extra cuda"; fi
+if grep -qsE '^[^#]*kind:[[:space:]]*.?fish\b' "${CONFIG/#\~/$HOME}"; then EXTRA="--extra cuda"; fi
 exec uv run --project "$SCRIPT_DIR" $EXTRA python -m voiceover_tool "$@"

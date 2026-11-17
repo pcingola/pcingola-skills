@@ -5,9 +5,9 @@
     google                              `generate_content` with an AUDIO response
                                         and a prebuilt voice; raw PCM comes back as a WAV file;
                                         no speed
-    vllm-omni                           a vLLM-Omni server in its own environment, started once per
-                                        process (`omni`); WAV at the model's rate; instructions through the
-                                        provider's `style` format; no speed
+    fish                                Fish Audio Drama 3 in process on an NVIDIA GPU (`fish`); 44.1 kHz WAV;
+                                        inline tags; instructions through the model's `style` format; no
+                                        speed
     kokoro                              Kokoro in process on the CPU (`kokoro`); 24 kHz WAV; speed 0.5 to 2;
                                         no instructions
     chatterbox                          Chatterbox Turbo in process on the CPU (`chatterbox`);
@@ -15,7 +15,7 @@
 
 `TRAITS` gives what each kind of `SPEECH_KINDS` takes (`Traits`): its default voice, speed range, instructions,
 whether a voice may be a reference recording, whether the text may carry inline tags, and whether more request
-fields (`params`) pass through to the server (the OpenAI kinds as `extra_body`, vllm-omni in the request body). A
+fields (`params`) pass through to the server (the OpenAI kinds as `extra_body`). A
 model entry's `voice` (`providers.<p>.models.<m>`) replaces the kind's default voice and its `voices` (a list) are
 what `voices` lists; without it `voices` lists the Kokoro voices of a `kokoro` model, else the default voice.
 `check` refuses a speed, instructions or `params` the model does not take, before any request or model load.
@@ -33,7 +33,7 @@ from typing import Any
 
 from plugin_settings import OPENAI_KINDS, Provider, ProviderKind, Voices, WeightsDir
 
-from . import chatterbox, config, kokoro, omni
+from . import chatterbox, config, fish, kokoro
 from .errors import AIModelsError, explained
 from .models import provider
 
@@ -43,14 +43,15 @@ DEFAULT_PCM_RATE = 24_000
 @dataclass(frozen=True)
 class Traits:
     """What a provider kind's speech models take: the default `voice` when the provider sets none, the `speed`
-    range (None: only 1), whether they take `instructions` (vllm-omni: when the provider has `style`), whether a
-    voice may be a reference recording (`clones`), whether the text may carry inline tags (`tags`) and whether more
-    request fields pass through (`params`)."""
+    range (None: only 1), whether they take `instructions` (fish: when the model has `style`), whether a
+    voice may be a reference recording (`clones`), whether `voice` is the only voice (`one_voice`), whether the text
+    may carry inline tags (`tags`) and whether more request fields pass through (`params`)."""
 
     voice: str
     speed: tuple[float, float] | None
     instructions: bool
     clones: bool = False
+    one_voice: bool = False  # the default voice is the only voice
     tags: bool = False  # inline tags in the text (point tags such as [laughs], speaker tags)
     params: bool = False  # more request fields pass through (`params`)
 
@@ -60,7 +61,7 @@ TRAITS: dict[str, Traits] = {
     **{k: OPENAI_TRAITS for k in (ProviderKind.OPENROUTER, ProviderKind.OPENAI, ProviderKind.AZURE)},
     ProviderKind.OLLAMA: Traits("default", (0.25, 4.0), True, params=True),
     ProviderKind.GOOGLE: Traits("Kore", None, True),
-    omni.KIND: Traits(omni.DEFAULT_VOICE, None, False, clones=True, tags=True, params=True),
+    fish.KIND: Traits(fish.DEFAULT_VOICE, None, False, one_voice=True, tags=True),
     kokoro.KIND: Traits("af_heart", (0.5, 2.0), False),
     chatterbox.KIND: Traits(chatterbox.DEFAULT_VOICE, None, False, clones=True),
 }
@@ -96,7 +97,7 @@ class SpeechModel:
 
     @property
     def instructions(self) -> bool:
-        return bool(self.entry.style) if self.kind == omni.KIND else self.traits.instructions
+        return bool(self.entry.style) if self.kind == fish.KIND else self.traits.instructions
 
 
 def model_of(model: str | None = None, weights_dir: str | Path | None = None) -> SpeechModel:
@@ -126,7 +127,7 @@ def model_of_kind(kind: str) -> str | None:
 def check(model: str | None = None, *, speed: float = 1.0, instructions: str | None = None,
           params: dict[str, Any] | None = None, weights_dir: str | Path | None = None) -> SpeechModel:
     """The `SpeechModel` (`model_of`); `AIModelsError` for a speed, instructions or request parameters it does not
-    take, or `params` that would replace a field the request is built with (vllm-omni, `omni.request_body`)."""
+    take."""
     m = model_of(model, weights_dir)
     rng = m.traits.speed
     if rng is None and speed != 1.0:
@@ -138,9 +139,6 @@ def check(model: str | None = None, *, speed: float = 1.0, instructions: str | N
         raise AIModelsError(f"{m.id} takes no instructions (style)")
     if params and not m.traits.params:
         raise AIModelsError(f"{m.id} takes no request parameters")
-    if params and m.kind == omni.KIND and (taken := sorted(set(params) & omni.BUILT_FIELDS)):
-        raise AIModelsError(f"{m.id}: request parameters {', '.join(taken)} are set from the text, voice and "
-                            "model; they cannot be given")
     return m
 
 
@@ -157,13 +155,15 @@ def voices(model: str | None = None, weights_dir: str | Path | None = None) -> l
 
 
 def fetch(model: str | None = None, weights_dir: str | Path | None = None) -> None:
-    """Download the weights of a local speech model (kinds kokoro, chatterbox) when missing, to its provider's
-    `dir`, else `weights_dir`; other kinds have none."""
+    """Download the weights of a local speech model when missing: kokoro and chatterbox to its provider's `dir`,
+    else `weights_dir`; fish to the Hugging Face cache (`fish.checkpoint`). Other kinds have none."""
     m = model_of(model, weights_dir)
     if m.kind == kokoro.KIND:
         kokoro.files(m.spec, m.entry, m.bare)
     elif m.kind == chatterbox.KIND:
         chatterbox.fetch(m.spec, m.entry, m.bare)
+    elif m.kind == fish.KIND:
+        fish.checkpoint(m.entry.repo)
 
 
 def wav(pcm: bytes, rate: int) -> bytes:
@@ -221,15 +221,15 @@ async def aspeak(text: str, *, voice: str | None = None, model: str | None = Non
                  weights_dir: str | Path | None = None) -> bytes:
     """The audio of `text` by `model` (else `tasks.speech`) in `voice` (else the model's default voice).
     `instructions` set the style, `speed` the pace, `params` more request fields sent as they are (kinds with
-    `Traits.params`), as far as `check` allows. `speaker` names who speaks, for a vllm-omni model with the voice
-    `default` (`omni.aspeak`). `weights_dir` is where a local model's weights are when its provider has no `dir`.
-    Kokoro and Chatterbox run in a worker thread (`asyncio.to_thread`), so they do not block the event loop.
-    Google, vLLM-Omni, Kokoro and Chatterbox return WAV whatever `response_format` says."""
+    `Traits.params`), as far as `check` allows. `speaker` names who speaks, for a fish model, which keeps one voice
+    per speaker (`fish.speak`). `weights_dir` is where a local model's weights are when its provider has no `dir`.
+    Fish, Kokoro and Chatterbox run in a worker thread (`asyncio.to_thread`), so they do not block the event loop.
+    Google, Fish, Kokoro and Chatterbox return WAV whatever `response_format` says."""
     m = check(model, speed=speed, instructions=instructions, params=params, weights_dir=weights_dir)
     model_id, name, bare, kind, spec, entry = m.id, m.provider, m.bare, m.kind, m.spec, m.entry
     voice = voice or m.default_voice
-    if kind == omni.KIND:
-        return await omni.aspeak(name, spec, entry, bare, text, voice, instructions, speed, speaker, params)
+    if kind == fish.KIND:
+        return await asyncio.to_thread(fish.speak, spec, entry, name, bare, text, voice, instructions, speaker)
     if kind == kokoro.KIND:
         return await asyncio.to_thread(kokoro.speak, spec, entry, name, bare, text, voice, speed)
     if kind == chatterbox.KIND:

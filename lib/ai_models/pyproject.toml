@@ -7,7 +7,7 @@ dependencies = [
     "pydantic-ai-slim[openai,google]>=2.66",
     "pyyaml>=6",
     "certifi>=2024.0.0",
-    # filelock: the local-model lock (local.hold_lock), also taken by the vLLM-Omni client without torch
+    # filelock: the local-model lock (local.hold_lock)
     "filelock>=3.12",
     "plugin-settings",
 ]

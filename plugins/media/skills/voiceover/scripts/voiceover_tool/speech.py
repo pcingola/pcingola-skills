@@ -3,13 +3,13 @@ sentence through `ai_models.speech.speak`.
 
 `ai_models.speech.check` refuses a speed or a style the model does not take when the narrator is made, before
 any request or model load. The style goes as the model's instructions. The default voice is the model's
-(`ai_models` provider `voice`, else its kind's). A model whose kind clones a voice (chatterbox, vllm-omni) also
-takes a reference recording of `add-voice` (`voices.py`), passed as its path; `voices` lists those after the
-model's own voices. The answer is a WAV file, resampled to 24 kHz when it has another rate (Drama 3: 44.1 kHz); raw
-16-bit PCM (some OpenAI-compatible servers) is taken as 24 kHz.
+(`ai_models` provider `voice`, else its kind's). A model whose kind clones a voice (chatterbox) also takes a
+reference recording of `add-voice` (`voices.py`), passed as its path; `voices` lists those after the model's own
+voices. The answer is a WAV file, resampled to 24 kHz when it has another rate (Drama 3: 44.1 kHz); raw 16-bit PCM
+(some OpenAI-compatible servers) is taken as 24 kHz.
 
-A vllm-omni model (Fish Audio Drama 3) with the voice `default` keeps the first sentence's take as the reference
-of the rest, so one command has one speaker; `synth` writes it as `voice.wav` + `voice.txt`.
+A fish model (Fish Audio Drama 3) keeps the first take of each speaker as the reference of the rest, so one command
+has one voice per speaker; `synth` writes each as `voice.wav` (`voice-<speaker>.wav`) + `.txt`.
 """
 
 from __future__ import annotations
@@ -77,6 +77,7 @@ class Narrator:
             raise ValueError(str(e)) from None
         self.model, self.kind, self.default_voice = m.id, m.kind, m.default_voice
         self.clones, self.instructions, self.tags = m.traits.clones, m.instructions, m.traits.tags
+        self.one_voice = m.traits.one_voice
         speakers = dict(speakers or {})
         if speakers and not self.tags:
             raise ValueError(f"{m.id} takes no speakers (`@speaker` lines are for a model that takes inline tags)")
@@ -92,28 +93,26 @@ class Narrator:
         not take."""
         return [Line.of(s, styles=self.instructions, tags=self.tags, model=self.model) for s in sentences]
 
-    def _reference(self, voice: str, who: str) -> str:
-        """`voice` as sent: a cloning model's recording path (a vllm-omni model also needs its transcript), else
-        `voice`; `ValueError` naming `who` when the recording or transcript is missing."""
+    def _reference(self, voice: str) -> str:
+        """`voice` as sent: a cloning model's recording path, else `voice`; `ValueError` when the recording is
+        missing, or for a voice other than the default of a model that has only that one."""
+        if self.one_voice and voice != self.default_voice:
+            raise ValueError(f"{self.model} has only the voice {self.default_voice!r}; a model of kind chatterbox "
+                             "clones a recorded voice")
         if not self.clones or voice == voices.DEFAULT_VOICE:
             return voice
-        path = voices.reference_path(voice)
-        if self.tags and not path.with_suffix(".txt").is_file():
-            raise ValueError(f"{who}: the recording {path} has no transcript {path.with_suffix('.txt')}; "
-                             "`add-voice --text` stores one")
-        return str(path)
+        return str(voices.reference_path(voice))
 
     def prepare(self, lines: list[Line], voice: str) -> None:
         """Resolve every voice before the first request: the narrator's `voice` and each speaker's (`--speaker`, else
-        a made-up voice, `default`). `ValueError` for a `--speaker` no line uses, or a recording or transcript that
-        is missing. The made-up speakers are named on stderr."""
+        a made-up voice, `default`). `ValueError` for a `--speaker` no line uses, or a recording that is missing. The made-up speakers are named on stderr."""
         used = list(dict.fromkeys(line.speaker for line in lines if line.speaker))
         if unused := [n for n in self.speakers if n not in used]:
             raise ValueError(f"--speaker {', '.join(unused)}: no `@name` line of the script has that speaker "
                              f"(speakers in the script: {', '.join(used) or 'none'})")
-        self.resolved = {None: self._reference(voice, "--voice")}
+        self.resolved = {None: self._reference(voice)}
         for name in used:
-            self.resolved[name] = self._reference(self.speakers.get(name, voices.DEFAULT_VOICE), f"--speaker {name}")
+            self.resolved[name] = self._reference(self.speakers.get(name, voices.DEFAULT_VOICE))
         self.made_up = [n for n in used if n not in self.speakers]
         if self.made_up:
             print(f"voiceover: made-up voices (the first line of each is the reference of the rest): "
@@ -127,13 +126,13 @@ class Narrator:
         return own + [v for v in voices.names() if v not in own] if self.clones else own
 
     def first_takes(self) -> dict[str | None, tuple[bytes, str]]:
-        """Per speaker (None: the narrator), (WAV, text) of its first `default`-voice sentence of a vllm-omni model in
-        this process; empty for other kinds."""
-        from ai_models import omni
+        """Per speaker (None: the narrator), (WAV, text) of its first take of a fish model in this process; empty for
+        other kinds."""
+        from ai_models import fish
 
-        if self.kind != omni.KIND:
+        if self.kind != fish.KIND:
             return {}
-        return {s: t for s in (None, *self.made_up) if (t := omni.first_take(self.model, s))}
+        return {s: (t.wav, t.text) for s in (None, *self.made_up) if (t := fish.takes.get(self.model, s))}
 
     def synthesize(self, line: Line) -> np.ndarray:
         """Mono float32 samples of `line` at `sample_rate`, in its speaker's resolved voice (`prepare`), with its own

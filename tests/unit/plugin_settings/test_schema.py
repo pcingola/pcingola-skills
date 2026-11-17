@@ -8,7 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from plugin_settings import (Config, DiffusersImageModel, DiffusersMusicModel, DiffusersPresenterModel,
-                             DiffusersVideoModel)
+                             DiffusersVideoModel, FishModel)
 from plugin_settings.loader import format_errors
 from plugin_settings.old_keys import OLD_SETTINGS
 
@@ -58,8 +58,8 @@ def test_old_layout_lists_every_old_key_with_its_new_path():
     assert any(line.endswith("give those provider entries dir: /w") for line in got)
     assert "providers.vertex.predict_models: moved: providers.vertex.models.<m>.predict: true for each listed " \
            "model" in got
-    assert any(line.startswith("providers.fish.memory_share: replaced by memory") and "Drama 3: 70" in line
-               for line in got)
+    assert "providers.fish.memory_share: replaced by providers.fish.models.<m>.memory of kind fish, the GB the " \
+           "model takes at its peak" in got
 
 
 def test_chatterbox_environment_keys_removed():
@@ -72,6 +72,30 @@ def test_chatterbox_environment_keys_removed():
         assert any(line.startswith(f"providers.cb.{key}: removed: Chatterbox runs in the caller's process")
                    for line in got), got
     assert not any(line.startswith("providers.o.") for line in got), got
+
+
+def test_vllm_omni_kind_replaced_by_fish():
+    """A provider of the removed kind vllm-omni fails at load with one line naming kind fish and the keys that are
+    gone (old_keys.py `OLD_KINDS`), not with the list of kinds."""
+    got = problems({"providers": {"f": {"kind": "vllm-omni", "python": "/py", "models": {
+        "drama-3": {"repo": "fishaudio/drama-3", "deploy": "fish_omni.yaml", "memory": 70}}}}})
+    assert len(got) == 1, got
+    assert got[0].startswith("providers.f.kind: vllm-omni: replaced by kind fish")
+    for key in ("python", "args", "env", "start_timeout", "deploy", "overhead"):
+        assert key in got[0], key
+
+
+def test_fish_model_entry():
+    """A fish model entry needs only `repo`; `memory` defaults to Drama 3's peak, 44 GB, `style` to None (no
+    instructions), and it takes the voice keys of every speech model; a fish model serves task speech."""
+    cfg = Config.model_validate({"providers": {"f": {"kind": "fish", "models": {
+        "drama-3": {"repo": "fishaudio/drama-3", "style": "[{instructions}] {text}", "voices": ["default"]},
+        "plain": {"repo": "~/models/fish"}}}}, "tasks": {"speech": "f:drama-3"}})
+    entry = cfg.model_entry("f:drama-3")
+    assert isinstance(entry, FishModel) and entry.memory == 44.0 and entry.voices == ["default"]
+    assert entry.style == "[{instructions}] {text}" and cfg.model_entry("f:plain").style is None
+    assert "providers.f.models.m.deploy: not a setting of kind fish" in problems(
+        {"providers": {"f": {"kind": "fish", "models": {"m": {"repo": "r", "deploy": "d"}}}}})
 
 
 def test_unknown_section_and_key_fail_with_their_path():
@@ -93,10 +117,10 @@ def test_unknown_section_and_key_fail_with_their_path():
     ({"kind": "torchaudio", "models": {"MMS_FA": None}}, "providers.p.models.MMS_FA.url: required for kind torchaudio"),
     ({"kind": "chatterbox", "models": {"m": {"url": "https://x"}}},
      "providers.p.models.m.files: required for kind chatterbox"),
-    ({"kind": "vllm-omni", "python": "/py", "models": {"m": {"repo": "r", "deploy": "d"}}},
-     "providers.p.models.m.memory: required for kind vllm-omni"),
-    ({"kind": "vllm-omni", "python": "/py", "models": {"m": {"repo": "r", "deploy": "d", "memory": 0}}},
+    ({"kind": "fish", "models": {"m": {"memory": 44}}}, "providers.p.models.m.repo: required for kind fish"),
+    ({"kind": "fish", "models": {"m": {"repo": "r", "memory": 0}}},
      "providers.p.models.m.memory: Input should be greater than 0"),
+    ({"kind": "fish", "timeout": 5}, "providers.p.timeout: not a setting of kind fish"),
     ({"kind": "diffusers", "models": {"m": {"steps": 4}}},
      "providers.p.models.m.repo: required for an image model (kind diffusers)"),
     ({"kind": "ollama", "base_url": "localhost:11434"}, "providers.p.base_url: URL scheme should be 'http' or 'https'"),
@@ -107,8 +131,8 @@ def test_unknown_section_and_key_fail_with_their_path():
     ({"kind": "kokoro", "model_url": "https://x/m"}, "providers.p.model_url: moved to providers.p.models.<m>.model_url"),
     ({"kind": "openai", "api_key": "k", "voice": "ash"}, "providers.p.voice: moved to providers.p.models.<m>.voice"),
     ({"kind": "openrouter", "api_key": "  "}, "providers.p.api_key: is empty; set a value or remove the key"),
-    ({"kind": "frob"}, "providers.p: kind 'frob' is not one of azure, chatterbox, diffusers, google, kokoro, "
-                       "ollama, openai, openrouter, torchaudio, vllm-omni"),
+    ({"kind": "frob"}, "providers.p: kind 'frob' is not one of azure, chatterbox, diffusers, fish, google, kokoro, "
+                       "ollama, openai, openrouter, torchaudio"),
     ({"kind": "google", "api_key": "k", "project": "p"},
      "providers.p: credentials, project and location need vertex: true"),
 ])

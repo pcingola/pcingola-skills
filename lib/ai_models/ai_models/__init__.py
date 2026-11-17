@@ -6,8 +6,8 @@
     models   Pydantic-AI providers per kind; `chat_model`, `agent`, `embedder`
     images   `image_generator` (generation, edits with reference images, masks)
     system1  `system1_model`, `decide`
-    speech   `speak`, `voices`, `check` (OpenAI-style `audio/speech`, Gemini TTS, vLLM-Omni, Kokoro, Chatterbox)
-    omni     the vLLM-Omni server of a `vllm-omni` provider, one per process
+    speech   `speak`, `voices`, `check` (OpenAI-style `audio/speech`, Gemini TTS, Fish, Kokoro, Chatterbox)
+    fish     Fish Audio Drama 3 in process on an NVIDIA GPU (fish-speech); `fish_span`, `fish_take`, `fish_takes`
     kokoro   Kokoro in process on the CPU (extra `ai-models[kokoro]`)
     chatterbox  Chatterbox Turbo in process on the CPU (extra `ai-models[chatterbox]`)
     cpu      torch's CPU threads on the fast cores (`performance_threads`)

@@ -3,8 +3,8 @@
 Settings are loaded by `plugin_settings` (`Plugin.load`), which documents the file. The one setting of the skill,
 with the default used when unset:
 
-    voiceover.voices_dir  reference recordings of `add-voice`, `<name>.<suffix>` each, with an optional transcript
-                          `<name>.txt` (default <plugin data dir>/voiceover/voices)
+    voiceover.voices_dir  reference recordings of `add-voice`, `<name>.<suffix>` each (default
+                          <plugin data dir>/voiceover/voices)
 
 The speech and align models, their providers, weights and default voices are in config.yaml (`tasks.speech`,
 `tasks.align` and their providers). The model settings of an earlier version fail at load (`plugin_settings`).
@@ -23,7 +23,7 @@ plugin_data_dir = PLUGIN.data_dir
 OLD_NAMES = ("kokoro", "chatterbox")
 # Appended to a config error about a missing provider or model.
 TEMPLATE_HINT = ("; the setup:settings template has a provider entry for each local speech kind (kokoro, chatterbox, "
-                 "vllm-omni) and for the word aligner (kind torchaudio, `tasks.align`)")
+                 "fish) and for the word aligner (kind torchaudio, `tasks.align`)")
 
 
 def weights_dir() -> Path:

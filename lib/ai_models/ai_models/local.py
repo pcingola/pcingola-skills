@@ -71,7 +71,6 @@ GB = 1e9
 # its memory (docs/ai_models.md, Local model memory).
 SETTLE_SECONDS = 10.0
 SETTLE_POLL_SECONDS = 0.5
-SETTLE_BYTES = 0.5 * GB  # `wait_for_settled_memory`: a rise below this between two readings counts as settled
 
 
 def device() -> str:
@@ -207,20 +206,6 @@ def wait_for_memory(dev: str, need: int) -> int:
     deadline = time.monotonic() + SETTLE_SECONDS
     while (free := free_memory(dev)) < need and time.monotonic() < deadline:
         time.sleep(SETTLE_POLL_SECONDS)
-    return free
-
-
-def wait_for_settled_memory(dev: str) -> int:
-    """The device's free memory, read every `SETTLE_POLL_SECONDS` until a reading rises less than `SETTLE_BYTES`
-    over the one before or `SETTLE_SECONDS` pass; the last reading. For a load whose size is not known before it
-    starts (a vLLM-Omni server), after waiting for the lock, while the previous holder's memory comes back."""
-    deadline = time.monotonic() + SETTLE_SECONDS
-    free = free_memory(dev)
-    while time.monotonic() < deadline:
-        time.sleep(SETTLE_POLL_SECONDS)
-        last, free = free, free_memory(dev)
-        if free - last < SETTLE_BYTES:
-            break
     return free
 
 
@@ -538,7 +523,7 @@ def local_folder(repo: str) -> Path | None:
         return None
     folder = Path(repo).expanduser()
     if not folder.is_dir():
-        raise ConfigError(f"diffusers model repo {repo!r} is a path but not a folder")
+        raise ConfigError(f"model repo {repo!r} is a path but not a folder")
     return folder
 
 

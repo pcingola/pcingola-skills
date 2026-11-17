@@ -13,7 +13,7 @@ class ProviderKind(StrEnum):
     AZURE = "azure"
     GOOGLE = "google"
     DIFFUSERS = "diffusers"
-    VLLM_OMNI = "vllm-omni"
+    FISH = "fish"
     KOKORO = "kokoro"
     CHATTERBOX = "chatterbox"
     TORCHAUDIO = "torchaudio"
@@ -24,9 +24,9 @@ OPENAI_KINDS = frozenset({ProviderKind.OLLAMA, ProviderKind.OPENROUTER, Provider
 # The kinds of a remote API, with a Pydantic-AI provider (`ai_models.models.provider`).
 API_KINDS = OPENAI_KINDS | {ProviderKind.GOOGLE}
 # The kinds that run their models locally; each model of one needs its entry in `models`.
-LOCAL_KINDS = frozenset({ProviderKind.DIFFUSERS, ProviderKind.VLLM_OMNI, ProviderKind.KOKORO,
+LOCAL_KINDS = frozenset({ProviderKind.DIFFUSERS, ProviderKind.FISH, ProviderKind.KOKORO,
                          ProviderKind.CHATTERBOX, ProviderKind.TORCHAUDIO})
 # The kinds whose image models take image request limits (`image:` of the model entry).
 IMAGE_LIMIT_KINDS = OPENAI_KINDS | {ProviderKind.DIFFUSERS}
 # The kinds with speech models.
-SPEECH_KINDS = API_KINDS | {ProviderKind.VLLM_OMNI, ProviderKind.KOKORO, ProviderKind.CHATTERBOX}
+SPEECH_KINDS = API_KINDS | {ProviderKind.FISH, ProviderKind.KOKORO, ProviderKind.CHATTERBOX}

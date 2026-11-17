@@ -3,7 +3,7 @@
 No further sentence splitting: the caller decides sentence boundaries, and `timing.json` indexes exactly those
 lines. `Line.of` reads what a line holds besides its text, as far as the model takes it:
 
-- A model that takes inline tags (vllm-omni, Fish Audio Drama 3): a line may start with `@<speaker> ` (a name of
+- A model that takes inline tags (kind fish, Fish Audio Drama 3): a line may start with `@<speaker> ` (a name of
   lowercase letters, digits, `-`, `_`), which says who speaks it; the rest of the line goes to the model as written,
   with its tags in square brackets (`[laughs]`, `[whisper]`) and speaker tags (`<|speaker:1|>`) anywhere in it.
   The sentence the aligner and `timing.json` see is the line without those tags (`strip_tags`).
@@ -81,5 +81,5 @@ class Line:
         style, text = split_style(line) if styles else (None, line)
         if SPEAKER_RE.match(line) or TAG_RE.search(text):
             raise ValueError(f"script line {line!r} has a speaker (`@name`) or tag (`[...]`, `<|...|>`) that {model} "
-                             "would speak aloud; it takes no inline tags (a vllm-omni model such as Fish does)")
+                             "would speak aloud; it takes no inline tags (a fish model does)")
         return cls(text, text, style)
