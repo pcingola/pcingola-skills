@@ -21,7 +21,7 @@ What the speech model takes depends on the kind of its provider:
 |---|---|---|---|---|
 | `kokoro` | local CPU, Kokoro 82M | `af_heart` | 0.5 to 2 | no |
 | `chatterbox` | local CPU, Chatterbox Turbo, clones a voice | `default` | no | no |
-| `vllm-omni` | local GPU, Fish Audio Drama 3, clones a voice | `default` | no | inline tags |
+| `fish` | local NVIDIA GPU, Fish Audio Drama 3, one made-up voice per speaker | `default`, the only voice | no | inline tags |
 | `openai`, `azure`, `openrouter` | API, `audio/speech` | `marin` | 0.25 to 4 | yes |
 | `ollama` | Ollama `audio/speech` | `default` | refused by the server | refused by the server |
 | `google` | API, Gemini TTS | `Kore` | no | yes |
@@ -39,24 +39,21 @@ output. Gemini takes `--style` literally: "unhurried pace" gives long pauses.
 Ollama's `lfm3-audio` has odd, uncontrolled intonation: it is for tests, not
 for narration.
 
-A model of provider kind `vllm-omni` (Fish Audio Drama 3) runs on the local
-GPU: the first sentence starts its server, which loads for minutes and stops
-when the command ends, so give it the whole script in one `synth`. Its voice
-is `default` or a voice of `add-voice` stored with `--text` (the transcript),
-which it clones. With `default` the model picks a new speaker per request, so
-`synth` uses the first sentence's take as the reference for the rest and
-writes it to the output directory as `voice.wav` and `voice.txt`. For
-several commands in one voice (the scenes of one film), voice the first, then
-pass `--voice <its out dir>/voice.wav` to the others. It clones any
-recording that has a transcript. Tags in square brackets anywhere in a line
-(`Fine. [laughs] Well.`; `whisper`, `excited`, `sighs`, `laughs`) direct the
-delivery at that point; `--style whisper` sends `[whisper] <sentence>` for
-every line. It voices dialogue: `@<name>` at the start of a line names its
-speaker, `--speaker NAME=VOICE` clones a voice for that speaker, and a
-speaker without one gets a made-up voice kept for all its lines.
-`--param KEY=VALUE` sends more request fields (`seed`, `max_new_tokens`,
-sampling in `extra_params`). Read `references/fish-drama-3.md` before using
-any of these.
+A model of provider kind `fish` (Fish Audio Drama 3) runs on the local
+NVIDIA GPU in the voiceover process: the first sentence loads it (about
+4 min, 44 GB) and it stays loaded until the command ends, so give it the
+whole script in one `synth`. Its only voice is `default`: the model makes
+up a speaker, and `synth` keeps the first sentence's take as the reference
+of the rest and writes it to the output directory as `voice.wav` and
+`voice.txt`. Another command makes up another voice, and the model takes
+no recording; a voice that must stay the same across commands, or a
+specific person's voice, needs a `chatterbox` model. Tags in square
+brackets anywhere in a line (`Fine. [laughs] Well.`; `whisper`, `excited`,
+`sighs`, `laughs`) direct the delivery at that point; `--style whisper`
+sends `[whisper] <sentence>` for every line. It voices dialogue: `@<name>`
+at the start of a line names its speaker, and each speaker gets a made-up
+voice kept for all its lines. Read `references/fish-drama-3.md` before
+using any of these.
 
 When the narration must sound like a specific person, such as the user ("in
 my voice"), use a model that clones a voice (the routes name one), run
@@ -104,11 +101,11 @@ What else a line may carry depends on the model:
   with the style `whisper` instead of `--style`; `timing.json` records the
   sentence's `style`.
 - Any other model (Kokoro, Chatterbox): plain text only. A line with `@name`
-  or a tag is refused, since the model would speak it; so are `--speaker` and
-  `--param`.
+  or a tag is refused, since the model would speak it; so is `--speaker`.
 
-`synth` checks every line and every voice (each `--speaker` name against the
-script, each recording and, for Fish, its transcript) before the first
+`--param` is for the API kinds `openai`, `azure`, `openrouter` and `ollama`;
+the other kinds refuse it. `synth` checks every line and every voice (each
+`--speaker` name against the script, each recording) before the first
 request. A speaker of the script without `--speaker` gets a made-up voice;
 `synth` names those on stderr.
 
@@ -118,8 +115,6 @@ request. A speaker of the script without `--speaker` gets a made-up voice;
 # First run: download the weights of the speech model (local kinds: Kokoro
 # 350 MB, Chatterbox 3 GB) and of the align model (MMS_FA 1.26 GB)
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup [--model ID]
-# Build the Python environment of the chatterbox provider; prints its python
-${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup --chatterbox
 
 # Script -> DIR/narration.wav + DIR/timing.json (prints both paths)
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out/
@@ -131,7 +126,8 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out
 #   --speed 1.0      models with a speed setting
 #   --style TEXT     delivery instruction, models that take one
 #   --speaker NAME=VOICE   voice of the `@NAME` lines (models that take tags)
-#   --param KEY=VALUE      one more request field, VALUE as JSON (repeatable)
+#   --param KEY=VALUE      one more request field, VALUE as JSON (repeatable;
+#                          the openai, azure, openrouter and ollama kinds)
 #   --lead 0.25      silence before the first sentence (s)
 #   --gap 0.35       silence between sentences (s)
 #   --tail 0.6       silence after the last sentence (s)
@@ -144,7 +140,7 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh voices [--model ID]
 
 # Store a recording (.wav/.flac/.mp3/.m4a, longer than 5 s) as a voice:
 # copied to <voices dir>/NAME.<suffix of the recording>; prints the path
-${CLAUDE_SKILL_DIR}/scripts/voiceover.sh add-voice NAME recording.wav [--force] [--text "transcript"]
+${CLAUDE_SKILL_DIR}/scripts/voiceover.sh add-voice NAME recording.wav [--force]
 
 # Listen (macOS: VLC; Linux: xdg-open, the default application)
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh play out/narration.wav
@@ -178,14 +174,11 @@ breaths and silence at both ends and raise a quiet recording to about −20 LUFS
 (e.g. `highpass=f=70,afftdn=nf=-70:nr=10,loudnorm=I=-20:TP=-2`) before
 `add-voice`. Light denoising only: the model copies artefacts.
 
-It runs in its own Python environment, the provider's `python`. When
-`config.yaml` has no `chatterbox` provider with a `python`, run
-`${CLAUDE_SKILL_DIR}/scripts/voiceover.sh setup --chatterbox`: it builds the
-environment under the plugin's data directory and prints its python; the
-user adds the template's `chatterbox` provider entry with that `python`
-(setup:settings). The weights (3 GB) come from the `url` of the model entry on
-first use, or with `setup --model <model>`. One sentence takes about 3 s per second of audio on
-CPU. Output carries Resemble's inaudible Perth watermark. Clone only a voice
+It runs on the CPU in the voiceover process; the user adds the template's
+`chatterbox` provider entry to `config.yaml` (setup:settings). The weights
+(3 GB) come from the `url` of the model entry on first use, or with
+`setup --model <model>`. The load takes about 10 s, and a short sentence
+2.5 to 4 s. Output carries Resemble's inaudible Perth watermark. Clone only a voice
 whose owner has agreed.
 
 ## `timing.json`

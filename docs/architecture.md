@@ -47,13 +47,13 @@ Tests: `test_no_reference_to_other_skill_code`, `test_plugin_skill_references`, 
 Each concern has one location, and every other skill reaches it through that location:
 
 - Shared Python code: the packages in the repo-root `lib/` (see Shared packages).
-- Every model call: `lib/ai_models`, on Pydantic-AI (`docs/ai_models.md`). TLS and the providers' clients are set up
-  there once, and the local models (diffusers, Kokoro, Chatterbox, the torchaudio aligner, vLLM-Omni) are run
-  there. No module of a `<skill>_tool` package of a plugin project that depends on `ai-models` imports
+- Every model call: `lib/ai_models`, on Pydantic-AI (`docs/ai_models.md`; Standard paths for model calls). TLS and
+  the providers' clients are set up there once, and the local models (diffusers, Kokoro, Chatterbox, Fish, the
+  torchaudio aligner) are run there. No module of a `<skill>_tool` package of a plugin project that depends on `ai-models` imports
   google-genai, the OpenAI SDK or a model library (`test_model_calls_only_through_ai_models`).
 - Settings: one file, `config.yaml` (`$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`). It holds the
   providers with their keys and the attributes of their models (`providers`), the model of each task (`tasks`), and
-  one section per other concern (`network`, `huggingface`, `brand`, `studio`, `voiceover`). A skill has no model
+  one section per other concern (`network`, `huggingface`, `local_models`, `brand`, `studio`, `voiceover`). A skill has no model
   setting and no model default in code; it asks `ai_models` for a task (the list is in `docs/ai_models.md`, Config)
   or passes the user's `--model`.
 - The schema of the settings file, its loader and the plugin data directory: `lib/plugin_settings`. `ai_models`
@@ -71,6 +71,26 @@ Each concern has one location, and every other skill reaches it through that loc
 - The template of the settings file, with every setting any skill reads and placeholder values:
   `plugins/setup/skills/settings/assets/config.example.yaml`. `setup:settings` creates the user's file from it.
 - Maintainer documentation: `docs/`.
+
+## Standard paths for model calls
+
+A remote model call goes through Pydantic-AI, and a local LLM runs in Ollama, reached through Pydantic-AI's Ollama
+provider. One path per kind of call means one client setup, one error mapping (`errors.explained`) and one set of
+tests for every skill. A direct call is an exception, made only where the standard path cannot do the task, and
+each one is listed here with its reason:
+
+- Remote speech. Pydantic-AI has no text-to-speech API: its Google model requests only text and image output, and
+  its speech support is realtime voice sessions. `ai_models.speech` calls the OpenAI SDK's `audio.speech` on the
+  client of the Pydantic-AI provider (kinds `openrouter`, `openai`, `azure`, `ollama`) and Google's
+  `generate_content` with audio output (Gemini TTS).
+- Remote music. Pydantic-AI has no music API. `ai_models.music` posts to Lyria's `:predict` endpoint over HTTP and
+  calls Google's `generate_content_stream` (Gemini music).
+- Weight downloads (`ai_models.weights`): a file fetched over HTTP, no model call.
+- Ollama's memory query (`ai_models.local`, `GET /api/ps`): which models Ollama holds and when it unloads them, read
+  before a local load; no model call. Pydantic-AI has no call for it.
+
+The image edit with a mask (`MaskedOpenAIImageModel`) is a subclass of Pydantic-AI's `OpenAIImageGenerationModel`,
+on the standard path. A change of path keeps every capability, and wiring that costs without need is removed.
 
 ## Agent judgement, code mechanics
 
@@ -144,6 +164,32 @@ Tests: `test_every_plugin_with_wrappers_has_uv_env`, `test_uv_env_copies_identic
 `plugin_env` under `set -eu -o pipefail`, as the wrappers do, and compares its data directory with the one
 `plugin_settings` resolves).
 
+## Local models in process
+
+A local model runs in the caller's process, in the environment of the skill that calls it: diffusers pipelines,
+Kokoro, Chatterbox Turbo and the torchaudio aligner on the CPU, Fish Audio Drama 3 on an NVIDIA GPU. A separate
+environment or server process would need its own install, start, shutdown, timeouts and error handling, so it needs
+a tested reason: a pin of the model's package that fails when it is overridden.
+
+A dependency's version pin is tested before an environment is built around it. A package often pins older versions
+than it needs. The test installs the package in a scratch environment with its pins overridden to the skill
+environment's versions and runs the model. chatterbox-tts 0.1.7 pins torch 2.6, transformers 5.2.0, diffusers 0.29,
+numpy 1 and safetensors 0.5.3; fish-speech pins torch 2.8.0, transformers 5.19.0, pydantic 2.9.2 and tokenizers
+0.23.2. Both ran on the versions of the voiceover environment and of the root test environment (torch 2.11,
+transformers 5.22.2, diffusers 0.43.0), so both run in media:voiceover's environment (`docs/voiceover.md`,
+Dependency pins).
+
+Two uv settings apply the overrides in `scripts/pyproject.toml` of media:voiceover:
+
+- `override-dependencies` replaces a requirement of any package (transformers, diffusers, numpy, safetensors,
+  protobuf).
+- `dependency-metadata` gives the requirement lists of chatterbox-tts and fish-speech with those pins removed, and
+  fish-speech's without pyaudio, which it does not use and which needs the portaudio headers. torch and torchaudio
+  stay unpinned there.
+  torch and torchaudio cannot be overrides there: an override replaces the requirement of the `cpu` and `cuda`
+  extras too, and with it the extra's index in `tool.uv.sources`, so the CPU and CUDA builds would no longer be
+  selected. The root project has no such extras and overrides torch and torchaudio directly.
+
 ## CLI wrappers
 
 Each skill with a CLI tool has its own uv project and environment, so its dependencies do not constrain another skill's.
@@ -183,18 +229,17 @@ maintainers of this repository: how the code works and why, where the code does 
 ## Tests
 
 All tests run in one environment, the repo-root project's `dev` group, from the repository root
-(`scripts/tests.sh unit|integration|all`, commands in `CLAUDE.md`). The group installs the `lib/` packages as editable
-path dependencies (`ai-models` with its `diffusers` extra), so every test sees the working tree's `lib/`, and the
-dependencies of every skill project. Its pytest `pythonpath` lists each skill's `scripts/` and the studio server. A
-dependency added to a skill project is also added to the root `dev` group, so the suites never need a second
-environment. Manim runs in its own environment, as a subprocess, for users and tests alike. Chatterbox
-(`voiceover setup --chatterbox`, as ai_models' worker process) and the vLLM-Omni server run in environments of their
-own, and their tests read that environment's python from the config.
+(`scripts/tests.sh unit|integration|models|all`, commands in `CLAUDE.md`). The group installs the `lib/` packages as
+editable path dependencies (`ai-models` with its `diffusers` extra), so every test sees the working tree's `lib/`, and
+the dependencies of every skill project, Chatterbox and fish-speech included, with the overrides of media:voiceover
+(Local models in process). Its pytest `pythonpath` lists each skill's `scripts/` and the studio server. A dependency
+added to a skill project is also added to the root `dev` group, so the suites never need a second environment. Manim
+runs in its own environment, as a subprocess, for users and tests alike.
 
 Tests call the real code and the real dependency. No test imports a mock library, patches, uses the `monkeypatch` or
 `mocker` fixture, uses a fake or stub server, writes the process environment, or skips (`skip`, `skipif`, `xfail`,
-`importorskip`, `SkipTest`). The reasons: a mock tests the test's idea of the dependency, not the dependency; an environment write leaks
-into other tests; a skipped test reports nothing and hides a missing prerequisite.
+`importorskip`, `SkipTest`). The reasons: a mock tests the test's idea of the dependency, not the dependency; an
+environment write leaks into other tests; a skipped test reports nothing and hides a missing prerequisite.
 
 A test that needs a setting runs the real code in a child process whose environment it states in full
 (`tests/subproc.py`: `child_env`, `run_python`, `py_value`). `tests/settings_env.py` (`isolated`) points `HOME`,
@@ -202,9 +247,32 @@ A test that needs a setting runs the real code in a child process whose environm
 user's settings do not reach the code under test. It keeps uv's cache, Python installs and configuration and git's
 global configuration. A test that needs a setting, a provider or a model writes a real `config.yaml` in a temporary
 directory (`write_config`) and passes its path to the child in `SKILLS_CONFIG`; an in-process test of `ai_models`
-names it with `config.use`. A test that needs a
-key, a model, a GPU or a tool fails with a message naming what is missing (`tests/prereq.py`: `requires`). Model
-tests run against real targets: Ollama with small models, real Hugging Face `diffusers` models at small size and few steps, Kokoro for speech,
-and the cloud providers when their keys are set. A pipeline whose smallest real checkpoint is too large for a test
-(Kandinsky S2V: 23.9 GB) is tested on the random-weight checkpoint its authors publish for that pipeline class; such a
-test checks the code path (loading, call, output format), not the output.
+names it with `config.use`. A test that needs a key, a model, a GPU or a tool fails with a message naming what is
+missing (`tests/prereq.py`: `requires`).
+
+Models:
+
+- Tests use tiny models: the smallest model that runs the same code path, with random weights where that is what
+  exists. Such a test checks the code path (load, call, output format), not the output's quality. Examples: the
+  random-weight FLUX.2 klein, LTX-Video, LTX-2 and Kandinsky S2V checkpoints published for those pipeline classes,
+  Kokoro's int8 model, Chatterbox Turbo, and ACE-Step and Fish pipelines with random weights that
+  `tests/tiny_ace_step.py` and `tests/tiny_fish.py` build into `~/.cache/pcingola-skills-tests/` when missing.
+- The models that tests load or call are named in one file, `tests/config.yaml` (`TEST_CONFIG` of
+  `tests/settings_env.py`, with `~` expanded), and `tests/models/config.yaml` for the full-size suite. No test reads
+  the user's config, except that a `tests/models/` test of a remote model copies the `api_key` and endpoint of the
+  user's provider of the same kind into its own temporary config (`models_config`). A unit test that only parses or
+  routes a model id, with no load and no call, may keep the id in the config it writes.
+- A unit test never calls or loads a model and needs no GPU, Ollama or network.
+- An integration test takes seconds. Every test has a timeout, 30 s by default (pytest-timeout, root
+  `pyproject.toml`), and every subprocess a test starts has a shorter one, so a hang fails the test with a message.
+- A test of a full-size model itself (a new model version, a question about what a model can do) lives in
+  `tests/models/`, runs only with `scripts/tests.sh models` and sets its own larger timeout; `unit`, `integration`
+  and `all` never collect it (`testpaths`). It exists only where no tiny model tests the same thing: Fish Audio
+  Drama 3, and the remote speech and music models, whose code path has no local stand-in.
+
+Local models and their lock: a model loaded in the pytest process would hold the local-model lock
+(`ai_models.local.hold_lock`) until pytest exits and block every later child process that loads one. An autouse
+fixture of `tests/integration/conftest.py` therefore calls `ai_models.local.unload()` after each test, which drops
+every in-process model and releases the lock. `local_models.lock_wait` is the second safety mechanism:
+`tests/config.yaml` sets 20 s, below the 25 s subprocess and 30 s test timeouts, and `tests/models/config.yaml` a
+value below that suite's subprocess timeouts, so a held lock fails a test with the holder's PID.

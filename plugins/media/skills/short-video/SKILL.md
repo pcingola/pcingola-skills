@@ -123,7 +123,10 @@ scene.
    my voice"), set `voice.model` to a speech model that clones a voice and
    `voice.name` to that person's voice; `media:voiceover` lists the models
    (`routes`) and the cloned voices, and explains how to add one. For several voices, see "Speakers" in
-   `references/storyboard.md`.
+   `references/storyboard.md`. A speech model of provider kind `fish`
+   (Fish Audio Drama 3) makes up its voice in each voiceover command and
+   takes no recording, so each scene, voiced in its own command, gets a
+   different voice; use it in a film only when the user accepts that.
 2. References and storyboard. The storyboard's `Topic:` names the film's
    audience; every critic judges the film as that audience. When the
    user's request and its context do not make the audience clear, ask the

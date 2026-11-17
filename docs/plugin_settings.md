@@ -12,7 +12,7 @@ documented for users in the `setup:settings` skill; the template is
 | `paths.py` | `config_dir`, `config_file`, `use`, `display` (home shown as `~`), `CONFIG_ENV` |
 | `loader.py` | `load_config`, `config`, `error`, `ConfigFileError`, `SETUP_LINE`, the error formatter |
 | `env_export.py` | `EnvVar`, `ENV_EXPORTS`, `CLEARED_PREFIXES`, `CLEARED_KEYS`, `export` |
-| `old_keys.py` | `OLD_SECTIONS`, `OLD_SETTINGS`, `OLD_PROVIDER_KEYS`, `old_key_errors` |
+| `old_keys.py` | `OLD_SECTIONS`, `OLD_SETTINGS`, `OLD_PROVIDER_KEYS`, `OLD_KIND_KEYS`, `OLD_KINDS`, `old_key_errors` |
 | `plugin.py` | `Plugin`: name, directory, data directory, `load` |
 | `schema/` | the Pydantic classes of the file; `__init__` re-exports them |
 
@@ -30,6 +30,7 @@ The sections, each a class in `schema/`:
 | `tasks` | `dict[Task, ModelId]` | the model id `<provider>:<model>` of each task; the first colon splits it |
 | `network` | `Network` | proxies, `extra_ca_cert`, `ca_bundle` |
 | `huggingface` | `HuggingFace` | `home`, `token` |
+| `local_models` | `LocalModels` | `lock_wait`: the seconds a process waits for another process that holds the local models (`ai_models.local.hold_lock`) before it fails naming that process; unset, no limit |
 | `brand` | `BrandSettings` | `path`, a list of directories |
 | `studio` | `StudioSettings` | `dir` (absolute or `~`), `author` (a list of names) |
 | `voiceover` | `VoiceoverSettings` | `voices_dir` |
@@ -53,17 +54,17 @@ what is about where and how its models run; each model's own attributes are on i
 | `diffusers` | none | `DiffusersEntry`: the class of the entry's role | `repo` (required), the pipeline fields of the role |
 | `kokoro` | `dir` | `KokoroModel` | `model_url`, `voices_url`, `langs`, `voice`, `voices` |
 | `torchaudio` | `dir` | `TorchaudioModel` | `url` |
-| `chatterbox` | `python`, `dir`, `start_timeout`, `timeout` | `ChatterboxModel` | `url`, `files`, `voice`, `voices` |
-| `vllm-omni` | `python`, `args`, `env`, `start_timeout`, `timeout` | `VllmOmniModel` | `repo`, `deploy`, `memory`, `overhead`, `style`, `voice`, `voices` |
+| `chatterbox` | `dir` | `ChatterboxModel` | `url`, `files`, `voice`, `voices` |
+| `fish` | none | `FishModel` | `repo` (required: a Hugging Face repository or a local folder, absolute or `~`), `memory` (GB at the peak, default `DRAMA3_PEAK_GB`, 44), `style`, `max_frames`, `voice`, `voices` |
 
 The provider fields shared by several kinds are declared once, in classes the provider classes derive from:
 `TimedProvider` (`timeout`), `RemoteProvider` (`api_key`, `base_url`), `OpenAIKindProvider` (`models` of
-`OpenAIModel`), `WeightsDir` (`dir`, `with_dir`), `OwnEnvironment` (`python`, `start_timeout`). `Voices` holds
+`OpenAIModel`), `WeightsDir` (`dir`, `with_dir`). `Voices` holds
 `voice` and `voices` for every model class that may be a speech model. Every provider class has `models`, so
 `provider.models.get(model)` needs no check of the kind.
 
 A remote provider serves any model id; its `models` holds attributes only. A model of a kind in `LOCAL_KINDS`
-(`diffusers`, `kokoro`, `torchaudio`, `chatterbox`, `vllm-omni`) needs an entry.
+(`diffusers`, `kokoro`, `torchaudio`, `chatterbox`, `fish`) needs an entry.
 
 A `diffusers` entry is one of four classes, one per `DiffusersRole`: `DiffusersImageModel` (`inpaint`, `image`),
 `DiffusersMusicModel` (`duration_arg` required, `lyrics_arg`, `min_crest_db`), `DiffusersVideoModel` (`pipeline`,
@@ -132,10 +133,12 @@ new place:
 | `diffusers` | `providers.<p>.models.<name>` of the provider of kind `diffusers` |
 | `settings` | each key: `IMAGE_GEN_*` to `providers.<p>.models.<m>.image.*`, `BRAND_PATH` to `brand.path`, `STUDIO_DIR` and `AUTHOR_NAME` to `studio.*`, `VOICEOVER_VOICES_DIR` to `voiceover.voices_dir`, proxies, `EXTRA_CA_CERT`, `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE` to `network.*`, `HF_HOME` and `HF_TOKEN` to `huggingface.*`; another `VOICEOVER_*` to `tasks.speech`, `tasks.align` and their providers; any other key is `not a setting` |
 | `providers.<p>.predict_models` | `providers.<p>.models.<m>.predict: true` |
-| `providers.<p>.memory_share` | `memory`, in GB |
-| `providers.<p>.<k>` for a model key `<k>` (`MODEL_KEYS`: `model_url`, `voices_url`, `langs`, `url`, `files`, `repo`, `deploy`, `memory`, `overhead`, `style`, `voice`, `voices`) | `providers.<p>.models.<m>.<k>` |
+| `providers.<p>.memory_share` | `providers.<p>.models.<m>.memory` of kind `fish`, in GB |
+| `providers.<p>.python`, `start_timeout`, `timeout` of kind `chatterbox` (`OLD_KIND_KEYS`) | removed: Chatterbox runs in the caller's process |
+| `providers.<p>.kind` of a removed kind (`OLD_KINDS`) | the kind that replaces it (`fish`), the provider and model keys that kind lacks, and the meaning of `memory` |
+| `providers.<p>.<k>` for a model key `<k>` (`MODEL_KEYS`: `model_url`, `voices_url`, `langs`, `url`, `files`, `repo`, `memory`, `style`, `voice`, `voices`) | `providers.<p>.models.<m>.<k>` |
 
-The full texts are `OLD_SECTIONS`, `OLD_SETTINGS` and `OLD_PROVIDER_KEYS` in `old_keys.py`.
+The full texts are `OLD_SECTIONS`, `OLD_SETTINGS`, `OLD_PROVIDER_KEYS`, `OLD_KIND_KEYS` and `OLD_KINDS` in `old_keys.py`.
 
 ## Export to the environment
 

@@ -11,7 +11,7 @@
 #     network      proxies and CA certificates
 #     huggingface  the weights cache and token of the local diffusers models
 #     local_models the wait for another process that holds the local models
-#     brand       brand:brand and the Studio catalogue
+#     brand        brand:brand and the Studio catalogue
 #     studio       the Studio
 #     voiceover    media:voiceover
 #
@@ -29,10 +29,10 @@
 #
 # kind (required): ollama, openrouter, openai (any OpenAI-compatible server),
 # azure (Azure OpenAI), google (Gemini, Lyria; vertex: true for a Vertex
-# endpoint), diffusers (local models in process, GPU), vllm-omni (a local
-# speech model served by vLLM-Omni), kokoro and chatterbox (local speech on the
-# CPU), torchaudio (the word aligner of media:voiceover).
-# timeout (seconds per request, default 600): the remote kinds and vllm-omni.
+# endpoint), diffusers (local models in process, GPU), fish (local speech in
+# process on an NVIDIA GPU), kokoro and chatterbox (local speech in process on
+# the CPU), torchaudio (the word aligner of media:voiceover).
+# timeout (seconds per request, default 600): the remote kinds.
 # Required keys: openrouter and azure need api_key; azure also base_url and
 # api_version; openai needs api_key without base_url (the OpenAI API); google
 # needs api_key, except a Vertex provider with Google Cloud credentials.
@@ -40,7 +40,7 @@
 # models: the attributes of each model of the provider, by the model name after
 # the colon. A remote provider serves any model id, and its entries only add
 # attributes; a model of a local kind (diffusers, kokoro, torchaudio,
-# chatterbox, vllm-omni) must have an entry. A speech model's entry takes voice
+# chatterbox, fish) must have an entry. A speech model's entry takes voice
 # (the default voice) and voices (the list `voiceover voices` shows).
 # A task's model must be of a kind that serves the task (an image task takes
 # an image model; tasks below).
@@ -285,31 +285,25 @@ providers:
   #    chatterbox-turbo:
   #      url: https://www.modelscope.cn/models/ResembleAI/chatterbox-turbo/resolve/master
   #      files: [t3_turbo_v1.safetensors, s3gen_meanflow.safetensors, ve.safetensors, conds.pt, vocab.json, merges.txt, tokenizer_config.json, added_tokens.json, special_tokens_map.json]
-  # Fish Audio Drama 3, local speech, served by vLLM-Omni from its own
-  # environment (vllm-omni pins torch and transformers):
-  #   uv venv <env dir> --python 3.12
-  #   uv pip install --python <env dir>/bin/python "vllm==0.32.*" vllm-omni==0.32.0 --torch-backend=cu130
-  # The provider: python (required); args: more server arguments (eager
-  # loading: the default memory-mapped load is too slow on a unified-memory
-  # GPU); env: server environment variables (FlashInfer's sampler needs nvcc
-  # to JIT-compile on GPUs without prebuilt kernels); start_timeout: seconds
-  # the start may take (default 1800). Each model: repo, deploy and memory
-  # are required. The server's stages take memory GB together (Drama 3: over
-  # 56; 70 leaves a 13 GB KV cache), and the server overhead GB more (default
-  # 22). With less free, a start waits for local Ollama models that unload
-  # within 15 min, else is refused and names what holds the memory. The
-  # server stops after the command. style puts voiceover --style into the
-  # text as inline tags.
+  # Fish Audio Drama 3, local speech with inline tags, through fish-speech in
+  # media:voiceover's process on an NVIDIA GPU (Linux; media:voiceover installs
+  # the CUDA build of PyTorch and fish-speech when a provider has kind fish).
+  # Each model: repo (required), a Hugging Face repository, downloaded to the
+  # Hugging Face cache, or a local folder (absolute or ~); memory: GB the model
+  # takes at its peak, checked against the free memory before the load
+  # (default 44, Drama 3's); with less free, the load waits for local Ollama
+  # models that unload within 15 min, else is refused and names what holds the
+  # memory. style: a format string with {instructions} and {text} that puts
+  # voiceover --style into the text as an inline tag (unset: no style).
+  # max_frames: the audio frames one request makes at most, about 21.5 per
+  # second (default: fish-speech's, 1024). The load takes about 4 min; the
+  # model stays loaded for the command. The voice is default only: the first
+  # sentence of each speaker is the reference of the rest.
   #fish:
-  #  kind: vllm-omni
-  #  python: /path/to/env/bin/python
-  #  args: [--stage-init-timeout, 1800, --safetensors-load-strategy, eager]
-  #  env: {VLLM_USE_FLASHINFER_SAMPLER: 0}
+  #  kind: fish
   #  models:
   #    drama-3:
   #      repo: fishaudio/drama-3
-  #      deploy: fish_omni.yaml
-  #      memory: 70
   #      style: "[{instructions}] {text}"
 
 
@@ -346,7 +340,7 @@ providers:
 #               provider of kind google)
 # Kinds: chat, vision, system1, embed, audio and film_critic take the remote
 # kinds (ollama, openrouter, openai, azure, google); the image tasks those of
-# OpenAI, google and diffusers; speech those and vllm-omni, kokoro,
+# OpenAI, google and diffusers; speech those and fish, kokoro,
 # chatterbox; align torchaudio; music google and diffusers; video and
 # presenter diffusers.
 # A `--model <provider>:<model>` flag of a skill replaces the task's model; it
@@ -426,10 +420,10 @@ huggingface:
 
 # === local_models ============================================================
 local_models:
-  # One process at a time holds the local models (images, music, video). A
-  # second process waits for the first to exit. lock_wait: the seconds it
-  # waits before it fails with an error naming the holder's PID (a positive
-  # number). Default: no limit.
+  # One process at a time holds the local GPU models (diffusers images, music
+  # and video, fish speech). A second process waits for the first to exit.
+  # lock_wait: the seconds it waits before it fails with an error naming the
+  # holder's PID (a positive number). Default: no limit.
   #lock_wait: 600
 
 
@@ -456,5 +450,5 @@ studio:
 # === voiceover ===============================================================
 voiceover:
   # Reference recordings written by `add-voice` (voices of the models that
-  # clone one: chatterbox, vllm-omni). Default <media data dir>/voiceover/voices.
+  # clone one: chatterbox). Default <media data dir>/voiceover/voices.
   #voices_dir: /path/to/voices

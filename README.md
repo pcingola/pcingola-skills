@@ -57,15 +57,15 @@ claude plugin install <plugin>@pcingola-skills --scope user
 
 ## Models
 
-The skills that call a model (classify, second-opinion, image-gen, music, voiceover, short-video) go through the shared package `lib/ai_models`, built on Pydantic-AI. One YAML file holds every setting: `~/.claude/plugins/data/config.yaml` (`SKILLS_CONFIG` names another file). Its sections are `providers` (each provider's key in `api_key`, and the attributes of its models in `models`, including the local `diffusers` models), `tasks` (the model of each task), `network` (proxies, CA files), `huggingface`, `brand`, `studio` and `voiceover`. The file is validated at load; an error names the YAML path of each wrong key. The `setup:settings` skill creates it from `plugins/setup/skills/settings/assets/config.example.yaml`. A model id is `<provider name>:<model>`, for example `ollama:d3:4b`.
+The skills that call a model (classify, second-opinion, image-gen, music, voiceover, short-video) go through the shared package `lib/ai_models`, built on Pydantic-AI. One YAML file holds every setting: `~/.claude/plugins/data/config.yaml` (`SKILLS_CONFIG` names another file). Its sections are `providers` (each provider's key in `api_key`, and the attributes of its models in `models`, including the local `diffusers` models), `tasks` (the model of each task), `network` (proxies, CA files), `huggingface`, `local_models`, `brand`, `studio` and `voiceover`. The file is validated at load; an error names the YAML path of each wrong key. The `setup:settings` skill creates it from `plugins/setup/skills/settings/assets/config.example.yaml`. A model id is `<provider name>:<model>`, for example `ollama:d3:4b`.
 
-Provider kinds: `ollama`, `openrouter`, `openai` (any OpenAI-compatible server), `azure`, `google` (Gemini API or Vertex), `diffusers` (local models in process), `kokoro` and `chatterbox` (local speech on the CPU), `torchaudio` (word alignment on the CPU) and `vllm-omni` (local speech on a GPU). Tasks: `chat`, `vision`, `system1`, `embed`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`, `film_critic`. The `setup:settings` skill documents the file, every kind and every task.
+Provider kinds: `ollama`, `openrouter`, `openai` (any OpenAI-compatible server), `azure`, `google` (Gemini API or Vertex), `diffusers` (local models in process), `kokoro` and `chatterbox` (local speech on the CPU), `torchaudio` (word alignment on the CPU) and `fish` (local speech on an NVIDIA GPU, Linux). Tasks: `chat`, `vision`, `system1`, `embed`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`, `film_critic`. The `setup:settings` skill documents the file, every kind and every task.
 
 Three levels of setup, each adding to the one before:
 
 1. API only: a key of OpenRouter, of Azure OpenAI and Vertex AI, or of a company (enterprise) gateway that serves them (kinds `azure` and `google`). No GPU.
 2. Ollama: System-1 models, small chat models and speech (macOS) on a local Ollama server. No key.
-3. GPU: a `diffusers` provider for local images and music. The image-gen, music and short-video wrappers then install torch and diffusers. It needs an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon.
+3. GPU: a `diffusers` provider for local images, music and video. The image-gen, music and short-video wrappers then install torch and diffusers. It needs an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon. A `fish` provider adds Fish Audio Drama 3 speech on an NVIDIA GPU under Linux (about 44 GB of GPU memory).
 
 ## Requirements
 
@@ -76,8 +76,8 @@ Three levels of setup, each adding to the one before:
 - Node.js 22 or later with `npm` for short-video HTML scenes. Its first render runs `npm ci` and downloads a headless Chrome through HyperFrames.
 - For short-video Manim scenes, Manim's system libraries (on Linux the Cairo and Pango development packages, `pkg-config` and a C compiler), and LaTeX with `dvisvgm` for formulas.
 - Ollama for local chat, vision and System-1 models.
-- On Linux, voiceover installs the CPU build of PyTorch (about 200 MB), or the CUDA 13.0 build (about 2.7 GB) when `config.yaml` has a `vllm-omni` provider.
-- An NVIDIA GPU or Apple Silicon only for the local `diffusers` models (level 3 above).
+- On Linux, voiceover installs the CPU build of PyTorch (about 200 MB), or the CUDA 13.0 build (about 2.7 GB) and fish-speech when `config.yaml` has a `fish` provider. Kokoro, Chatterbox and the word aligner run on the CPU.
+- An NVIDIA GPU or Apple Silicon only for the local `diffusers` models (level 3 above); an NVIDIA GPU under Linux for `fish`.
 
 ## First use
 
