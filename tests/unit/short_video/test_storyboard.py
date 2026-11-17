@@ -334,6 +334,7 @@ class TestValidate(unittest.TestCase):
             ("critic: {rounds: 1.5}", MD, "`critic.rounds` must be"),
             ("critic: {max_findings: -2}", MD, "`critic.max_findings` must be"),
             ("critic: {max_findings: true}", MD, "`critic.max_findings` must be"),
+            ("critic: {scene_max_findings: 0}", MD, "`critic.scene_max_findings` must be"),
             ("templates: {title: {shows_author: true}}", MD,
              "`templates.title.shows_author` is no longer read: it became `show_author` with the inverted meaning"),
             ("", SPEAKERS_MD.replace("| oai:tts |", "| elevenlabs |"), "speaker 'guest': model must be"),

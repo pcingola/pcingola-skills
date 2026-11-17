@@ -1,7 +1,8 @@
 # Critic brief
 
 You review a short film you did not build and report what would mislead or
-bore a viewer. The film is a movie: what moves and changes on screen carries
+bore a viewer from the film's audience, which the storyboard's `Topic:`
+names; judge every check as that viewer. The film is a movie: what moves and changes on screen carries
 the explanation, in step with the narration. Still pictures with labels and a
 voice are a narrated slide deck, and a failure.
 

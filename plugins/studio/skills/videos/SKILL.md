@@ -96,8 +96,8 @@ becomes the latest gets a still and its sidecar (also in `make-film`, `remake-sc
 and `use-still`).
 
 Writing a page here uses `media:short-video`'s HTML scene steps for the page itself only: its Brief check, its
-motion check rounds and its stills-critic loop do not run when a still is made.
-Only [make-film](#make-film) runs a critic round and the motion check, on the scenes it builds.
+motion check and its stills critic review do not run when a still is made.
+Only [make-film](#make-film) runs the stills critic review (once per scene) and the motion check, on the scenes it builds.
 
 Several pages of one scene in one request (the three style samples): each is built fully, steps 1 to 4 (scaffold,
 write, check, still and sidecar), before the next is scaffolded, since `check` checks only the scene's latest page
@@ -347,8 +347,8 @@ is assembled.
    presenter scene is rendered and a clip scene gets its clip, since the HTML film plays their `scene.mp4`. A page
    timed from an estimate (`status` says so) is scaffolded again after the recording, which keeps its `index.html`
    and times it to the recording, and its beats are moved to the new times. The prototype is not reviewed with the
-   user and no file is opened with `play`. Each scene gets at most one round of `media:short-video`'s stills critic
-   (its findings fixed once, no second round) and its motion check on its stills (on its frames for a rendered
+   user and no file is opened with `play`. Each scene gets `media:short-video`'s one stills critic review, unless an earlier make-film already gave it
+   that review (each finding fixed or declined with a one-line reason; no second review) and its motion check on its stills (on its frames for a rendered
    scene); a scene that fails the motion check is made again once with more movement. Each drawn scene's final
    page version gets a still and its sidecar ([Page stills](#page-stills) step 4, `action` `make-film`).
 3. The music version: `music_used` is null for `music.mode` `none`; otherwise, among the complete music versions

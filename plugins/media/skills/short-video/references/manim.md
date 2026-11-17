@@ -128,14 +128,10 @@ with the objects and movement the brief describes.
    movement) edits `scene.py` and runs `render` again on the same version;
    `scaffold` makes a new version only when the storyboard, the image or
    the voice changed.
-4. Motion check, over the whole scene (start, middle, end and any hold):
-   `frames --at 0,1,2,...`, one per second. Put each frame next to the
-   frame 2 s later. The pair fails when neither the view nor any object
-   moved by about a tenth of the frame width (192 px at 1920) and no new
-   element appeared; a slow drift of a few pixels fails. The last 0.5 s is
-   excepted. The contact sheet's thumbnails are too small to judge it.
-   Where a pair fails, add movement and render again until every pair
-   passes; the scene is not done before.
+4. Motion check, as step 4 of "Procedure" in `references/scenes.md`, with
+   `frames --at 0,1,2,...` in place of `stills`. Where a pair fails, add
+   movement and render again until every pair passes; the scene is not
+   done before.
 5. Look at `contact.png` for layout and at `frames --at <t>` for each beat's
    key word.
 

@@ -65,7 +65,7 @@ window.__timelines["<scene id>"] = tl;
 
 ## Craft
 
-The stills critic (`references/scene-critic.md`) scores against these rules.
+These rules are the craft a three.js scene meets; the stills critic (`references/scene-critic.md`) reviews its stills against the Brief and the reference.
 
 - Night. The sky and the water are the darkest values in the frame, at
   least 3 times darker in luminance than any lit object. Light comes from

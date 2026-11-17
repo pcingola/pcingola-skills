@@ -4,8 +4,8 @@ When the user gives a reference video or reference images, the film copies
 their look and motion. A short prompt says little about either. You first
 write `reference.md` in the project: a description of the reference detailed
 enough that another agent could rebuild it without seeing it. The storyboard
-Briefs are written from `reference.md`, and the Brief check compares stills
-with reference frames, and the stills critic scores them against the same frames.
+Briefs are written from `reference.md`, the Brief check compares stills
+with reference frames, and the stills critic reviews them against the same frames.
 
 ## 1. Extract the measurable part
 
@@ -145,8 +145,6 @@ a section **Mapping** to `reference.md` before you write the storyboard:
   well as against the Brief. Fix the page where the still differs in palette,
   type size, layout, lighting, depth of field, density of objects or camera
   framing.
-- Stills critic: after each round, a fresh critic gets the stills and the
-  reference stills the Brief names, and nothing else, and scores them
-  (`references/scene-critic.md`). The scene passes on the critic's scores
-  (every score 7 or more, no defect), not on the building agent's own
-  comparison.
+- Stills critic: one fresh critic, given the reference stills the Brief
+  names, reviews the scene once (`references/scene-critic.md`), in place of
+  the building agent's own comparison.
