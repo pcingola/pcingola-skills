@@ -130,8 +130,8 @@ def test_speakers_and_params_refused_by_a_model_that_takes_none(tmp_path):
 
 def test_speakers_checked_before_any_request(tmp_path):
     """With a fish model, a `--speaker` name that is not a speaker name or that no line uses, an `@Name` line, and a
-    voice other than `default` for a speaker or the narrator are refused before the model loads (its repository
-    does not exist, so a load would fail otherwise). Guards a typo found after a 4 min model load."""
+    recording or a voice name with other characters for a speaker or the narrator are refused before the model loads
+    (its repository does not exist, so a load would fail otherwise). Guards a typo found after a 4 min model load."""
     voices_dir = tmp_path / "voices"
     voices_dir.mkdir()
     (voices_dir / "anna.wav").write_bytes(b"RIFF")
@@ -143,8 +143,8 @@ def test_speakers_checked_before_any_request(tmp_path):
     synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
     for args, message in [(("--speaker", "Host=anna"), "lowercase letters"),
                           (("--speaker", "hots=anna"), "no `@name` line of the script has that speaker"),
-                          (("--speaker", "host=anna"), "has only the voice 'default'"),
-                          (("--voice", "bob"), "has only the voice 'default'")]:
+                          (("--speaker", "host=anna"), "Fish takes no user recording"),
+                          (("--voice", "Bob"), "lowercase letters")]:
         p = voiceover(*synth, *args, SKILLS_CONFIG=str(config))
         assert p.returncode == 1 and message in p.stderr, (args, p.stderr)
     script.write_text("@Host Hello.\n")
@@ -177,6 +177,37 @@ print(sorted(p.name for p in write_takes(__import__("pathlib").Path({str(tmp_pat
     assert done.stdout.split() == ["['voice-guest.wav',", "'voice.wav']"]
     assert "made-up voices" in done.stderr and "guest, host" in done.stderr
     assert (tmp_path / "voice-guest.wav").read_bytes() == b"G" and (tmp_path / "voice-guest.txt").read_text() == "Hello.\n"
+
+
+def test_saved_fish_voice_seeds_and_new_name_saved(tmp_path):
+    """With a fish model, `Narrator.prepare` seeds `fish.takes` with the saved take of a named Fish voice
+    (`--voice anna`), so every request of the narrator has it as reference; a speaker mapped to a new name
+    (`--speaker guest=nara`) has no seed, and `save_voices` saves its first take under that name; `voices` lists
+    the model's voice and the saved Fish voices. Guards one Fish voice across commands (docs/voiceover.md)."""
+    voices_dir = tmp_path / "voices"
+    config = write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices_dir)},
+                          providers={"f": FISH}, tasks={"speech": "f:drama-3"})
+    code = f"""
+import torch
+from ai_models import fish
+from ai_models.fish_take import Take
+from voiceover_tool.speech import Narrator
+Take(b"A", "[calm] Hi.", torch.zeros(10, 2, dtype=torch.long)).save({str(voices_dir / "anna.fish")!r})
+n = Narrator(speakers={{"guest": "nara"}})
+n.prepare(n.lines(["Hi.", "@guest Hello."]), "anna")
+seeded = fish.takes.get("f:drama-3")
+assert (seeded.wav, seeded.text) == (b"A", "[calm] Hi.") and seeded.codes.shape == (10, 2)
+assert n.resolved == {{None: "default", "guest": "default"}}
+assert fish.takes.get("f:drama-3", "guest") is None and n.save_voices() == []
+fish.takes.keep("f:drama-3", "guest", Take(b"G", "Hello.", torch.ones(10, 3, dtype=torch.long)))
+print([p.name for p in n.save_voices()], n.save_voices())
+"""
+    done = run_python(code, child_env(SKILLS_CONFIG=str(config)), timeout=25)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "['nara.fish'] []"
+    assert (voices_dir / "nara.fish" / "voice.wav").read_bytes() == b"G"
+    p = voiceover("voices", SKILLS_CONFIG=str(config))
+    assert p.returncode == 0 and p.stdout.split() == ["default", "(default)", "anna", "nara"], p.stderr
 
 
 def test_params_parse_as_json_else_string():

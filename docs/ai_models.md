@@ -363,6 +363,12 @@ narrator): its WAV, its text and its codes. Its text and codes are the reference
 every later span of that speaker, so one process has one voice per speaker. A reference needs both its transcript
 and its codes. media:voiceover writes each first take as `voice.wav` or `voice-<speaker>.wav` with its text.
 
+A take outlives its process through `Take.save(folder)`, which writes `voice.wav`, `voice.txt` (the text) and
+`codes.pt` (`torch.save` of the codes), and `Take.load(folder)`, which reads them back on the CPU (`weights_only`)
+and raises `AIModelsError` naming a missing file. A caller that keeps `Takes.keep(model_id, speaker, Take.load(...))`
+before the first `speak` of that speaker gets the saved voice. media:voiceover keeps named Fish voices this way in
+its voices directory (`docs/voiceover.md`, Fish voices across commands).
+
 Instructions go through the model's `style`, a format string with `{instructions}` and `{text}` (Drama 3:
 `"[{instructions}] {text}"`, its inline tags), applied to each span without a style tag of its own; a model without
 `style` refuses instructions. There is no speed and there are no request parameters (`Traits.params`).

@@ -51,7 +51,7 @@ def synthesize_to_dir(
     aligner: ClipAligner | None = None,
 ) -> tuple[Path, Path]:
     """Synthesize `lines` (`Narrator.lines`) one by one in the voices `Narrator.prepare` resolved, join, align,
-    write WAV + timing.json, and the first takes (`write_takes`).
+    write WAV + timing.json, the first takes (`write_takes`) and the new named Fish voices (`Narrator.save_voices`).
 
     `voice` is the narrator's voice as given, recorded in timing.json. The aligner sees each sentence without its
     tags. With `aligner=None` only sentence times are written (`words` is empty and `aligned` is false).
@@ -89,6 +89,8 @@ def synthesize_to_dir(
     )
     timing_path = write_timing(out_dir / TIMING_NAME, timing)
     write_takes(out_dir, narrator.first_takes())
+    for folder in narrator.save_voices():
+        print(f"voiceover: saved Fish voice {folder.stem!r} in {folder}", file=sys.stderr)
     return wav_path, timing_path
 
 
@@ -217,13 +219,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Speech model id <provider>:<model> of the ai_models config (default: tasks.speech)")
     p.add_argument("--voice", default=None,
                    help="Voice name (default: the model's default voice); for a model that clones a voice also a "
-                   "recording of add-voice or a path to one")
+                   "recording of add-voice or a path to one; for a fish model a saved Fish voice, saved from the first "
+                   "take when the name is new")
     p.add_argument("--speed", type=float, default=1.0, help="Pace, for models with a speed setting")
     p.add_argument("--style", default=None, help="Delivery instruction, e.g. 'calm documentary narrator', for "
                    "models that take instructions")
     p.add_argument("--speaker", action="append", metavar="NAME=VOICE",
-                   help="The voice of the `@NAME` lines (a voice of add-voice or a recording path), for a model that "
-                   "takes inline tags; repeatable; a speaker without one gets a made-up voice, kept for all its lines")
+                   help="The voice of the `@NAME` lines (a voice of add-voice or a recording path; for a fish model a "
+                   "saved Fish voice name, saved from the first take when new), for a model that takes inline tags; "
+                   "repeatable; a speaker without one gets a made-up voice, kept for all its lines")
     p.add_argument("--param", action="append", metavar="KEY=VALUE",
                    help="One more request field sent to the model as is (VALUE as JSON when it parses, else a string), "
                    "for models that take request fields; repeatable")

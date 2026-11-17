@@ -87,7 +87,7 @@ Every skill reads its settings from one file: `<config dir>/plugins/data/config.
 | `local_models` | `lock_wait`: the seconds a command waits for another process that holds the local GPU models (`diffusers`, `fish`) before it fails naming that process's PID; a positive number; unset, no limit (a second command waits for a render to finish) |
 | `brand` | `path`: directories searched for brand folders after the bundled ones |
 | `studio` | `dir` (the Studio projects, absolute or `~`, default `~/Documents/Studio`), `author` (the default "Made by" names of a new film) |
-| `voiceover` | `voices_dir`: the reference recordings of `add-voice` |
+| `voiceover` | `voices_dir`: the reference recordings of `add-voice` and the saved Fish voices (`<name>.fish/`) |
 
 `assets/config.example.yaml` is the template. It lists every section and key, commented, with its meaning, default, accepted values and the skills that read it. Read it to find a key's name and values.
 

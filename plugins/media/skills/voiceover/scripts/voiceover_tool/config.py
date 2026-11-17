@@ -3,8 +3,8 @@
 Settings are loaded by `plugin_settings` (`Plugin.load`), which documents the file. The one setting of the skill,
 with the default used when unset:
 
-    voiceover.voices_dir  reference recordings of `add-voice`, `<name>.<suffix>` each (default
-                          <plugin data dir>/voiceover/voices)
+    voiceover.voices_dir  reference recordings of `add-voice`, `<name>.<suffix>` each, and saved Fish voices,
+                          `<name>.fish/` each (default <plugin data dir>/voiceover/voices)
 
 The speech and align models, their providers, weights and default voices are in config.yaml (`tasks.speech`,
 `tasks.align` and their providers). The model settings of an earlier version fail at load (`plugin_settings`).
@@ -58,5 +58,5 @@ def load_settings() -> None:
 
 
 def voices_dir() -> Path:
-    """Directory of the reference recordings, `<name>.<suffix>` each."""
+    """Directory of the reference recordings, `<name>.<suffix>` each, and the saved Fish voices, `<name>.fish/`."""
     return config().voiceover.voices_dir or plugin_data_dir() / "voiceover" / "voices"

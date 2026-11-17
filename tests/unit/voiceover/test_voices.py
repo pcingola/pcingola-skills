@@ -1,15 +1,16 @@
-"""Reference recordings (`add-voice`) and the voices of a model that clones one, through the CLI (no model is
-loaded)."""
+"""Reference recordings (`add-voice`), the voices of a model that clones one, through the CLI, and the names of
+saved Fish voices (no model is loaded)."""
 
 import wave
 from pathlib import Path
 
 import numpy as np
+import plugin_settings
 import pytest
 
 from tests.settings_env import write_config
 from tests.unit.voiceover.cli_run import voiceover
-from voiceover_tool.voices import reference_path
+from voiceover_tool.voices import fish_folder, fish_names, reference_path
 
 CHATTERBOX = {"kind": "chatterbox",
               "models": {"chatterbox-turbo": {"url": "http://127.0.0.1:1", "files": ["a"]}}}
@@ -56,3 +57,23 @@ def test_reference_path(tmp_path):
     assert reference_path("default") is None
     with pytest.raises(ValueError):
         reference_path("bob-not-a-voice")
+
+
+def test_fish_voice_names(tmp_path):
+    """A Fish voice name resolves to `<voices dir>/<name>.fish`, whether saved or new; `default` is the model's own
+    voice; a recording (a path, or a name with a recording and no saved Fish voice) and a name with other characters
+    are refused, since Fish takes no user recording; `fish_names` lists the saved Fish voices only.
+    Guards the voice names of voiceover_tool/voices.py for fish models."""
+    voices = tmp_path / "voices"
+    (voices / "anna.fish").mkdir(parents=True)
+    write_wav(voices / "rec.wav", 6.0)
+    plugin_settings.use(write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices)}))
+    assert fish_folder("default") is None
+    assert fish_folder("anna") == voices / "anna.fish"
+    assert fish_folder("nara") == voices / "nara.fish" and not (voices / "nara.fish").exists()
+    for recording in ("rec", str(voices / "rec.wav")):
+        with pytest.raises(ValueError, match="Fish takes no user recording"):
+            fish_folder(recording)
+    with pytest.raises(ValueError, match="lowercase letters"):
+        fish_folder("Nara")
+    assert fish_names() == ["anna"]

@@ -450,5 +450,6 @@ studio:
 # === voiceover ===============================================================
 voiceover:
   # Reference recordings written by `add-voice` (voices of the models that
-  # clone one: chatterbox). Default <media data dir>/voiceover/voices.
+  # clone one: chatterbox) and the saved Fish voices (NAME.fish/, kind fish).
+  # Default <media data dir>/voiceover/voices.
   #voices_dir: /path/to/voices

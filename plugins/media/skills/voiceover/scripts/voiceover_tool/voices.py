@@ -1,7 +1,11 @@
-"""Reference recordings for the speech models that clone a voice (provider kind chatterbox).
+"""The voices of the voices directory (`config.voices_dir()`): reference recordings for the speech models that clone
+a voice (provider kind chatterbox) and saved Fish voices (provider kind fish).
 
-A voice is `<name>.<suffix>` in `config.voices_dir()`, or a path to a recording. `default` is the model's own voice.
-A recording must be longer than `MIN_REFERENCE_SECONDS`.
+A recording is `<name>.<suffix>` in the voices directory, or a path to a recording. `default` is the model's own
+voice. A recording must be longer than `MIN_REFERENCE_SECONDS`.
+
+A saved Fish voice is the folder `<name>.fish/` in the voices directory: the first take of a fish model under that
+name (`ai_models.fish_take.Take.save`: `voice.wav`, `voice.txt`, `codes.pt`). Fish takes no user recording.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ from . import config
 DEFAULT_VOICE = "default"
 MIN_REFERENCE_SECONDS = 5.0
 AUDIO_SUFFIXES = (".wav", ".flac", ".mp3", ".m4a")
+FISH_SUFFIX = ".fish"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
@@ -22,6 +27,32 @@ def names() -> list[str]:
     """The name of every recording in the voices directory."""
     d = config.voices_dir()
     return sorted(p.stem for p in d.iterdir() if p.suffix.lower() in AUDIO_SUFFIXES) if d.is_dir() else []
+
+
+def fish_names() -> list[str]:
+    """The name of every saved Fish voice in the voices directory."""
+    d = config.voices_dir()
+    return sorted(p.stem for p in d.iterdir() if p.suffix == FISH_SUFFIX and p.is_dir()) if d.is_dir() else []
+
+
+def fish_folder(voice: str) -> Path | None:
+    """The folder of the Fish voice `voice`, `<voices dir>/<voice>.fish`, whether it exists yet or not; None for
+    `default`. `ValueError` for a recording (a path, or a name with a recording and no saved Fish voice) and for a
+    name that is not a voice name."""
+    if voice == DEFAULT_VOICE:
+        return None
+    d = config.voices_dir()
+    folder = d / f"{voice}{FISH_SUFFIX}"
+    if folder.is_dir():
+        return folder
+    p = Path(voice).expanduser()
+    recordings = [d / f"{voice}{s}" for s in AUDIO_SUFFIXES] if NAME_RE.match(voice) else []
+    if p.suffix.lower() in AUDIO_SUFFIXES or any(r.is_file() for r in recordings):
+        raise ValueError(f"voice {voice!r} is a recording; Fish takes no user recording (a model of kind chatterbox "
+                         "clones a recorded voice)")
+    if not NAME_RE.match(voice):
+        raise ValueError(f"Fish voice name {voice!r}: use lowercase letters, digits, '-' and '_'")
+    return folder
 
 
 def reference_path(voice: str) -> Path | None:

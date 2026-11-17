@@ -21,7 +21,7 @@ What the speech model takes depends on the kind of its provider:
 |---|---|---|---|---|
 | `kokoro` | local CPU, Kokoro 82M | `af_heart` | 0.5 to 2 | no |
 | `chatterbox` | local CPU, Chatterbox Turbo, clones a voice | `default` | no | no |
-| `fish` | local NVIDIA GPU, Fish Audio Drama 3, one made-up voice per speaker | `default`, the only voice | no | inline tags |
+| `fish` | local NVIDIA GPU, Fish Audio Drama 3, made-up voices, saved by name | `default` | no | inline tags |
 | `openai`, `azure`, `openrouter` | API, `audio/speech` | `marin` | 0.25 to 4 | yes |
 | `ollama` | Ollama `audio/speech` | `default` | refused by the server | refused by the server |
 | `google` | API, Gemini TTS | `Kore` | no | yes |
@@ -42,12 +42,15 @@ for narration.
 A model of provider kind `fish` (Fish Audio Drama 3) runs on the local
 NVIDIA GPU in the voiceover process: the first sentence loads it (about
 4 min, 44 GB) and it stays loaded until the command ends, so give it the
-whole script in one `synth`. Its only voice is `default`: the model makes
-up a speaker, and `synth` keeps the first sentence's take as the reference
-of the rest and writes it to the output directory as `voice.wav` and
-`voice.txt`. Another command makes up another voice, and the model takes
-no recording; a voice that must stay the same across commands, or a
-specific person's voice, needs a `chatterbox` model. Tags in square
+whole script in one `synth`. The model makes up a speaker, and `synth`
+keeps the first sentence's take as the reference of the rest and writes it
+to the output directory as `voice.wav` and `voice.txt`. With the voice
+`default` another command makes up another voice. A voice that must stay
+the same across commands (the scenes of a film) gets a name:
+`--voice narrator` saves the first take as the Fish voice `narrator` in
+the voices directory, and every later command with `--voice narrator`
+reuses it. The model takes no recording; a specific person's voice needs a
+`chatterbox` model. Tags in square
 brackets anywhere in a line (`Fine. [laughs] Well.`; `whisper`, `excited`,
 `sighs`, `laughs`) direct the delivery at that point; `--style whisper`
 sends `[whisper] <sentence>` for every line. It voices dialogue: `@<name>`
@@ -122,7 +125,9 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out
 # Options
 #   --model ID       <provider>:<model> of config.yaml (default: tasks.speech)
 #   --voice NAME     default: the model's default voice; for a model that
-#                    clones a voice also a voice of add-voice or a path
+#                    clones a voice also a voice of add-voice or a path;
+#                    for a fish model a Fish voice name, saved by the first
+#                    command that uses it and reused by later ones
 #   --speed 1.0      models with a speed setting
 #   --style TEXT     delivery instruction, models that take one
 #   --speaker NAME=VOICE   voice of the `@NAME` lines (models that take tags)
@@ -135,7 +140,8 @@ ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh synth --script script.txt --out-dir out
 
 # List the voices of a model (default tasks.speech), its default voice
 # marked `(default)`; a model that clones a voice also lists every recording
-# (.wav/.flac/.mp3/.m4a) in the voices directory
+# (.wav/.flac/.mp3/.m4a) in the voices directory, a fish model every saved
+# Fish voice (NAME.fish/)
 ${CLAUDE_SKILL_DIR}/scripts/voiceover.sh voices [--model ID]
 
 # Store a recording (.wav/.flac/.mp3/.m4a, longer than 5 s) as a voice:

@@ -9,7 +9,10 @@ voices. The answer is a WAV file, resampled to 24 kHz when it has another rate (
 (some OpenAI-compatible servers) is taken as 24 kHz.
 
 A fish model (Fish Audio Drama 3) keeps the first take of each speaker as the reference of the rest, so one command
-has one voice per speaker; `synth` writes each as `voice.wav` (`voice-<speaker>.wav`) + `.txt`.
+has one voice per speaker; `synth` writes each as `voice.wav` (`voice-<speaker>.wav`) + `.txt`. A voice name other
+than `default` given to a fish model (`--voice`, `--speaker`) is a saved Fish voice (`voices.fish_folder`): when it
+exists, its take seeds `fish.takes` before the first request, so later commands keep the voice; when it does not,
+the first take of its speaker is saved under that name after synthesis (`save_voices`).
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from __future__ import annotations
 import io
 import sys
 import wave
+from pathlib import Path
 
 import numpy as np
 
@@ -67,7 +71,7 @@ class Narrator:
     def __init__(self, model: str | None = None, style: str | None = None, speed: float = 1.0,
                  speakers: dict[str, str] | None = None, params: dict | None = None) -> None:
         from ai_models import AIModelsError, ConfigError
-        from ai_models import speech
+        from ai_models import fish, speech
 
         try:
             m = speech.check(model, speed=speed, instructions=style, params=params, weights_dir=config.weights_dir())
@@ -86,6 +90,8 @@ class Narrator:
         self.style, self.speed, self.speakers, self.params = style, speed, speakers, dict(params or {})
         self.made_up: list[str] = []  # the speakers of `@name` lines without a voice, in order of first line
         self.resolved: dict[str | None, str] = {}  # speaker (None: the narrator) -> the voice sent (a path or name)
+        self.fish_voices: dict[str | None, Path] = {}  # speaker -> the folder of its saved Fish voice (fish models)
+        self.fish = m.kind == fish.KIND
 
     def lines(self, sentences: list[str]) -> list[Line]:
         """Each script line as the model takes it (`Line.of`): speakers and inline tags for a model that takes tags,
@@ -93,9 +99,14 @@ class Narrator:
         not take."""
         return [Line.of(s, styles=self.instructions, tags=self.tags, model=self.model) for s in sentences]
 
-    def _reference(self, voice: str) -> str:
-        """`voice` as sent: a cloning model's recording path, else `voice`; `ValueError` when the recording is
-        missing, or for a voice other than the default of a model that has only that one."""
+    def _reference(self, voice: str, speaker: str | None) -> str:
+        """`voice` of `speaker` as sent: a cloning model's recording path, a fish model's default voice (a named Fish
+        voice goes to `fish_voices`), else `voice`; `ValueError` when the recording is missing, for a recording given
+        to a fish model, or for a voice other than the default of a model that has only that one."""
+        if self.fish:
+            if (folder := voices.fish_folder(voice)) is not None:
+                self.fish_voices[speaker] = folder
+            return self.default_voice
         if self.one_voice and voice != self.default_voice:
             raise ValueError(f"{self.model} has only the voice {self.default_voice!r}; a model of kind chatterbox "
                              "clones a recorded voice")
@@ -110,27 +121,55 @@ class Narrator:
         if unused := [n for n in self.speakers if n not in used]:
             raise ValueError(f"--speaker {', '.join(unused)}: no `@name` line of the script has that speaker "
                              f"(speakers in the script: {', '.join(used) or 'none'})")
-        self.resolved = {None: self._reference(voice)}
+        self.fish_voices = {}
+        self.resolved = {None: self._reference(voice, None)}
         for name in used:
-            self.resolved[name] = self._reference(self.speakers.get(name, voices.DEFAULT_VOICE))
+            self.resolved[name] = self._reference(self.speakers.get(name, voices.DEFAULT_VOICE), name)
+        self._seed_fish_voices()
         self.made_up = [n for n in used if n not in self.speakers]
         if self.made_up:
             print(f"voiceover: made-up voices (the first line of each is the reference of the rest): "
                   f"{', '.join(self.made_up)}", file=sys.stderr)
 
+    def _seed_fish_voices(self) -> None:
+        """Seed `fish.takes` with the saved take of each speaker whose Fish voice exists, so every request of that
+        speaker has it as reference; `ValueError` for a folder that holds no saved take."""
+        from ai_models import AIModelsError, fish
+        from ai_models.fish_take import Take
+
+        for speaker, folder in self.fish_voices.items():
+            if folder.is_dir():
+                try:
+                    fish.takes.keep(self.model, speaker, Take.load(folder))
+                except AIModelsError as e:
+                    raise ValueError(str(e)) from None
+
+    def save_voices(self) -> list[Path]:
+        """Save the first take of each speaker whose named Fish voice did not exist (`Take.save`); the folders
+        written. A name two speakers share is saved from the first speaker that has a take."""
+        from ai_models import fish
+
+        saved = []
+        for speaker, folder in self.fish_voices.items():
+            if not folder.exists() and (take := fish.takes.get(self.model, speaker)) is not None:
+                saved.append(take.save(folder))
+        return saved
+
     def voices(self) -> list[str]:
-        """The model's voices, then the reference recordings when the model clones a voice."""
+        """The model's voices, then the reference recordings when the model clones a voice, or the saved Fish voices
+        for a fish model."""
         from ai_models import speech
 
         own = speech.voices(self.model, config.weights_dir())
-        return own + [v for v in voices.names() if v not in own] if self.clones else own
+        extra = voices.names() if self.clones else voices.fish_names() if self.fish else []
+        return own + [v for v in extra if v not in own]
 
     def first_takes(self) -> dict[str | None, tuple[bytes, str]]:
         """Per speaker (None: the narrator), (WAV, text) of its first take of a fish model in this process; empty for
         other kinds."""
         from ai_models import fish
 
-        if self.kind != fish.KIND:
+        if not self.fish:
             return {}
         return {s: (t.wav, t.text) for s in (None, *self.made_up) if (t := fish.takes.get(self.model, s))}
 

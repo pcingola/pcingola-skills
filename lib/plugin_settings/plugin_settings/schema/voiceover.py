@@ -7,6 +7,6 @@ from .fields import UserPath
 
 
 class VoiceoverSettings(Strict):
-    """`voices_dir`: the reference recordings of `add-voice` (None: the skill's default)."""
+    """`voices_dir`: the reference recordings of `add-voice` and the saved Fish voices (None: the skill's default)."""
 
     voices_dir: UserPath | None = None

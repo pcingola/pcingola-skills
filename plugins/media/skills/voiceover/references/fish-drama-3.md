@@ -21,12 +21,20 @@ when `config.yaml` has such a provider.
 
 ## Voice
 
-- The only voice is `default`; any other `--voice` or `--speaker NAME=VOICE` fails before the load. The model
-  takes no recording; a chatterbox model clones one.
+- The model takes no recording; a chatterbox model clones one. A recording, or the name of a recording of
+  `add-voice`, given as `--voice` or `--speaker NAME=VOICE` fails before the load.
 - Without a reference the model makes up a new speaker for each request, and a fixed seed does not keep it. So
   `synth` keeps the first take of each speaker as the reference of that speaker's later sentences, and writes it to
   the output directory as `voice.wav` with its transcript `voice.txt`.
-- The voice lasts one command. Another command, such as another scene of a film, makes up another voice.
+- With the voice `default` (no `--voice`) the made-up voice lasts one command. Another command, such as another
+  scene of a film, makes up another voice.
+- A Fish voice name (`--voice NAME`, `--speaker SPEAKER=NAME`; lowercase letters, digits, `-`, `_`) keeps a voice
+  across commands. The first command with a new name saves the first take of that voice in the voices directory
+  as `NAME.fish/` and prints `saved Fish voice` on stderr; every later command with that name starts from the saved
+  take, so all its sentences have that voice. `voices --model <fish model>` lists the saved names. To get a
+  different voice for a name, delete its `NAME.fish/` folder; the next command saves a new one.
+- The saved voice is the first sentence spoken with that name, with its tags and style. A plain sentence in the
+  delivery the voice should keep makes a better first take than a whispered or laughing one.
 
 ## Direction: point tags
 
@@ -50,7 +58,8 @@ A line that starts with `@<name> ` (lowercase letters, digits, `-`, `_`) is spok
 it by the narrator. Each speaker gets a made-up voice: its first line gets a new voice from the model, and that
 take is the reference of all its later lines, so the speaker keeps one voice for the command. `synth` writes the
 take as `voice-<name>.wav` with `voice-<name>.txt` and names the made-up speakers on stderr; a misspelled `@name`
-in the script is a new speaker.
+in the script is a new speaker. `--speaker host=anna` gives the speaker `host` the Fish voice `anna` instead, kept
+across commands as above.
 
 ```
 @host Welcome back to the show.

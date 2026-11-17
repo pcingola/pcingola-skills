@@ -1,12 +1,15 @@
 """The parts of `ai_models.fish` that need no model: the text cut at style tags (`fish_span`), the spans joined into
-one WAV file (`fish.joined`) and the first take of each speaker (`fish_takes.Takes`)."""
+one WAV file (`fish.joined`), the first take of each speaker (`fish_takes.Takes`) and a take saved to a folder and
+loaded back (`Take.save`, `Take.load`)."""
 
 import io
 import wave
 
 import numpy as np
+import pytest
+import torch
 
-from ai_models import fish
+from ai_models import AIModelsError, fish
 from ai_models.fish_span import Span, split_spans
 from ai_models.fish_take import Take
 from ai_models.fish_takes import Takes
@@ -78,3 +81,18 @@ def test_first_take_per_model_and_speaker_kept():
     assert takes.get("f:drama-3", "guest") is later
     takes.clear()
     assert takes.get("f:drama-3") is None and takes.get("f:drama-3", "guest") is None
+
+
+def test_take_save_and_load_round_trip(tmp_path):
+    """`Take.save` writes `voice.wav`, `voice.txt` and `codes.pt` to a folder it creates, and `Take.load` reads the
+    same WAV bytes, styled text and codes tensor back; a folder without one of the files is refused with its name.
+    Guards the Fish voice that a later voiceover command reuses (docs/ai_models.md, Fish)."""
+    codes = torch.arange(30, dtype=torch.long).reshape(10, 3)
+    folder = Take(b"RIFF-wav", "[calm] Hello there.", codes).save(tmp_path / "anna.fish")
+    assert sorted(p.name for p in folder.iterdir()) == ["codes.pt", "voice.txt", "voice.wav"]
+    back = Take.load(folder)
+    assert (back.wav, back.text) == (b"RIFF-wav", "[calm] Hello there.")
+    assert back.codes.dtype == torch.long and torch.equal(back.codes, codes)
+    (folder / "codes.pt").unlink()
+    with pytest.raises(AIModelsError, match="codes.pt"):
+        Take.load(folder)
