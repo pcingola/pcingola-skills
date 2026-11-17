@@ -33,11 +33,15 @@ def make(path: Path, expr: str, seconds: int = 20) -> None:
 
 
 def analyze(argv: list[str]) -> int:
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        try:
+    """The exit code of `music analyze <argv>` run in process with tests/config.yaml."""
+    use(TEST_CONFIG)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             cli.main(["analyze", *argv])
-        except SystemExit as e:
-            return int(e.code or 0)
+    except SystemExit as e:
+        return int(e.code or 0)
+    finally:
+        use(None)
     return 0
 
 
@@ -111,12 +115,8 @@ class TestAnalyze(unittest.TestCase):
         audio model and their schema handling."""
         require_ollama("audio")
         out = Path(self._tmp.name) / "model"
-        use(TEST_CONFIG)
-        try:
-            code = analyze([str(self.dir / "drums.wav"), "--only", "model", "--brief", "instrumental drum loop",
-                            "--out-dir", str(out)])
-        finally:
-            use(None)
+        code = analyze([str(self.dir / "drums.wav"), "--only", "model", "--brief", "instrumental drum loop",
+                        "--out-dir", str(out)])
         self.assertEqual(code, 0)
         m = self.report(out, "drums")["model"]
         self.assertEqual(m["status"], "ok", m)

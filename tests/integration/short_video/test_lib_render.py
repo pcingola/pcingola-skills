@@ -8,6 +8,7 @@ from pathlib import Path
 
 from short_video_tool import config, scenes, settings, storyboard
 from tests.prereq import requires
+from tests.integration.short_video.fast_render import set_fps
 from tests.integration.short_video.wrapper_env import NODE_DIR
 
 STORYBOARD = """# Library test
@@ -68,6 +69,7 @@ class TestLibRender(unittest.TestCase):
         cls.project = p = Path(cls._tmp.name) / "lib_project"
         p.mkdir()
         (p / "storyboard.md").write_text(STORYBOARD, encoding="utf-8")
+        set_fps(p)
         settings.use_project(p)
         data = storyboard.load(p)
         v = settings.get()["video"]

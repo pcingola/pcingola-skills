@@ -80,7 +80,7 @@ def test_point_and_comment_on_a_playing_scene(tmp_path):
             assert page.locator("#sv-player iframe").get_attribute("sandbox") == "allow-scripts"
 
             page.click("#sv-player .sp-play")
-            page.wait_for_timeout(1200)
+            page.wait_for_timeout(800)
             page.click("#sv-player .sp-play")
             played = float(page.locator("#sv-player .sp-time").inner_text().split("/")[0])
             assert 0.5 < played < DURATION, played
@@ -125,7 +125,10 @@ def test_point_and_comment_on_a_playing_scene(tmp_path):
 
             page.wait_for_selector(f'#sv-player .sp-comment[data-req="{req["id"]}"] button')
             page.click(f'#sv-player .sp-comment[data-req="{req["id"]}"] button')
-            page.wait_for_timeout(500)
+            for _ in range(100):
+                if {"type": "stop", "id": req["id"]} in emitted:
+                    break
+                page.wait_for_timeout(50)
             assert {"type": "stop", "id": req["id"]} in emitted
 
             # A newer page version with no render: the player opens it at the same time.

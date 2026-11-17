@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 
 from short_video_tool import config, media, scenes
+from tests.integration.short_video.fast_render import FPS, set_fps
 from tests.integration.short_video.wrapper_env import ENV_DIR, NODE_DIR
 from tests.prereq import requires
 from tests.settings_env import TEST_CONFIG, model_entry
@@ -25,7 +26,6 @@ from tests.subproc import child_env, run_module
 # The CLIs' environment: no user settings file, the tiny models of tests/config.yaml, the wrapper's environment
 # directory for HyperFrames.
 ENV = child_env(SKILLS_CONFIG=str(TEST_CONFIG), PLUGIN_ENV_DIR=str(ENV_DIR))
-FPS = 30
 # The default voice of the speech model.
 VOICE = model_entry("speech")["voice"]
 
@@ -46,9 +46,9 @@ Brief: The image holds still.
 
 | Speaker | Narration | On screen |
 |---|---|---|
-| | Welcome to the show. | hold |
-| guest | Thank you for having me. | hold |
-| guest | It is good to be here. | hold |
+| | Welcome. | hold |
+| guest | Thank you. | hold |
+| guest | Glad to be here. | hold |
 | | Let us begin. | hold |
 """
 
@@ -77,6 +77,7 @@ class TestSpeakersVoice(unittest.TestCase):
         (p / "storyboard.md").write_text(STORYBOARD, encoding="utf-8")
         with (p / "settings.yaml").open("a", encoding="utf-8") as f:
             f.write("\nauthor: [Test Author]\n")
+        set_fps(p)
         _run("short_video_tool", "validate", "-p", p)
 
         cls.script_out = _run("short_video_tool", "script", "-p", p)
@@ -106,7 +107,7 @@ class TestSpeakersVoice(unittest.TestCase):
         """short-video.sh script writes one part script per speaker run and prints the guest's voice arguments
         under its script. Guards the output the agent passes to voiceover.sh."""
         d = self.project / "sources" / "narration" / "talk"
-        self.assertEqual((d / "p2" / "script.txt").read_text(), "Thank you for having me.\nIt is good to be here.\n")
+        self.assertEqual((d / "p2" / "script.txt").read_text(), "Thank you.\nGlad to be here.\n")
         self.assertTrue((d / "p3" / "script.txt").is_file())
         self.assertIn("  speaker=guest name=bm_george speed=1.0", self.script_out.splitlines())
 

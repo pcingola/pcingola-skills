@@ -7,6 +7,7 @@ from pathlib import Path
 
 from short_video_tool import config, media, mix, scenes, settings, state, status, storyboard, world
 from tests.prereq import requires
+from tests.integration.short_video.fast_render import set_fps
 from tests.integration.short_video.wrapper_env import NODE_DIR
 
 STORYBOARD = """# World test
@@ -39,6 +40,7 @@ class TestWorldRender(unittest.TestCase):
         cls.project = p = Path(cls._tmp.name) / "world_project"
         p.mkdir()
         (p / "storyboard.md").write_text(STORYBOARD, encoding="utf-8")
+        set_fps(p)
         settings.use_project(p)
         cls.data = storyboard.load(p)
         cls.fps = settings.get()["video"]["fps"]
@@ -73,8 +75,8 @@ class TestWorldRender(unittest.TestCase):
         self.assertEqual([s["render_reasons"] for s in status.report(self.project, self.data)["scenes"]], [[], []])
 
     def test_motion_continues_across_the_cut(self) -> None:
-        """The square is at the centre on the last frame of `left` and just past it on the first frame of `right`.
-        Guards one timeline running on across the scene boundary."""
+        """The square is one frame's travel short of the centre on the last frame of `left` (860 px/s over 1 s) and
+        at the centre on the first frame of `right`. Guards one timeline running on across the scene boundary."""
         def square_x(path: Path, t: float) -> int:
             raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(t), "-i", str(path), "-frames:v", "1",
                                   "-vf", "crop=1920:1:0:540,format=gray", "-f", "rawvideo", "-"],
@@ -83,9 +85,8 @@ class TestWorldRender(unittest.TestCase):
 
         end_left = square_x(self.outs[0], 1.0 - 1 / self.fps)
         start_right = square_x(self.outs[1], 0.0)
-        self.assertAlmostEqual(end_left, 860, delta=40)
-        self.assertGreaterEqual(start_right, end_left)
-        self.assertLess(start_right - end_left, 40)
+        self.assertAlmostEqual(end_left, 860 * (1 - 1 / self.fps), delta=10)
+        self.assertAlmostEqual(start_right, 860, delta=10)
 
     def test_assemble_silent_film(self) -> None:
         """mix.assemble joins the two silent scenes into a 2.5 s film with an audio track; the loudness pass skips

@@ -56,17 +56,17 @@ def generate(entry: dict) -> subprocess.CompletedProcess:
 @requires(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class TestMorphLive(unittest.TestCase):
     def test_keys_generate_morph(self) -> None:
-        """keys, then image-gen for every listed keyframe with the image_edit model of tests/config.yaml, then
-        morph --from: size, fps, frame count, strip and sidecar inputs equal to the chain. Guards that keys.json
+        """keys with one in-between, then image-gen for every listed keyframe with the image_edit model of
+        tests/config.yaml, then morph --from: size, fps, frame count, strip and sidecar inputs equal to the chain. Guards that keys.json
         entries are valid image-gen arguments and that generated keys render."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             start = drawing(tmp / "start.png")
             keys_dir = tmp / "keys"
-            r = run(VIDEO_EFFECTS, "keys", start, "--style", STYLE, "--dir", keys_dir)
+            r = run(VIDEO_EFFECTS, "keys", start, "--style", STYLE, "--dir", keys_dir, "--fractions", "0.5")
             self.assertEqual(r.returncode, 0, r.stderr)
             data = json.loads((keys_dir / "keys.json").read_text())
-            self.assertEqual([e["name"] for e in data["images"]], ["end", "k25", "k50", "k75"])
+            self.assertEqual([e["name"] for e in data["images"]], ["end", "k50"])
 
             # the end image first (the in-betweens reference it), then the in-betweens in parallel
             end, betweens = data["images"][0], data["images"][1:]

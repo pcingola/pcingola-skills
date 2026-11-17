@@ -2,7 +2,7 @@
 
 A 2-second scene is scaffolded from a hand-made voice version (a tone WAV and
 its timing.json; the voiceover skill is not used), given one label animated
-with the W()/S() helpers, and rendered.
+with the W()/S() helpers, and rendered at the test frame rate (fast_render).
 """
 import json
 import shutil
@@ -13,6 +13,7 @@ from pathlib import Path
 
 from short_video_tool import config, media, scenes, settings, state, status, storyboard, versions
 from tests.prereq import requires
+from tests.integration.short_video.fast_render import FPS, set_fps
 from tests.integration.short_video.wrapper_env import NODE_DIR
 from tests.settings_env import model_entry, task_model
 
@@ -54,6 +55,8 @@ class TestRender(unittest.TestCase):
             "| Narration | On screen |\n|---|---|\n| Hello world. | label appears on 'world' |\n",
             encoding="utf-8",
         )
+        set_fps(p)
+        settings.use_project(p)
         data = storyboard.load(p)
         assert data["scenes"] == [cls.scene]
 
@@ -72,6 +75,7 @@ class TestRender(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
+        settings.use_project(None)
         cls._tmp.cleanup()
 
     def test_scaffold_layout(self) -> None:
@@ -82,11 +86,11 @@ class TestRender(unittest.TestCase):
             self.assertTrue((self.sdir / name).is_file(), name)
         self.assertIn("world.", (self.sdir / "brief.md").read_text())
 
-    def test_sixty_frames_at_1080p(self) -> None:
-        """scenes.render of a 2 s scene gives 60 frames at 1920x1080 with the real HyperFrames. Guards the scene
-        length rewritten into data-duration and the `video:` size."""
+    def test_frames_at_1080p(self) -> None:
+        """scenes.render of a 2 s scene gives 2 s of frames at the project's `video.fps`, at 1920x1080, with the
+        real HyperFrames. Guards the scene length rewritten into data-duration and the `video:` size and rate."""
         video = next(s for s in media.probe(self.scene_mp4)["streams"] if s["codec_type"] == "video")
-        self.assertEqual(int(video["nb_frames"]), 60)
+        self.assertEqual(int(video["nb_frames"]), DURATION * FPS)
         self.assertEqual((video["width"], video["height"]), (1920, 1080))
 
     def test_narration_muxed(self) -> None:
@@ -164,6 +168,7 @@ class TestRenderEndTemplate(unittest.TestCase):
             encoding="utf-8",
         )
         (p / "settings.yaml").write_text("author: [Jane Doe]\n", encoding="utf-8")
+        set_fps(p)
         settings.use_project(p)
         data = storyboard.load(p)
         cls.scene = data["scenes"][0]
@@ -232,6 +237,8 @@ class TestRenderWithoutImage(unittest.TestCase):
             "| Narration | On screen |\n|---|---|\n| Hello world. | bar grows on 'world' |\n",
             encoding="utf-8",
         )
+        set_fps(p)
+        settings.use_project(p)
         cls.scene = storyboard.load(p)["scenes"][0]
         assert "image" not in cls.scene
         vdir = versions.next_version(state.voice_root(p, "chart"))
@@ -248,14 +255,16 @@ class TestRenderWithoutImage(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
+        settings.use_project(None)
         cls._tmp.cleanup()
 
     def test_rendered_without_background_png(self) -> None:
-        """scenes.scaffold and render of a scene without an image give a 2 s, 60-frame scene.mp4 with no
-        background.png, and status reports nothing to redo. Guards scenes drawn in the page with no picture."""
+        """scenes.scaffold and render of a scene without an image give a 2 s scene.mp4 (2 s of frames at the
+        project's `video.fps`) with no background.png, and status reports nothing to redo. Guards scenes drawn in
+        the page with no picture."""
         self.assertFalse((self.sdir / scenes.BACKGROUND).exists())
         video = next(s for s in media.probe(self.scene_mp4)["streams"] if s["codec_type"] == "video")
-        self.assertEqual(int(video["nb_frames"]), 60)
+        self.assertEqual(int(video["nb_frames"]), DURATION * FPS)
         self.assertEqual(status.render_reasons(self.project, self.scene), [])
 
     def test_drawn_bar_on_its_word(self) -> None:

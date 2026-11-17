@@ -16,6 +16,7 @@ from pathlib import Path
 
 from tests.prereq import requires
 from tests.integration.short_video import wrapper_env
+from tests.integration.short_video.fast_render import FPS, set_fps
 from tests.integration.short_video.wrapper_env import NODE_DIR
 from tests.settings_env import model_entry, task_model
 from short_video_tool import config, manim_scene, media, mix, scenes, settings, state, storyboard, versions
@@ -123,6 +124,7 @@ class TestManimRender(unittest.TestCase):
         _ffmpeg("-f", "lavfi", "-i", "testsrc2=size=1200x900", "-frames:v", "1", str(p / "images" / "cell.png"))
         (p / "storyboard.md").write_text(STORYBOARD, encoding="utf-8")
         (p / "settings.yaml").write_text("author: [Jane Doe]\n", encoding="utf-8")
+        set_fps(p)
         settings.use_project(p)
         cls.data = storyboard.load(p)
         cls.scene = storyboard.scene_by_id(cls.data, "plot")
@@ -155,13 +157,13 @@ class TestManimRender(unittest.TestCase):
         version the latest render. Guards assemble finding manim scenes."""
         self.assertEqual(state.latest_render(self.project, "plot"), self.sdir)
         meta = state.read_meta(self.sdir)
-        self.assertEqual((meta["voice_version"], meta["engine"], meta["fps"]), ("v1", "manim", 30))
+        self.assertEqual((meta["voice_version"], meta["engine"], meta["fps"]), ("v1", "manim", FPS))
 
-    def test_sixty_frames_at_1080p_square_pixels(self) -> None:
-        """manim_scene.render of a 2 s scene gives 60 frames at 1920x1080 with SAR 1:1 and muxed narration.
-        Guards the h264_metadata SAR fix that concat with HyperFrames scenes needs."""
+    def test_frames_at_1080p_square_pixels(self) -> None:
+        """manim_scene.render of a 2 s scene gives 2 s of frames at the project's `video.fps`, at 1920x1080 with
+        SAR 1:1 and muxed narration. Guards the h264_metadata SAR fix that concat with HyperFrames scenes needs."""
         video = self._video(self.scene_mp4)
-        self.assertEqual(int(video["nb_frames"]), 60)
+        self.assertEqual(int(video["nb_frames"]), DURATION * FPS)
         self.assertEqual((video["width"], video["height"]), (1920, 1080))
         self.assertEqual(video["sample_aspect_ratio"], "1:1")
         streams = media.probe(self.scene_mp4)["streams"]
@@ -239,7 +241,7 @@ class TestManimRender(unittest.TestCase):
         manifest = json.loads((film.parent / "manifest.json").read_text())
         self.assertEqual([s["id"] for s in manifest["scenes"]], ["html", "plot"])
         video = self._video(film)
-        self.assertEqual(int(video["nb_frames"]), 120)
+        self.assertEqual(int(video["nb_frames"]), 2 * DURATION * FPS)
         self.assertAlmostEqual(media.duration(film), 2 * DURATION, delta=0.05)
 
 
