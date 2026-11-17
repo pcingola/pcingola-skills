@@ -9,17 +9,29 @@ metadata:
 # Short video
 
 Output: a short film narrated by a voiceover (or silent), with music under
-the voice. The default deliverable is the HTML film: one standalone
-`film/html/v<N>/film.html` (`html`) that plays every scene's page in a
-player with play, pause, a scrub bar with scene marks, and fullscreen, from
-file:// on any machine. The user reviews the film there. An MP4
-(`film/v<N>/film.mp4`, with the creator credit) is made only when the user
-asks for a video file ("MP4 on request"). The film is a movie: the
+the voice. The default deliverable is the HTML film, one standalone
+`film/html/v<N>/film.html` (Workflow, step 7); the user reviews the film
+there. An MP4 (`film/v<N>/film.mp4`, with the creator credit) is made only
+when the user asks for a video file (step 8). The film is a movie: the
 explanation is carried by what moves and changes on screen. Every scene shows
 continuous movement in step with its sentences, and no stretch of a scene is
 still for longer than about 2 s (the last 0.5 s of a scene excepted),
 whatever method makes the scene. Still pictures with labels and a
 voice are a narrated slide deck and do not count as a film.
+
+Motion check: the agent that made a scene takes frames at one per second
+across the whole scene (`stills --sheet` on an HTML page; `frames` after
+`render` or `clip` on a manim, video, presenter or clip scene) and compares
+each frame with the frame 2 s later. Each pair differs in a way a viewer
+sees: a new framing (the view moved by about 10% of the frame or more), or
+a new drawn, flowing or counting element; the last 0.5 s is excepted. A
+slow drift of a few pixels fails. The check covers the middle and any hold,
+on the full-size frames: the contact sheet's thumbnails are too small to
+judge it. A scene that fails is made again with more movement, or with
+another method, and is not done until it passes. The procedure is step 4 of
+"Procedure" in `references/scenes.md` (a manim scene: `references/manim.md`;
+a video or presenter scene: `references/video-model.md`; a clip scene: the
+scenes.md step with `frames` in place of `stills`).
 
 The film is defined by its storyboard: the scenes in order, each with its
 narration sentences, what moves or changes on screen during each sentence,
@@ -51,9 +63,8 @@ engines, chosen per scene with `Engine:`: HTML (HyperFrames with an
 animation library, the default), Manim, a video model, or a presenter model. HTML, Manim and the
 video model are equal options; for each scene, pick the one that can show
 the movement its storyboard describes. Use `presenter` only when the user
-asks for a talking presenter, never on your own: in a viewing test its mouth
-over-articulated and lip sync had gaps, and it took about 23 min per 4 s of
-clip on a GB10. Storyboard, narration, music and assembly treat the
+asks for a talking presenter, never on your own (the reason is in
+`references/video-model.md`, "Presenter scenes"). Storyboard, narration, music and assembly treat the
 four the same; an imported clip is a fifth source:
 
 | method | storyboard | shows well |
@@ -67,78 +78,24 @@ four the same; an imported clip is a fifth source:
 
 An HTML scene without narration has `Length: <seconds>` and no table; it is
 silent. Consecutive HTML scenes without `Image:` or `Template:` may share one
-world (`World: <name>`): one page rendered once and cut into one clip per
-scene, so the camera and the light move on from scene to scene without a cut.
-Use a world when the story stays in one place and the camera and light should
-move without cuts; you decide this and set it up, the user need not ask for
-it. `scaffold` and `render` on any scene of a world act on the whole world
-(`references/scenes.md`, "Silent scenes and shared worlds";
-`references/storyboard.md`, "Shared worlds").
+world (`World: <name>`): one page across the scenes, so the camera and the
+light move on from scene to scene without a cut. Use a world when the story
+stays in one place; you decide this and set it up, the user need not ask for
+it (`references/storyboard.md`, "Shared worlds"; `references/scenes.md`,
+"Silent scenes and shared worlds").
 
-An HTML scene animates with one library. GSAP 3.13.0 is the default
-(`references/scenes.md`); anime.js 4.5.0 (`references/anime.md`) and Motion
-14.14.0 (`references/motion.md`) have equal standing. Read the reference of
-the library a scene uses. GSAP has its own no-charge licence; anime.js and
-Motion are MIT. Minified file sizes: GSAP `gsap.min.js` 72 KB, anime.js
-`anime.umd.min.js` 118 KB, Motion `motion.js` 192 KB.
+An HTML scene animates with one library: GSAP, the default
+(`references/scenes.md`), anime.js (`references/anime.md`) or Motion
+(`references/motion.md`), with equal standing. Read the reference of the
+library a scene uses. "References" below lists the references and assets
+for 3D, charts and diagrams, and working techniques.
 
-- `references/three.md`: a 3D scene on three.js 0.159.0.
-- `references/motion-rules.md`: the movement of flat charts and diagrams.
-- `assets/kit/`: three.js helper scripts (camera paths, labels on 3D
-  points, glow, lights and shadows, route ribbons, tilt-shift); its
-  `README.md` lists their functions.
-- `assets/techniques/<name>/`: working scenes, each with `index.html`,
-  `still.png` and `note.md` (when to use it, its camera and timing, what to
-  vary).
-
-The kit and the techniques are a starting point: use, change or ignore
-them. A scene they do not cover is written from scratch, and they do not
-limit what a film shows. A new technique that worked in a scene goes into
-the project's `lessons.md` as one dated line; adding it to
-`assets/techniques/` is the user's decision.
-
-Motion check: after writing the page, the agent that made the scene runs
-`stills --sheet` at one per second across the scene (a manim, video,
-presenter or clip scene: `frames` after `render` or `clip`) and compares
-frames 2 s apart.
-Each pair differs in a way a viewer sees: a new framing (the view has moved
-by at least about 10% of the frame), or a new drawn, flowing or counting
-element. A slow drift that changes a few pixels fails; the last 0.5 s is
-excepted. The check covers the whole scene, its middle and any hold
-included: put each frame next to the one 2 s later; when neither the view
-nor any object moved by about a tenth of the frame width and no new element
-appeared, the pair fails. The contact sheet's thumbnails are too small to
-judge it. A scene that fails is made again with more movement, or with
-another method, and is not done until it passes. A fix found while looking
-at stills edits the page (or `scene.py`) of the same version and runs `stills`
-again (a non-HTML scene: `render`); `scaffold` makes a new version only when
-the storyboard, the image or the voice changed. `check --scene ID` runs the
-static checks of `render` (timing helpers, a seekable timeline, the
-determinism rules, `hyperframes lint`) without rendering; run it after each
-edit of a page.
-
-Brief check: with the motion check, the same agent takes `stills --sheet`
-at the times its Brief names, compares them against the Brief and fixes what
-differs in the page of the same version. The Brief changes only when its
-intent was wrong; then `scaffold --refresh` takes it into the latest
-version while that version is not rendered, else `scaffold` makes a new one.
-
-Stills critic, the stopping rule of an HTML scene: the building agent does
-not judge its own stills. After each round of fixes it spawns a fresh critic
-subagent (Agent tool) that gets only the stills sheet, the full-size stills
-and the reference stills (without a reference, the Brief), scores craft, 3D
-density and detail, light and colour, camera and composition, typography,
-story legibility and defects from 1 to 10, and names the top five fixes
-(`references/scene-critic.md`, with the prompt and the fallback for an
-agent without the Agent tool). The agent fixes and repeats until every
-score is 7 or more and no defect remains, or 5 rounds; the motion check
-must pass as well. A caller that gives a lower round limit stops after that
-round and reports what remains.
-
-A silent film (no narration) uses plain HTML scenes with `Length:` for its
-title and end cards: the `title`, `summary` and `end` templates need a
-narration table. Start such a card from `assets/techniques/title/`.
-`init --silent` writes a storyboard of silent scenes only.
+An HTML scene also gets the Brief check (step 6 of "Procedure" in
+`references/scenes.md`) and the stills critic: the building agent does not
+judge its own stills; once the scene passes the motion check, one fresh
+critic subagent reviews them as the film's audience, once. Its findings are
+fixed or declined, and no second critic follows
+(`references/scene-critic.md`).
 
 ## Workflow
 
@@ -165,14 +122,17 @@ scene.
    `voice.name` to that person's voice; `media:voiceover` lists the models
    (`routes`) and the cloned voices, and explains how to add one. For several voices, see "Speakers" in
    `references/storyboard.md`.
-2. References and storyboard. A reference video is optional for every
+2. References and storyboard. The storyboard's `Topic:` names the film's
+   audience; every critic judges the film as that audience. When the
+   user's request and its context do not make the audience clear, ask the
+   user who it is before writing the storyboard.
+   A reference video is optional for every
    engine: an HTML film, like any other, needs only the prompt. When the
    user gives a reference video or reference images, run
    `${CLAUDE_SKILL_DIR}/scripts/short-video.sh refs -p <project> --src FILE_OR_DIR` and write
    `reference.md` in the project as `references/reference-video.md` says, before the storyboard.
-   Write every Brief from `reference.md` (and its Mapping when the subject differs), and run the
-   Brief check against the reference stills it names as well as against the Brief.
-   Then fill `storyboard.md` following `references/storyboard.md`.
+   Write every Brief from `reference.md` (and its Mapping when the subject
+   differs), naming the reference stills its scene matches. Then fill `storyboard.md` following `references/storyboard.md`.
    The story comes from what the user gave, or from your research of the
    topic when the user asks for it; save the sources you use under
    `sources/`. A script the user gave goes in word for word; an animation
@@ -212,10 +172,10 @@ scene.
    `scenes/ID/v<N>/index.html` (a world: `worlds/<name>/v<N>/index.html`)
    from `brief.md` and the references of "Scene references" below, run
    `check --scene ID`, and do the motion check, the Brief check and the
-   stills critic rounds with `stills`. A manim scene (`scene.py`), a video scene (`prompt.txt`) or a
+   one stills critic review with `stills`. A manim scene (`scene.py`), a video scene (`prompt.txt`) or a
    presenter scene needs `render --scene ID` (a video or presenter scene: with
    the `--model` of its row, Model routes) and `frames`.
-   Make it again until it passes, then run `html` and open `film.html` for
+   Make it again until the motion check passes, then run `html` and open `film.html` for
    the user with `play` (a non-HTML scene: play `scene.mp4`), and revise with
    the user. The remaining scenes are made from it only after it passes.
 5. Remaining scenes, including the template scenes: one subagent per
@@ -226,15 +186,14 @@ scene.
    in the references, the absolute path of `${CLAUDE_SKILL_DIR}` as the skill
    directory against which the `references/...` and `assets/...` paths in the
    references resolve, the project path, its `brief.md` path, the
-   prototype's page, the references of "Scene references" below,
-   `lessons.md`, and the motion check: `frames` at one per second across
-   the scene (`stills --sheet` on an HTML scene, `frames` on a rendered
-   one), and every two frames 2 s apart differ visibly, by a new
-   framing (the view moved by about 10% of the frame or more) or a new
-   drawn, flowing or counting element (the last 0.5 s excepted); the scene
-   is done only when it passes. Also give it the Brief check and
-   `references/scene-critic.md`: the scene is done when a fresh critic
-   scores every criterion 7 or more with no defect, or after 5 rounds. For each video or presenter scene, pick its
+   storyboard file (its `Topic:` names the audience), the prototype's page,
+   the references of "Scene references" below, `lessons.md`, and the motion
+   check as the first section states it; the scene is done only when it
+   passes. Also give an HTML scene's subagent the Brief check and
+   `references/scene-critic.md` (one critic review, no second). These are what it reads first; tell it
+   that it may read any file of the project (`sources/`, `reference.md`,
+   `refs/`, `settings.yaml`, other scenes) and of the skill directory
+   (every reference and asset) that its work needs. For each video or presenter scene, pick its
    row as "Model routes" says and give its subagent the `--model ID` to pass
    to `render`, or none for the default row. A subagent whose clip lacks the
    motion its Brief asks for reports it; then pick again (an escalation row
@@ -251,27 +210,25 @@ scene.
    `assets/techniques/<name>/` directory of a technique it starts from; a
    manim scene gets `references/manim.md` and `references/scenes.md`; a video
    or presenter scene gets `references/video-model.md`.
-6. Scene critic, only when `critic.claude` is true (default false): a
-   subagent that wrote no scene, given `references/critic.md`, the
-   storyboard, the source text, `lessons.md`, every latest `brief.md`, the
-   film's author and the `stills` command (`frames` for rendered scenes). Fix what holds and re-render.
-7. Music, unless the film is voice only or silent: `length` prints the
+6. Music, unless the film is voice only or silent: `length` prints the
    length to request. Generate a track of that length into `sources/` with
    `media:music` (usually instrumental; with Lyria, a scene PNG as image input
    makes music that fits the pictures), or take the user's track. Set `music.file`
    to its path relative to the project and run `music`. Play it, and replace
    it until the user approves. With `music.file` null the film has the voice
    only.
-8. HTML film: check every audio track that exists (narration, music) as in
+7. HTML film: check every audio track that exists (narration, music) as in
    `references/audio-check.md`; a silent film has none to check. Then
    `html` writes `film/html/v<N>/film.html` and prints its size; open it for
-   the user with `play`. It plays the latest page version of every HTML scene
+   the user with `play`. The file is standalone and plays from file:// on
+   any machine, in a player with play, pause, a scrub bar with scene marks,
+   and fullscreen. It plays the latest page version of every HTML scene
    (a world once, across its scenes) with its narration and the music
    `assemble` would use (`--music v<N>` picks a version), and the latest `scene.mp4` of every other scene; a scene with
    neither shows a card with its id, and `html` warns. Run `html` again after
    every change. `film.html#t=12.5` opens the film paused at 12.5 s. Keys: space plays and pauses, the arrows step 1 s (with
    Shift 5 s), `f` toggles fullscreen.
-9. MP4, only when the user asks for a video file: `render --scene ID` on
+8. MP4, only when the user asks for a video file: `render --scene ID` on
    every HTML scene (one call per world), then
    `assemble [--music vN] [--brand DIR]` and play `film/v<N>/film.mp4` to
    the user before the critic starts, so the user watches it while the
@@ -280,7 +237,7 @@ scene.
    when `author:` names someone. If the voice is hard to hear, lower
    `mix.music_db` and assemble again. Do the checks in
    `references/post-production.md` before handing the film over.
-10. Film critic, only on an MP4 film: `critic` prints its model (task `film_critic` of the model
+9. Film critic, only on an MP4 film: `critic` prints its model (task `film_critic` of the model
    config, or `critic.model` of `settings.yaml`), or `off`.
    Only a Gemini model of a `google` provider in that config takes video.
    Load `ai:second-opinion` and ask
@@ -294,13 +251,13 @@ scene.
    feedback on the film, assemble once, and tell the user what was found,
    fixed and dropped. That is one round; `critic.rounds` sets how many run,
    and no review follows the last.
-   When `critic` prints `off`, skip this step. When `critic` fails (no
-   `film_critic` task) or second-opinion stops because the config has no such
-   provider or its key is not set, skip this step and tell the user that the
-   film critic needs task `film_critic` set to a Gemini model of a `google`
-   provider in the model config. `critic.model: null` in `settings.yaml` turns
-   the step off.
-11. Final: when the user approves a film version as final, make a symlink in
+   When `critic` prints `off` (`critic.model: null` in `settings.yaml`),
+   skip this step. When `critic` fails (no `film_critic` task) or
+   second-opinion stops because the config has no such provider or its key
+   is not set, skip this step and tell the user that the film critic needs
+   task `film_critic` set to a Gemini model of a `google` provider in the
+   model config.
+10. Final: when the user approves a film version as final, make a symlink in
    the project folder named `<film_title>_<format>.mp4`, words joined by
    underscores (`Studio_for_Claude_Code_promo_1080p.mp4`), to that version's
    file; one per encode the user keeps (1080p, 720p, phone). A later approved
@@ -323,33 +280,24 @@ phone film under 1 minute, is a new project built as
 ## Manim scenes
 
 A scene with `Engine: manim` has `scene.py` in its version instead of
-`index.html`; its subagent gets `references/manim.md`, and
-`references/scenes.md` for word matching and style. `render`, `frames`, the
-critic and `assemble` handle it like any other scene.
+`index.html` (`references/manim.md`). `render`, `frames`, the critic and
+`assemble` handle it like any other scene.
 
 ## Video scenes
 
 A scene with `Engine: video` has `prompt.txt` in its version instead of
 `index.html`: the motion prompt a video model animates the scene's image
-with. Make the image with `media:image-gen` as for an HTML scene, at the
-aspect ratio of `video:`. `render --scene ID [--seed N]` calls the model of
-task `video` in the settings file `config.yaml` for the narration's length;
-a clip shorter than the narration holds its last frame to the end, a longer
-one is cut there. A sound track the model generates is mixed under the
-narration, `mix.ambience_relative_db` LU from the narration's loudness, unless the scene has `Ambience: off`. Its
-subagent gets `references/video-model.md`. `frames`,
-the critic and `assemble` handle it like any other scene.
+with. `render --scene ID [--seed N]` calls the model of task `video` in
+`config.yaml`. Image, length, ambience and checks:
+`references/video-model.md`. `frames`, the critic and `assemble` handle it
+like any other scene.
 
 ## Presenter scenes
 
 A scene with `Engine: presenter` has no page or prompt file: `render --scene
-ID [--seed N]` sends the scene's image (a portrait made with
-`media:image-gen`) and its voice version's `narration.wav` to the model of
-task `presenter` in `config.yaml`; the person in the image speaks the
-recording, for its whole length. A scene gets this engine only when the
-user asks for a talking presenter ("Making a scene"). The `Brief:`, when given, replaces the
-model's own prompt. `status` asks for a new render when the image or the
-recording changes. Its subagent gets `references/video-model.md`.
+ID [--seed N]` sends the scene's portrait and its voice version's
+`narration.wav` to the model of task `presenter` in `config.yaml`
+(`references/video-model.md`, "Presenter scenes").
 
 ## Model routes
 
@@ -374,16 +322,19 @@ steps 4 and 5).
 
 A scene with `Engine: clip` shows a video made outside short-video: a morph
 or style change from `media:video-effects` (a drawing turning into a
-photograph of the same scene), a generated video, or the user's footage. A
-clip scene without a narration table between two scenes joins them with an
-effect, made from the previous scene's image to the next scene's image; it is
-silent and lasts its clip. With a table it is narrated like any scene
-(`references/storyboard.md`).
+photograph of the same scene), a generated video, or the user's footage.
+Without a narration table it is silent and lasts its clip; with one it is
+narrated (`references/storyboard.md`, "Clip scenes", with the transition
+between two scenes).
 
 1. Make the clip at the size and fps of `video:` in `settings.yaml`, written
    into `sources/`. For an effect, load `media:video-effects` with the Skill
    tool and ask it for the clip: the start image, the end image or a style
-   prompt, the effect, the transformation duration, the holds before and
+   prompt (a transition's start and end images are the neighbouring scenes'
+   `Image:` files; a neighbour without `Image:` gives a full-size still of
+   its frame at the cut, `stills` or `frames` at 0 for the next scene and
+   at its end for the previous one, so the transition is made after its
+   neighbours pass their checks), the effect, the transformation duration, the holds before and
    after it (each shorter than about 2 s), and any push-in. A narrated clip
    is made at least as long as its narration (`length` gives it), so it
    never ends in a frozen frame. Default transformation durations: 3.5 s
@@ -391,17 +342,15 @@ silent and lasts its clip. With a table it is narrated like any scene
 2. `clip --scene ID FILE` imports it as the scene's next version; do the
    motion check on it. It refuses a file whose size or
    frame rate differs from `video:`; make the clip again at those values.
-   The clip's audio is not used (`clip` warns when the file has an audio
-   stream). A narrated clip scene needs its voice version first: a clip
-   shorter than the narration is held on its last frame, and a longer one
-   sets the scene length.
+   A narrated clip scene needs its voice version first.
 3. Play `scene.mp4`. `frames`, the critic, `length` and `assemble` handle it
    like any other scene; `scaffold` and `render` refuse it.
 
 ## Brand logo
 
-With `brand: <name>` in `settings.yaml`, `assemble` puts the brand's logo
-beside the credit caption, and the title and end scenes show it. Load
+With `brand: <name>` in `settings.yaml`, the film shows the brand's logo
+(`references/post-production.md`; on the title and end scenes,
+`references/scenes.md`, "Title, summary and end scenes"). Load
 `brand:brand` for the list of brands, pick one whose `brand.yaml` has `raster`
 and `caption`, set `brand:`, and ask the brand skill for that brand's folder.
 Pass the folder as `--brand DIR` to `validate` and `assemble`; its name must
@@ -470,17 +419,19 @@ timings are under `mix:` in `settings.yaml`.
 
 ## References
 
-- `references/storyboard.md`: storyboard format, describing movement, speakers, voice settings, storyboard.json, template, manim, video and clip scenes, scene status, what an edit needs.
-- `references/scenes.md`: writing an HTML scene and its movement, including the title, summary and end scenes.
+- `references/storyboard.md`: storyboard format, describing movement, speakers, voice settings, storyboard.json, template, manim, video, presenter, clip, silent and world scenes, scene status, what an edit needs.
+- `references/scenes.md`: writing an HTML scene on GSAP and its movement, the library files, the motion check, the Brief check, the title, summary and end scenes.
 - `references/anime.md`, `references/motion.md`: an HTML scene on anime.js or Motion.
 - `references/three.md`: a three.js scene and the kit.
+- `assets/kit/`: three.js helper scripts (camera paths, labels on 3D points, glow, lights and shadows, route ribbons, tilt-shift); its `README.md` lists their functions.
+- `assets/techniques/<name>/`: working scenes to start from, each with `index.html`, `still.png` and `note.md` (when to use it, its camera and timing, what to vary); `assets/techniques/README.md` lists them.
 - `references/motion-rules.md`: movement of flat charts and diagrams.
 - `references/manim.md`: writing a manim scene and its movement.
 - `references/video-model.md`: writing a video scene's motion prompt and checking its clip.
 - `references/reference-video.md`: reading a reference video or images with `refs` and writing `reference.md` before the storyboard.
 - `references/short-version.md`: a 2-minute or a phone version of an existing film.
-- `references/critic.md`: critic brief (scene critic and film critic).
-- `references/scene-critic.md`: the stills critic, the stopping rule of an HTML scene: its loop, its prompt and the fallback without the Agent tool.
+- `references/critic.md`: the film critic's brief.
+- `references/scene-critic.md`: the stills critic of an HTML scene: one review, its inputs and its prompt.
 - `references/post-production.md`: the creator credit and brand logo, `credit` for other MP4s.
 - `references/audio-check.md`: checking the audio tracks.
 - `assets/settings.yaml`: every setting with its default.

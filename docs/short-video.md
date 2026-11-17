@@ -271,15 +271,20 @@ and names `show_author`, its inverse.
 Motion is judged by agents looking at stills of the scenes (`stills` on a page, `frames` on a render), and no code
 measures it: a frame comparison is a proxy tied to how scenes are rendered today, and the rule (no stretch still for
 longer than about 2 s) is about what a viewer sees. The agent that builds an HTML scene does not judge its own stills;
-a fresh critic subagent scores them (`references/scene-critic.md`). The procedures are in `SKILL.md`.
+once the scene passes the motion check, one fresh critic subagent reviews them once, as a viewer from the audience the
+storyboard's `Topic:` names, with no scores and no second review (`references/scene-critic.md`). It reports at most
+`critic.scene_max_findings` problems, each one a viewer would notice on one viewing at full speed and that changes what
+they understand or makes the film look amateur. It gets `lessons.md`, so the user's corrections set what it looks for.
+It gives no scores and there is no pass threshold: a model's scores are not calibrated, and a repeated review finds
+smaller items without improving the film. The procedures are in `SKILL.md`.
 
 The film critic runs only on an MP4 film, through `ai:second-opinion`, with the model of task `film_critic` of
 `config.yaml` or `critic.model` of a project's `settings.yaml` (`critic` prints it). It reports at most `critic.max_findings` findings, each with a time range in the film, limited to what misleads or bores
 a viewer: still stretches, wrong facts or numbers, narration that does not match the picture, unreadable text, and
 narration hard to hear or audio defects. Consistency of fonts and colours and the brand logo are not on its list; the
 logo is checked in post-production. Each round ends in one assembly, and `critic.rounds` (default 1) sets how many
-rounds run. The scene critic subagent (`critic.claude`) is off by default. `validate` checks that `critic.rounds` and
-`critic.max_findings` are whole numbers of at least 1.
+rounds run. `validate` checks that `critic.rounds`,
+`critic.max_findings` and `critic.scene_max_findings` are whole numbers of at least 1.
 
 ## Audio check
 

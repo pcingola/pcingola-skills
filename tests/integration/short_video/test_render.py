@@ -96,8 +96,8 @@ class TestRender(unittest.TestCase):
         self.assertAlmostEqual(media.duration(self.scene_mp4), DURATION, delta=0.05)
 
     def test_contact_sheet(self) -> None:
-        """scenes.render writes contact.png five 384 px tiles wide. Guards the contact sheet the scene critic
-        reads."""
+        """scenes.render writes contact.png five 384 px tiles wide. Guards the contact sheet an agent looks
+        at for layout."""
         contact = self.sdir / "contact.png"
         self.assertTrue(contact.is_file())
         img = media.probe(contact)["streams"][0]

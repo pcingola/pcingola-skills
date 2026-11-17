@@ -140,19 +140,19 @@ music:
   file: null
   extra_seconds: 5
 
-# Critics. claude: the scene critic subagent on each scene's frames, before
-# assembly. The film critic is a non-Claude model run through
+# Critics. The film critic is a non-Claude model run through
 # ai:second-opinion on the assembled MP4 with its sound: the model of task
 # film_critic of the ai_models config.yaml. A project's settings.yaml may set
 # model: a model id <provider>:<model> of that file in its place, or null to
 # turn the film critic off. Only a Gemini model of a provider of kind google
 # takes video. rounds: review-and-fix rounds of the film critic, each
 # ending in one assembly. max_findings: the most findings the film critic
-# reports per round.
+# reports per round. scene_max_findings: the most problems the stills critic
+# reports in its one review of an HTML scene (references/scene-critic.md).
 critic:
-  claude: false
   rounds: 1
   max_findings: 5
+  scene_max_findings: 5
 
 # `play` opens files with these applications (macOS `open -a`): images
 # (.png, .jpg, .jpeg, .webp, .gif) with image_app, video and audio with app.

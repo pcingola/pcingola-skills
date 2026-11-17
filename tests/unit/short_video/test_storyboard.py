@@ -328,12 +328,12 @@ class TestValidate(unittest.TestCase):
             ("music: {prompt: piano}", MD, "`music.prompt` is no longer read"),
             ("music: {file: m.mp3}", MD, "'m.mp3' does not exist"),
             ("voice: {speaker_gap: -1}", MD, "`voice.speaker_gap` must be"),
-            ("critic: {claude: yes please}", MD, "`critic.claude` must be"),
             ("critic: {model: 4}", MD, "`critic.model` must be"),
             ("critic: {rounds: 0}", MD, "`critic.rounds` must be"),
             ("critic: {rounds: 1.5}", MD, "`critic.rounds` must be"),
             ("critic: {max_findings: -2}", MD, "`critic.max_findings` must be"),
             ("critic: {max_findings: true}", MD, "`critic.max_findings` must be"),
+            ("critic: {scene_max_findings: 0}", MD, "`critic.scene_max_findings` must be"),
             ("templates: {title: {shows_author: true}}", MD,
              "`templates.title.shows_author` is no longer read: it became `show_author` with the inverted meaning"),
             ("", SPEAKERS_MD.replace("| oai:tts |", "| elevenlabs |"), "speaker 'guest': model must be"),
@@ -362,6 +362,8 @@ class TestValidate(unittest.TestCase):
                 self.assertTrue(any(fragment in w for w in r.warnings), r.warnings)
         self.settings("")
         self.assertTrue(any("author" in w for w in self.check().warnings))
+        self.settings("critic: {claude: false}")
+        self.assertTrue(any("`critic.claude` is no longer read" in w for w in self.check().warnings))
         self.assertTrue(any("estimated length" in w for w in self.check().warnings))
 
     def test_clean_without_image(self) -> None:

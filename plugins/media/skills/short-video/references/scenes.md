@@ -88,6 +88,11 @@ A page loads libraries with a `<script src>` of the bare file name, from the ver
 | `d3.min.js` | d3 7.9.0 | `d3` |
 | `three.min.js` | three.js 0.159.0 | `THREE` |
 
+GSAP has its own no-charge licence; `gsap.min.js` is 72 KB minified. d3 is
+ISC, `d3.min.js` 280 KB; three.js is MIT, `three.min.js` 668 KB. The
+licence and size of anime.js and Motion are at the top of
+`references/anime.md` and `references/motion.md`.
+
 - `setup` installs them at pinned versions and checks each file's SHA-256.
 - `scaffold` copies `gsap.min.js` always, and each other file the page names in a `<script src>`.
 - `render` copies a named file the version directory lacks, so a `<script src="three.min.js">` added after `scaffold` works.
@@ -418,8 +423,8 @@ event of an anime.js, Motion or three.js page. Each still is the frame
 `render` would write at that time. They go to the version's `stills/`, as
 `at_<t>.png` (a world scene: `<scene>_at_<t>.png`). `--sheet` adds one
 labelled contact sheet of the stills (`sheet.png`, a world scene:
-`<scene>_sheet.png`), which is the view for the motion check and the Brief
-check. `--mark x,y` or `--mark x,y,w,h` adds a copy `..._mark.png` with a
+`<scene>_sheet.png`), the overview for the motion check and the Brief
+check; each pair is judged on the full-size stills. `--mark x,y` or `--mark x,y,w,h` adds a copy `..._mark.png` with a
 red point or rectangle in frame pixels, to show a comment's place.
 `--version vN` takes the stills from an older version (a world scene: world
 version). `frames` stays for rendered scenes (`scene.mp4`). Each still is
@@ -451,7 +456,7 @@ pictures as base64 (4/3 of their size); `html` prints the file size.
 1. `short-video.sh scaffold -p <project> --scene ID`.
 2. Edit `index.html`: overlays in the body, the timeline in the script.
 3. `short-video.sh check -p <project> --scene ID`. Fix any error it reports
-   and check again. A fix found while looking at stills (layout, size, timing,
+   and check again; run it after each edit of the page. A fix found while looking at stills (layout, size, timing,
    movement) edits the page of the same version and takes the stills again;
    `scaffold` makes a new version only when the storyboard, the image or
    the voice changed, and `scaffold --refresh` takes a storyboard change
@@ -468,21 +473,21 @@ pictures as base64 (4/3 of their size); `html` prints the file size.
    key word, at full size, to see that the text is legible.
 6. Brief check, together with steps 4 and 5: `stills --sheet --at` the times the
    Brief names (each camera keyframe, each element's entrance, each light
-   change) and compare each still with the Brief and its On screen cell:
-   palette, fonts, light, framing, and each element present and in place.
+   change) and compare each still with the Brief and its On screen cell,
+   and with the reference stills the Brief names when the film has a
+   reference (`refs/`): palette, fonts, light, framing, and each element
+   present and in place.
    Fix what differs in the page of the same version and take the stills
    again. The Brief changes only when its intent was wrong; then change it in
    `storyboard.md` and run `scaffold --refresh` (or `scaffold` for a new
    version once the page is rendered).
-7. Stills critic, after steps 4 to 6: a fresh critic scores the stills
-   against the reference stills (or the Brief) as
-   `references/scene-critic.md` says, and the agent fixes its top five
-   fixes and every defect. Steps 4 to 7 are one round. The scene is done
-   when every critic score is 7 or more, no defect remains and the motion
-   check passes; after round 5 the agent reports what stays below 7. Your
-   own look at the stills is not the stopping rule.
+7. Stills critic, after steps 4 to 6: one fresh critic reviews the stills
+   once, as `references/scene-critic.md` says; fix or decline its findings,
+   take the stills again, and the scene is done. No second critic follows.
 
 The kit (`assets/kit/README.md`) and the techniques in
 `assets/techniques/<name>/` are starting points to use, change or ignore.
-A scene they do not cover is written from scratch. A new technique that
-worked goes into the project's `lessons.md` as one dated line.
+A scene they do not cover is written from scratch, and they do not limit
+what a film shows. A new technique that worked goes into the project's
+`lessons.md` as one dated line; adding it to `assets/techniques/` is the
+user's decision.

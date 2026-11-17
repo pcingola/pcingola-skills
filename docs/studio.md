@@ -120,11 +120,10 @@ page again on the recording. The still is a picture version whose
 sidecar names the PNG in `<page version>/stills/`; the server lists it with the scene's pictures (`image` the still)
 and gives the newest as the scene's `still`. Every page version that becomes a drawn scene's latest gets a still and
 its sidecar. A still is posted as soon as it is taken, without short-video's Brief check, motion check or stills
-critic loop; then one critic subagent views it in the same request and its defects are posted as a message, with
-nothing fixed and no second round. A page version a still names is never edited: every fix scaffolds a new version.
+critic review. A page version a still names is never edited: every fix scaffolds a new version.
 Feedback on a still is a `change`, which starts from that still's page version and makes a new page version and a
 new still; "Use this still" (`use-still`) makes an older still's page the latest page version again. `variations`
-and `other-styles` of a still are refused. In `make-film` each scene gets at most one stills critic round and one
+and `other-styles` of a still are refused. In `make-film` each scene gets at most one stills critic review and one
 remake after a failed motion check. The key scene is the first scene with
 a picture that is not a template; with none (an HTML film), the first drawn scene, whose three samples are stills of
 its page in three page styles. In a mixed film the pages take their palette from the picture style.

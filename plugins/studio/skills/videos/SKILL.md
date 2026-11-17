@@ -96,8 +96,8 @@ becomes the latest gets a still and its sidecar (also in `make-film`, `remake-sc
 and `use-still`).
 
 Writing a page here uses `media:short-video`'s HTML scene steps for the page itself only: its Brief check, its
-motion check rounds and its stills-critic loop do not run when a still is made.
-Only [make-film](#make-film) runs a critic round and the motion check, on the scenes it builds.
+motion check and its stills critic review do not run when a still is made.
+Only [make-film](#make-film) runs the stills critic review (once per scene) and the motion check, on the scenes it builds.
 
 Several pages of one scene in one request (the three style samples): each is built fully, steps 1 to 4 (scaffold,
 write, check, still and sidecar), before the next is scaffolded, since `check` checks only the scene's latest page
@@ -117,19 +117,13 @@ version.
    `scenes/<scene>/v<K>` or `worlds/<world>/v<K>`), `still` (the still's file name in its `stills/`), `t` and
    `page_style`. The page shows the still once the sidecar exists.
 5. Post the still at once as `images`.
-6. Then, in the same turn, one critic subagent (Agent tool, waited for) views the still against the scene's brief,
-   its On screen text and the page style, and lists clear defects only: text cut off or unreadable, an element
-   missing or overlapping another, colours outside the palette. Post its defects as a text-only `post` (nothing
-   when it lists none). Nothing is fixed from them and no second round runs; the user asks for a `change`. The
-   request ends there, with no background task left running. Several stills of one request are posted first,
-   and one critic per still then runs in parallel.
 
-A page version that a still's sidecar names is never edited: any fix made while looking at stills (a critic's
-defect, a `change`, a message) starts with `scaffold`, so the fix is a new page version with a new still.
+A page version that a still's sidecar names is never edited: any fix made while looking at stills (a
+`change`, a message) starts with `scaffold`, so the fix is a new page version with a new still.
 
 A `change` of a still has the fields of a picture's `change`; `marked` is the still with the marks. It starts from
 that still's `page_version`, not from the latest page: `scaffold`, copy that version's `index.html` into the new
-version, then make what the marks and the note ask, and steps 2 to 6 with `change` and `source` as for a picture.
+version, then make what the marks and the note ask, and steps 2 to 5 with `change` and `source` as for a picture.
 The server refuses `variations` and `other-styles` of a still.
 
 ### Page style
@@ -173,7 +167,7 @@ Before each `media:short-video` command of a request, write `settings.yaml` from
 | `author` | `author` |
 | `brand` | `brand` |
 | `silent` | nothing: a silent film's scenes carry `length` in `storyboard.json` |
-| `review` | `critic.claude` false always (Studio never runs the scene critic); `review` false: `critic.model` null; `review` true: `critic.model` not written, so `media:short-video`'s default film critic runs |
+| `review` | `review` false: `critic.model` null; `review` true: `critic.model` not written, so `media:short-video`'s default film critic runs |
 
 `music.file` is set to the track's path right before each `music` command. A phone version also holds
 `templates.end.hold_seconds`, `credit.margin` and `credit.corner` with the values `media:short-video`'s phone
@@ -275,7 +269,7 @@ Fields: `scene` (a drawn scene), `version` (a still of it whose page is not the 
 it from "Use this still", as "Use this picture" makes a picture the scene's picture. `scaffold --scene <scene>`, copy
 the `index.html` of the still's `page_version` into the new version, `check`, then `stills --scene <scene> --at <t>`
 at the still's `t`, and write its sidecar ([Page stills](#page-stills) step 4) with `action` `use-still` and `source`
-`version`. That page is now the scene's latest page version. `status.json`, then post the still; no critic runs.
+`version`. That page is now the scene's latest page version. `status.json`, then post the still.
 
 ### add-scene
 
@@ -347,15 +341,15 @@ is assembled.
    presenter scene is rendered and a clip scene gets its clip, since the HTML film plays their `scene.mp4`. A page
    timed from an estimate (`status` says so) is scaffolded again after the recording, which keeps its `index.html`
    and times it to the recording, and its beats are moved to the new times. The prototype is not reviewed with the
-   user and no file is opened with `play`. Each scene gets at most one round of `media:short-video`'s stills critic
-   (its findings fixed once, no second round) and its motion check on its stills (on its frames for a rendered
+   user and no file is opened with `play`. Each scene gets `media:short-video`'s one stills critic review, unless an earlier make-film already gave it
+   that review (each finding fixed or declined with a one-line reason; no second review) and its motion check on its stills (on its frames for a rendered
    scene); a scene that fails the motion check is made again once with more movement. Each drawn scene's final
    page version gets a still and its sidecar ([Page stills](#page-stills) step 4, `action` `make-film`).
 3. The music version: `music_used` is null for `music.mode` `none`; otherwise, among the complete music versions
    whose `studio.json` `source` is the mode, `music.version` when it is one of them, else the newest. With mode
    `made` and none, make one as the `music` request does from `music.brief` (the topic when it is empty).
 4. Run the audio check, then `html` (`--music v<N>` of `music_used`; without it for `none`); that HTML film is HTML film N below. A warning of `html` for a scene shown as
-   a card is fixed (the scene's page or clip made) and `html` runs once more. The scene critic never runs.
+   a card is fixed (the scene's page or clip made) and `html` runs once more.
 5. Write `film/html/v<N>/studio.json` and `status.json`.
 6. Post HTML film N at once, so the user watches it: its path, length, music version and `changes`, with a still
    of each HTML scene and the `contact.png` of each rendered scene as `images`.

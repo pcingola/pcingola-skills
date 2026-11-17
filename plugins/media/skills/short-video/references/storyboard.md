@@ -307,9 +307,8 @@ in on the cluster at the centre.
 | In a warm dish, the bacteria never stop moving. | The cells drift across the dish while the camera pushes in on the central cluster |
 ```
 
-The scene is narrated like any other. `render` asks the model for the
-narration's length; a shorter clip holds its last frame until the narration
-ends, a longer one is cut there.
+The scene is narrated like any other; the clip's length against the
+narration is in `references/video-model.md`, "Length".
 
 A model that generates a sound track with the clip gives the scene that
 track as ambience under the narration (`references/video-model.md`,
