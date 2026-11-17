@@ -14,7 +14,7 @@ stays part of the review.
 
 `voice` and `music` check each new track, `assemble` the tracks it mixes, and all three print findings as
 warnings.
-Before `assemble`:
+Before `html` or `assemble`:
 
     audiocheck -p <project>
 
@@ -28,12 +28,12 @@ same time (plus multiples of the music length when it loops); a narration
 time is offset by the scene's start, the sum of the earlier scenes'
 `duration` in `film/v<N>/manifest.json`. Play the track there, then fix it:
 
-- narration: voice the scene again, `voice --scene ID`, then `scaffold` and
-  `render` the scene;
+- narration: voice the scene again, `voice --scene ID`, then `scaffold`
+  the scene (and `render` it for an MP4);
 - generated music: a new track with `media:music`, `music.file` pointed at
   it, `music`;
 - music to keep: replace the flagged span (e.g. with the same span one bar
   earlier, crossfaded) in a new file, point `music.file` at it, `music`.
 
-Check again until every track is clean, then assemble a new film version.
+Check again until every track is clean, then run `html` (and `assemble` for an MP4).
 Tell the user about any finding you leave in place, with its track and time.

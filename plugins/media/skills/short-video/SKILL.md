@@ -23,8 +23,9 @@ Motion check: the agent that made a scene takes frames at one per second
 across the whole scene (`stills --sheet` on an HTML page; `frames` after
 `render` or `clip` on a manim, video, presenter or clip scene) and compares
 each frame with the frame 2 s later. Each pair differs in a way a viewer
-sees: a new framing (the view moved by about 10% of the frame or more), or
-a new drawn, flowing or counting element; the last 0.5 s is excepted. A
+sees: a new framing (the view moved by about 10% of the frame or more), an
+object that moved by about 10% of the frame, or a new drawn, flowing or
+counting element; the last 0.5 s is excepted. A
 slow drift of a few pixels fails. The check covers the middle and any hold,
 on the full-size frames: the contact sheet's thumbnails are too small to
 judge it. A scene that fails is made again with more movement, or with
@@ -91,8 +92,9 @@ library a scene uses. "References" below lists the references and assets
 for 3D, charts and diagrams, and working techniques.
 
 An HTML scene also gets the Brief check (step 6 of "Procedure" in
-`references/scenes.md`) and the stills critic: the building agent does not
-judge its own stills; once the scene passes the motion check, one fresh
+`references/scenes.md`) and the stills critic: the building agent does the
+motion and Brief checks, and the judgement as the audience is the critic's;
+once the scene passes the motion check, one fresh
 critic subagent reviews them as the film's audience, once. Its findings are
 fixed or declined, and no second critic follows
 (`references/scene-critic.md`).
@@ -172,7 +174,7 @@ scene.
    `scenes/ID/v<N>/index.html` (a world: `worlds/<name>/v<N>/index.html`)
    from `brief.md` and the references of "Scene references" below, run
    `check --scene ID`, and do the motion check, the Brief check and the
-   one stills critic review with `stills`. A manim scene (`scene.py`), a video scene (`prompt.txt`) or a
+   one stills critic review (`references/scene-critic.md`) with `stills`. A manim scene (`scene.py`), a video scene (`prompt.txt`) or a
    presenter scene needs `render --scene ID` (a video or presenter scene: with
    the `--model` of its row, Model routes) and `frames`.
    Make it again until the motion check passes, then run `html` and open `film.html` for
@@ -190,7 +192,11 @@ scene.
    the references of "Scene references" below, `lessons.md`, and the motion
    check as the first section states it; the scene is done only when it
    passes. Also give an HTML scene's subagent the Brief check and
-   `references/scene-critic.md` (one critic review, no second). These are what it reads first; tell it
+   `references/scene-critic.md` (one critic review, no second). A scene
+   subagent without the Agent tool reports its scene done with the paths of
+   its stills; then spawn its one critic as `references/scene-critic.md`
+   step 2 says, and hand the findings back to that subagent (SendMessage)
+   or fix them yourself. These are what it reads first; tell it
    that it may read any file of the project (`sources/`, `reference.md`,
    `refs/`, `settings.yaml`, other scenes) and of the skill directory
    (every reference and asset) that its work needs. For each video or presenter scene, pick its

@@ -11,7 +11,8 @@ subject, and the message is the main result and why it matters". A short version
 results, show concrete outcomes, leave out methods and technical detail.
 
 1. Read the original: `storyboard.md`, `settings.yaml`, `lessons.md`, the
-   files under `sources/` and the latest `film/v<N>/film.mp4`.
+   files under `sources/` and the latest film: `film/html/v<N>/film.html`,
+   or `film/v<N>/film.mp4` when the original has one.
 2. Create the new project next to the original, named
    `<original name>_short`:
    `init <new> --images <original>/images --source <original>/storyboard.md`.
@@ -20,13 +21,14 @@ results, show concrete outcomes, leave out methods and technical detail.
    In the new `settings.yaml`, set `length.min_seconds: 90` and
    `length.max_seconds: 150`.
 3. Storyboard: the `Topic:` says it is the short version of the original
-   project's film `v<N>` and names the audience and the message; `Source:` is
+   project's film version and names the audience and the message; `Source:` is
    `sources/storyboard.md`. Pick the scenes that carry the main results,
    merge or drop the rest, and keep the title and end scenes. Write new
    narration in plain words for the audience, not cuts of the original
    sentences. Reuse the original images; generate a new one only when no
    original image fits a scene.
-4. Follow the workflow from step 3 (voice) in the new project. Give each scene
+4. Run `validate` and get the storyboard approved as in step 2 of the
+   workflow, then follow the workflow from step 3 (voice) in the new project. Give each scene
    subagent, as the starting style, the latest `index.html` (or `scene.py`)
    of the original scene the new scene draws on (the one that showed the
    same point or used the same image); its timing calls and its movement
@@ -60,4 +62,7 @@ the same, with these differences:
   original pages give the colours and fonts, not the positions. Text is
   larger than the landscape defaults (labels at least 56 px), at most two
   overlays at once, and away from the bottom and right edges, where the
-  phone app draws its buttons and the video title.
+  phone app draws its buttons and the video title. Write these layout
+  rules into the new project's `lessons.md`, so every scene subagent gets
+  them. The techniques `vertical_feed` and `card_deal` in
+  `assets/techniques/` are portrait pages to start from.

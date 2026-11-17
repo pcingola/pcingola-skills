@@ -517,8 +517,9 @@ checked with `check` and `stills`. After the edits, run `html` again.
 - Narration, a Speaker cell, a voice settings cell, a speaker's row or `voice:` changed: `script
   --scene ID`, voice it with `media:voiceover`, `voice --scene ID`, then
   `scaffold`, update the page and `render`.
-- `Brief:`, `Image:` or an On screen cell changed: `scaffold`, update the
-  page, `render`; the voice is kept.
+- `Brief:`, `Image:` or an On screen cell changed: `scaffold` (`scaffold
+  --refresh` while the latest version is unrendered), update the page,
+  `render`; the voice is kept.
 - `Engine:` changed: `scaffold` starts from the other engine's starting
   page (a video scene: `prompt.txt` from `Brief:`); write the page and
   `render`. Changed to `clip`: make the clip and run `clip`.
@@ -533,8 +534,8 @@ checked with `check` and `stills`. After the edits, run `html` again.
 - `video:` changed: `scaffold` and `render` every scene; make every clip
   again at the new size and fps and run `clip`.
 - `manim.background_color` changed: it applies only to a new `scene.py`.
-- A scene that fails the motion check: `scaffold`, add movement to the page,
-  `scene.py` or `prompt.txt` where it stands still, or change its method,
-  and `render`;
+- A scene that fails the motion check: add movement to the latest
+  version's page, `scene.py` or `prompt.txt` where it stands still and take
+  the stills or render again, or change its method (`Engine:`, above);
   for a clip scene, make the clip again and run `clip`.
 - A preview line or whitespace only: nothing.

@@ -9,8 +9,9 @@ voice are a narrated slide deck, and a failure.
 ## Checks
 
 1. Stillness. Two moments 2 s apart that a viewer cannot tell apart: no new
-   framing (the view moving by at least about 10% of the frame) and no new
-   drawn, flowing or counting element. A slow drift that changes a few
+   framing (the view moving by at least about 10% of the frame), no object
+   moving by about 10% of the frame, and no new drawn, flowing or counting
+   element. A slow drift that changes a few
    pixels counts as still, and so does a scene whose only change is labels
    appearing on a still picture. The last 0.5 s of a scene is excepted.
 2. Facts. A label, number or claim on screen that does not match the source

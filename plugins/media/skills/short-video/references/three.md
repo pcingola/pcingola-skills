@@ -6,9 +6,8 @@ The kit (`assets/kit/README.md`) covers what the addons would: camera paths, lab
 lights and shadows, ribbons, and a tilt-shift or depth blur pass. Load `three.min.js` first, then each kit file
 the page uses with `<script src="kit/<file>.js">`.
 
-This file states the GSAP page and what every three.js scene shares. The update callback and the seek of an
-anime.js or Motion page are in `references/anime.md` and `references/motion.md`, with their pitfalls (double
-sided ribbons, z-fighting, depth blur focus), which apply on GSAP too.
+This file states the GSAP page and what every three.js scene shares, its pitfalls included. The update callback
+and the seek of an anime.js or Motion page are in `references/anime.md` and `references/motion.md`.
 
 ## Drawing from the seek
 
@@ -54,6 +53,13 @@ window.__timelines["<scene id>"] = tl;
 - The frame size is `video:` of `settings.yaml`; `setPixelRatio(1)` keeps the canvas at that size.
 - `assets/techniques/*/index.html` are full pages on this pattern.
 
+## Pitfalls
+
+- Ribbons and other flat strips are invisible when their triangles face away from the camera: use
+  `side: THREE.DoubleSide`.
+- Coplanar layers z-fight: separate them in height (0.012 units sufficed on a 0.004 plate).
+- A depth blur focused at the camera target blurs the subject; set the focus to the subject's distance.
+
 ## Look
 
 - The camera moves of "Movement" in `scenes.md` are the three.js camera: one key per sentence in
@@ -65,7 +71,7 @@ window.__timelines["<scene id>"] = tl;
 
 ## Craft
 
-These rules are the craft a three.js scene meets; the stills critic (`references/scene-critic.md`) reviews its stills against the Brief and the reference.
+These rules are the craft a three.js scene meets.
 
 - Night. The sky and the water are the darkest values in the frame, at
   least 3 times darker in luminance than any lit object. Light comes from

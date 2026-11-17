@@ -207,7 +207,8 @@ request is carried out as in `auto` autonomy, whatever `autonomy` says, and `aut
    Every Brief is then written from `reference.md` as that step says.
 3. Write the story with `media:short-video`'s storyboard step from the `brief`, the reference pictures and the
    files in `sources` (research only when the brief asks for it; save what is used in `sources/`). A script in the
-   brief goes in word for word. `source` is the main source file when there is one. Replace `storyboard.json`
+   brief goes in word for word. The storyboard's `topic` names the audience; when the brief and the sources do not
+   make the audience clear, post the question and end the turn without writing the storyboard. `source` is the main source file when there is one. Replace `storyboard.json`
    whole, following [Scenes](#scenes) (a silent film: silent scenes with `length`); keep the old storyboard's
    `speakers` when it has them. Each scene with a
    picture has as `image` the path of the number reserved for its next picture, made or not. Create `lessons.md`

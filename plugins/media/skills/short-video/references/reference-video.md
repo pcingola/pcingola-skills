@@ -146,5 +146,4 @@ a section **Mapping** to `reference.md` before you write the storyboard:
   type size, layout, lighting, depth of field, density of objects or camera
   framing.
 - Stills critic: one fresh critic, given the reference stills the Brief
-  names, reviews the scene once (`references/scene-critic.md`), in place of
-  the building agent's own comparison.
+  names, reviews the scene once (`references/scene-critic.md`).

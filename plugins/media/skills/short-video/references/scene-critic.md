@@ -1,15 +1,15 @@
 # Stills critic: one review of an HTML scene
 
-The agent that builds an HTML scene (or a world) does not judge its own
-stills. Once the scene passes the motion check, one critic that saw none of
+The agent that builds an HTML scene (or a world) does the motion and Brief
+checks; it does not judge its own stills as the audience. Once the scene passes the motion check, one critic that saw none of
 the work reviews its stills, once, through the eyes of the film's audience.
 `references/critic.md` is a different review, the film critic's on the
 MP4: stillness, facts, narration and sound.
 
 ## The review
 
-1. Take the stills: `stills --scene ID --sheet --at <times>` at one per
-   second and at every time the Brief names (a world: per scene; one critic
+1. Use the sheets and full-size stills of the motion check and the Brief
+   check: at one per second and at every time the Brief names (a world: per scene; one critic
    reviews the stills of all the world's scenes, once). Keep the full-size
    PNGs and the sheet.
 2. Look for `stills/critic.md` in every version of the scene
@@ -33,7 +33,9 @@ MP4: stillness, facts, narration and sound.
    to confirm the fixes and the motion check. Decline a finding you
    disagree with, with one line saying why, appended to `stills/critic.md`.
 5. The review is done. No second critic reviews the scene, whatever the
-   fixes were; the scene goes to the user. A later edit of the scene (a
+   fixes were; the scene goes to the user with the findings you declined and
+   the one-line reason for each (a scene subagent reports them to the main
+   agent, which tells the user). A later edit of the scene (a
    user's correction, a new voice) gets no new critic review, only the
    motion check.
 

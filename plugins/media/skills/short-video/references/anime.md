@@ -77,11 +77,7 @@ const state = { angle: -0.7 };                              // the values the ti
 tl.add(state, { angle: 0.7, duration: ms(SE(2)), ease: "linear" }, 0);
 ```
 
-- Ribbons and other flat strips are invisible when their triangles face away from the camera: use
-  `side: THREE.DoubleSide`.
-- Coplanar layers z-fight: separate them in height (0.012 units sufficed on a 0.004 plate).
-- A depth blur focused at the camera target blurs the subject; set the focus to the subject's distance.
-- HyperFrames renders WebGL on the GPU; shadows and high polygon counts slow the render.
+The pitfalls of every three.js scene are in `references/three.md`, "Pitfalls".
 
 ## Determinism
 
