@@ -94,6 +94,6 @@ def test_diffusers_provider_has_no_chat_model():
 
 def test_system1_model_on_ollama():
     """The System-1 model of an ollama provider talks to Ollama's default URL."""
-    m = system1.system1_model("ollama:d3:4b")
+    m = system1.system1_model("ollama:s1:1b")
     assert type(m) is SystemOneModel
     assert m.base_url == OLLAMA_URL

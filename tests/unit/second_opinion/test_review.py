@@ -1,9 +1,8 @@
 """Unit tests for second_opinion_tool.review and models: the request content, the answer check,
-the Markdown report, the CLI refusals, the model choice, and one short review by the local Ollama."""
+the Markdown report, the CLI refusals and the model choice. No test calls a model."""
 
 import contextlib
 import io
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +13,7 @@ from pydantic_ai import BinaryContent
 from second_opinion_tool import cli, review
 from second_opinion_tool.files import ReviewFile
 
-from .conftest import CHAT_MODEL, require, run
+from .conftest import run
 
 
 def text_file(path="notes.md", text="line 1\nline 2\n"):
@@ -67,29 +66,13 @@ def test_check_answer_rejects_malformed(bad):
         review.check_answer(bad)
 
 
-def test_models_task_by_kinds(models_env):
+def test_models_task_by_kinds(cli_env):
     """`second-opinion models` shows tasks.chat and tasks.vision of config.yaml. Guards
     models.describe.
     """
-    p = run(["models"], models_env)
+    p = run(["models"], cli_env)
     assert p.returncode == 0, p.stderr
-    assert f"chat    ollama:{CHAT_MODEL}" in p.stdout and "vision  ollama:" in p.stdout
-
-
-def test_review_with_ollama(models_env, tmp_path):
-    """`second-opinion review` sends a text file to tasks.chat and writes findings JSON whose
-    findings pass check_answer. Guards the agent request, its native output and the --out record.
-    """
-    require(CHAT_MODEL)
-    md = tmp_path / "sum.md"
-    md.write_text("2 + 2 = 5\n")
-    out = tmp_path / "findings.json"
-    p = run(["review", "--brief", "Check the arithmetic.", "--file", str(md), "--out", str(out)], models_env)
-    assert p.returncode == 0, p.stderr
-    r = json.loads(out.read_text())
-    assert r["model"] == f"ollama:{CHAT_MODEL}" and r["files"][0]["path"] == str(md)
-    assert review.check_answer(r) == {"summary": r["summary"], "findings": r["findings"]}
-    assert p.stdout.startswith(f"# Second opinion (ollama:{CHAT_MODEL})")
+    assert "chat    ollama:c" in p.stdout and "vision  ollama:v" in p.stdout
 
 
 class TestMarkdown(unittest.TestCase):

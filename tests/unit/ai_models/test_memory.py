@@ -1,21 +1,15 @@
-"""Memory safety of local models: the weight sum, the allocator cap and the process lock (docs/ai_models.md,
-Local models). Each case that sets a cap or takes the lock runs in a child process, because both last for the
-life of the process."""
+"""Memory safety of local models without a GPU: the weight sum, the memory check and the process lock
+(docs/ai_models.md, Local models). Each case that takes the lock runs in a child process, because the lock lasts for
+the life of the process. The cases that need a GPU are in tests/integration/ai_models/test_memory.py."""
 
-import os
-import shutil
-import subprocess
-import sys
-import textwrap
 import time
 
 import pytest
 import torch
 
 from ai_models import AIModelsError, local
-from tests.prereq import requires
+from tests.local_lock import HOLDER, lock_env, start
 from tests.settings_env import write_config
-from tests.subproc import child_env, run_python
 
 
 def test_weight_bytes_sums_parameters_and_buffers():
@@ -33,55 +27,6 @@ def test_weights_over_free_memory_raise():
     local.check_memory("some/model", 2 * 10**9, 3 * 10**9)
 
 
-@requires(torch.cuda.is_available(), "a CUDA GPU (the allocator cap is CUDA only)")
-def test_allocation_over_the_cap_raises_ai_models_error(tmp_path):
-    """Guards the cap: with the allocator capped below one allocation, the allocation raises the AIModelsError
-    instead of growing into memory other processes need."""
-    done = run_python("""
-        import torch
-        from ai_models import AIModelsError, local
-        local.cap_memory("cuda", 2**20)
-        try:
-            with local.out_of_memory("some/model"):
-                torch.empty(2**30, dtype=torch.uint8, device="cuda")
-        except AIModelsError as e:
-            print("refused:", e)
-    """, child_env(SKILLS_CONFIG=str(tmp_path / "none.yaml")))
-    assert done.returncode == 0, done.stderr
-    assert "refused: local model some/model: it ran out of memory" in done.stdout
-
-
-HOLDER = """
-    import sys
-    from ai_models import local
-    local.hold_lock()
-    print("held", flush=True)
-    sys.stdin.readline()
-"""
-
-
-REFUSED = """
-    import sys
-    from ai_models import local
-    try:
-        local.pipeline("no-such/repo")
-    except Exception as e:
-        print("refused", type(e).__name__, flush=True)
-    sys.stdin.readline()
-"""
-
-
-def start(code: str, env: dict[str, str]) -> subprocess.Popen:
-    return subprocess.Popen([sys.executable, "-c", textwrap.dedent(code)], env=env, text=True,
-                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-
-def lock_env(tmp_path) -> dict[str, str]:
-    """A child environment whose temporary directory, and so the lock file, is `tmp_path`; offline, with no config."""
-    return child_env(TMPDIR=str(tmp_path), TEMP=str(tmp_path), TMP=str(tmp_path), HF_HUB_OFFLINE="1",
-                     SKILLS_CONFIG=str(tmp_path / "none.yaml"))
-
-
 def test_second_process_waits_for_the_lock(tmp_path):
     """Guards one local model process at a time: a second process blocks on the lock until the first exits, and
     its stderr names the holder's PID."""
@@ -94,8 +39,8 @@ def test_second_process_waits_for_the_lock(tmp_path):
             time.sleep(3)
             assert second.poll() is None
             first.stdin.close()
-            first.wait(timeout=30)
-            out, err = second.communicate("\n", timeout=30)
+            first.wait(timeout=10)
+            out, err = second.communicate("\n", timeout=10)
             assert out.strip() == "held", err
             assert f"waiting for process {first.pid}," in err
         finally:
@@ -104,25 +49,6 @@ def test_second_process_waits_for_the_lock(tmp_path):
         first.kill()
         first.wait()
     assert (tmp_path / local.LOCK_FILE).exists()
-
-
-def test_refused_load_releases_the_lock(tmp_path):
-    """Guards against a process that holds the lock forever without a model: a load that fails while the process
-    has no pipeline releases the lock, so another process takes it at once."""
-    env = lock_env(tmp_path)
-    first = start(REFUSED, env)
-    try:
-        assert first.stdout.readline().startswith("refused"), first.stderr.read()
-        second = start(HOLDER, env)
-        try:
-            out, err = second.communicate("\n", timeout=60)
-            assert out.strip() == "held", err
-            assert "waiting" not in err
-        finally:
-            second.kill()
-    finally:
-        first.kill()
-        first.wait()
 
 
 SLOW_EXIT = """
@@ -157,8 +83,8 @@ def test_waiter_returns_after_the_holder_exits(tmp_path):
             time.sleep(2)
             first.stdin.write("\n")
             first.stdin.flush()
-            first.wait(timeout=30)  # reaped as it exits, as a shell reaps a finished command
-            out, err = second.communicate(timeout=60)
+            first.wait(timeout=10)  # reaped as it exits, as a shell reaps a finished command
+            out, err = second.communicate(timeout=15)
             assert out.split() == ["True", "False"], err
         finally:
             second.kill()
@@ -225,86 +151,6 @@ def test_lock_wait_limits_the_wait(tmp_path):
         first.wait()
 
 
-GPU_HOLDER = """
-    import sys, torch
-    from ai_models import local
-    local.hold_lock()
-    x = torch.ones(int(sys.argv[1]), dtype=torch.uint8, device="cuda")
-    torch.cuda.synchronize()
-    print("held", flush=True)
-    sys.stdin.readline()
-"""
-
-
-GPU_WAITER = """
-    import sys
-    from ai_models import local
-    local.hold_lock()
-    print(local.wait_for_memory("cuda", int(sys.argv[1])), flush=True)
-"""
-
-
-@requires(torch.cuda.is_available(), "a CUDA GPU")
-def test_free_memory_comes_back_after_the_holder_exits(tmp_path):
-    """Guards the refused LTX renders: after waiting for a holder of GPU memory, `wait_for_memory` reads the
-    memory the holder gave back, within `SETTLE_SECONDS`."""
-    env = lock_env(tmp_path)
-    before = local.free_memory("cuda")
-    size = before // 3
-    first = subprocess.Popen([sys.executable, "-c", textwrap.dedent(GPU_HOLDER), str(size)], env=env, text=True,
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        assert first.stdout.readline().strip() == "held", first.stderr.read()
-        assert local.free_memory("cuda") < before - size // 2
-        need = before - size // 2
-        second = subprocess.Popen([sys.executable, "-c", textwrap.dedent(GPU_WAITER), str(need)], env=env,
-                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            time.sleep(2)
-            first.stdin.close()
-            out, err = second.communicate(timeout=60)
-            assert int(out) >= need, err
-        finally:
-            second.kill()
-    finally:
-        first.kill()
-        first.wait()
-
-
-PLAIN_GPU_HOLDER = """
-    import sys
-    import torch
-    x = torch.empty(int(2e9), dtype=torch.uint8, device="cuda")
-    x.fill_(1)
-    torch.cuda.synchronize()
-    print("ready", flush=True)
-    sys.stdin.read()
-"""
-
-
-@requires(torch.cuda.is_available(), "a CUDA GPU")
-@requires(shutil.which("nvidia-smi"), "nvidia-smi (NVIDIA driver)")
-def test_memory_error_names_a_process_that_holds_gpu_memory(tmp_path):
-    """Guards the message of a refused load: a process that holds 2 GB of GPU memory is named in `memory_error`
-    with its PID and size, and this process is not."""
-    holder = subprocess.Popen([sys.executable, "-c", textwrap.dedent(PLAIN_GPU_HOLDER)], env=child_env(),
-                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
-    try:
-        assert holder.stdout.readline().strip() == "ready"
-        uuid = local.device_uuid("cuda")
-        assert any(p.pid == holder.pid for p in local.gpu_processes(uuid))
-        assert not any(p.pid == holder.pid for p in local.gpu_processes("GPU-00000000-0000-0000-0000-000000000000"))
-        held = {h.what: h.size for h in local.memory_holders()}
-        name = next((w for w in held if w.startswith(f"process {holder.pid} ")), None)
-        assert name, held
-        assert held[name] >= 2e9
-        assert not any(w.startswith(f"process {os.getpid()} ") for w in held)
-        assert f"process {holder.pid} " in str(local.memory_error("some/model", "it needs 9 GB"))
-    finally:
-        holder.stdin.close()
-        holder.wait(30)
-
-
 def test_holder_text_has_size_and_release():
     """A holder reads as what it is, its GB and how it frees them."""
     assert str(local.Holder("process 7 python", int(2.5e9), "until it exits")) == "process 7 python (2.5 GB, until it exits)"
@@ -321,12 +167,3 @@ def test_ollama_runner_and_loopback_hosts():
         assert local.loopback(url), url
     for url in ("http://gpu-box.example.com:11434/api/ps", "http://10.0.0.5:11434/api/ps"):
         assert not local.loopback(url), url
-
-
-@requires(torch.cuda.is_available(), "a CUDA GPU")
-def test_wait_for_ollama_returns_at_once_when_memory_is_free():
-    """With the need below the free memory, `wait_for_ollama` returns the free memory without waiting."""
-    dev = local.device()
-    started = time.monotonic()
-    assert local.wait_for_ollama(dev, 1) >= 1
-    assert time.monotonic() - started < local.OLLAMA_POLL_SECONDS

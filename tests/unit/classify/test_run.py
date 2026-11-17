@@ -1,5 +1,5 @@
-"""`classify run` and `eval` through the CLI: the checks before any request, the conversion of
-System-1 answers, and one short call per backend to the local Ollama."""
+"""`classify run` and `eval` through the CLI: the checks before any request and the conversion of
+System-1 answers. No test calls a model."""
 import json
 
 import pytest
@@ -7,7 +7,7 @@ from pydantic_ai.models.decision import DecisionResponse, ScoreAnswer, ScoreQues
 
 from classify_tool import backends, cli
 
-from .conftest import CHAT_MODEL, SYSTEM1_MODEL, require, run
+from .conftest import run
 
 TEAM = ["--type", "choice", "--instructions", "Which team?", "--option", "billing=invoices", "--option", "technical"]
 
@@ -23,41 +23,14 @@ def lines(text):
     return [json.loads(line) for line in text.splitlines()]
 
 
-def test_system1_run(models_env):
-    """`classify run` without --backend uses the system1 backend with tasks.system1 of config.yaml
-    and writes a record with id, backend, model, UTC timestamp, top, p_top and answers whose
-    probabilities cover the options. Guards default_backend, System1Backend and runner.record.
-    """
-    require(SYSTEM1_MODEL)
-    p = run(["run", *TEAM, "--item", "My invoice is wrong."], models_env)
-    assert p.returncode == 0, p.stderr
-    [r] = lines(p.stdout)
-    assert (r["id"], r["backend"]) == (1, "system1") and r["timestamp"].endswith("+00:00")
-    assert r["top"] in ("billing", "technical") and 0.0 <= r["p_top"] <= 1.0
-    assert set(r["answers"]["q"]["probabilities"]) == {"billing", "technical"}
-
-
-def test_chat_run(models_env):
-    """`classify run --backend chat` classifies with tasks.chat and records a label among the
-    options with p_top null. Guards ChatBackend's structured output and chat_result.
-    """
-    require(CHAT_MODEL)
-    p = run(["run", "--backend", "chat", "--type", "noul", "--instructions", "Does the customer agree?",
-             "--item", "Yes, I agree."], models_env)
-    assert p.returncode == 0, p.stderr
-    [r] = lines(p.stdout)
-    assert (r["backend"], r["p_top"]) == ("chat", None) and r["top"] in ("true", "false")
-    assert r["answers"]["q"] == {"type": "noul", "answer": r["top"]}
-
-
-def test_default_backend_without_system1_model(models_env, tmp_path):
+def test_default_backend_without_system1_model(cli_env, tmp_path):
     """Without tasks.system1 in config.yaml the default backend is chat, whose check refuses a score
     question before any request. Guards default_backend.
     """
     cfg = tmp_path / "chat_only.yaml"
     cfg.write_text("providers:\n  ollama: {kind: ollama}\ntasks:\n  chat: ollama:x\n")
     p = run(["run", "--type", "score", "--instructions", "x", "--level", "a", "--level", "b", "--item", "t"],
-            {**models_env, "SKILLS_CONFIG": str(cfg)})
+            {**cli_env, "SKILLS_CONFIG": str(cfg)})
     assert p.returncode == 1 and "the chat backend takes choice and noul questions only" in p.stderr
 
 
@@ -69,14 +42,14 @@ def test_invalid_question_exits(capsys):
     assert code == 1 and "at least 2 options" in err
 
 
-def test_chat_backend_refuses_score(models_env, tmp_path):
+def test_chat_backend_refuses_score(cli_env, tmp_path):
     """`classify run --backend chat` refuses a score question and creates no --out. Guards
     ChatBackend.check and its order before the output is opened.
     """
     out_file = tmp_path / "out.jsonl"
     argv = ["run", "--backend", "chat", "--type", "score", "--instructions", "x", "--level", "a", "--level", "b",
             "--item", "t", "--out", str(out_file)]
-    p = run(argv, models_env)
+    p = run(argv, cli_env)
     assert p.returncode == 1 and "choice and noul questions only" in p.stderr and not out_file.exists()
 
 
@@ -115,19 +88,3 @@ def test_eval_needs_one_question(capsys, tmp_path):
     labeled.write_text('{"id": 1, "text": "x", "label": true}\n')
     code, _, err = main(["eval", "--questions", str(q), "--labeled", str(labeled)], capsys)
     assert code == 1 and "one question" in err
-
-
-def test_missing_model_stops_before_other_items(models_env, tmp_path):
-    """A System-1 model that Ollama does not hold ends the run once with the `ollama pull` message;
-    no item line is written."""
-    from .conftest import OLLAMA, run
-
-    cfg = tmp_path / "config.yaml"
-    cfg.write_text(f"providers:\n  ollama: {{kind: ollama, base_url: {OLLAMA}/v1}}\n"
-                   "tasks:\n  system1: ollama:no-such-model:1b\n")
-    out = tmp_path / "out.jsonl"
-    p = run(["run", "--type", "noul", "--instructions", "Urgent?", *[a for i in range(5) for a in ("--item", f"t{i}")],
-             "--out", str(out)], models_env)
-    assert p.returncode == 1 and "ollama pull no-such-model:1b" in p.stderr, p.stderr
-    assert p.stderr.count("ollama pull") == 1
-    assert not out.exists() or not out.read_text().strip()

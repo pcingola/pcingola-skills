@@ -31,6 +31,13 @@ MARKETPLACE = json.loads(
 # The settings file of the unit and integration tests: the tiny models tests load or call.
 TEST_CONFIG = Path(__file__).resolve().parent / "config.yaml"
 
+
+def task_model(task: str) -> str:
+    """The model id `<provider>:<model>` of `task` in TEST_CONFIG."""
+    import yaml
+
+    return yaml.safe_load(TEST_CONFIG.read_text(encoding="utf-8"))["tasks"][task]
+
 _ROOT = Path(tempfile.mkdtemp(prefix="skills-settings-"))
 atexit.register(shutil.rmtree, _ROOT, ignore_errors=True)
 

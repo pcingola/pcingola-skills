@@ -3,6 +3,28 @@ model it needs is missing. Tests never skip."""
 from __future__ import annotations
 
 import functools
+import json
+import urllib.request
+
+from plugin_settings import OLLAMA_URL
+
+# The Ollama server of the `ollama` provider of tests/config.yaml, which sets no base_url.
+OLLAMA = OLLAMA_URL.removesuffix("/v1")
+
+
+def require_ollama(*tasks: str) -> None:
+    """Fail the test when Ollama does not answer at OLLAMA, or does not hold the model of one of `tasks` in
+    tests/config.yaml."""
+    from tests.settings_env import task_model
+
+    try:
+        with urllib.request.urlopen(f"{OLLAMA}/api/tags", timeout=2) as r:
+            names = [m["name"] for m in json.load(r)["models"]]
+    except (OSError, KeyError, ValueError):
+        raise AssertionError(f"missing prerequisite: Ollama does not answer at {OLLAMA}; start it") from None
+    held = {*names, *(n.removesuffix(":latest") for n in names)}
+    missing = [m for m in (task_model(t).split(":", 1)[1] for t in tasks) if m not in held]
+    assert not missing, f"missing prerequisite: Ollama lacks {', '.join(missing)}; run ollama pull {' '.join(missing)}"
 
 
 def requires(ok: object, reason: str):

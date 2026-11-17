@@ -111,7 +111,7 @@ def test_openai_without_base_url_uses_the_openai_api(env):
 def test_system1_key_is_the_placeholder(env):
     """System-1 on a keyless Ollama provider gets models.NO_KEY, not SYSTEM_ONE_API_KEY from the environment.
     Guards the bearer token of System-1 requests."""
-    assert py_value(IMPORT, "system1.system1_model('ol:d3:4b').provider.api_key", env) == models.NO_KEY
+    assert py_value(IMPORT, "system1.system1_model('ol:s1:1b').provider.api_key", env) == models.NO_KEY
 
 
 def test_library_variables_are_removed(env):

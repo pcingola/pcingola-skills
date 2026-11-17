@@ -55,6 +55,7 @@ providers:
 tasks:
   chat: ollama:gemma3:270m
   system1: ollama:laya:421m-english-bf16
+  embed: ollama:all-minilm:22m
   audio: ollama:lfm3-audio
   image: local:klein-tiny
   image_best: local:klein-tiny
