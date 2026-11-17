@@ -3,7 +3,8 @@
 three.js 0.159.0 is `three.min.js` in the library files of `scenes.md` (global `THREE`). It is the last release
 with a classic build; the addons (OrbitControls, loaders, EffectComposer, bloom) are ES modules and do not load.
 The kit (`assets/kit/README.md`) covers what the addons would: camera paths, labels on 3D points, glow sprites,
-lights and shadows, ribbons, and a tilt-shift or depth blur pass. Load `three.min.js` first, then each kit file
+lights and shadows, ribbons, and a tilt-shift or depth blur pass; it also draws pipelines of stations and flows
+(`pipeline.js`), picture galleries (`gallery.js`) and particle text (`particles.js`). `beat.js` is GSAP only. Load `three.min.js` first, then each kit file
 the page uses with `<script src="kit/<file>.js">`.
 
 This file states the GSAP page and what every three.js scene shares, its pitfalls included. The update callback

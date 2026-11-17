@@ -96,7 +96,7 @@ licence and size of anime.js and Motion are at the top of
 - `setup` installs them at pinned versions and checks each file's SHA-256.
 - `scaffold` copies `gsap.min.js` always, and each other file the page names in a `<script src>`.
 - `render` copies a named file the version directory lacks, so a `<script src="three.min.js">` added after `scaffold` works.
-- A `<script src="kit/<file>.js">` loads a kit script (`tiltshift.js`, `glow.js`, `shadow.js`, `ribbon.js`, `labels3d.js`, `camera.js`, all on three.js). `scaffold` and `render` copy it into the version's `kit/` the same way.
+- A `<script src="kit/<file>.js">` loads a kit script (`tiltshift.js`, `glow.js`, `shadow.js`, `ribbon.js`, `labels3d.js`, `camera.js` on three.js; `beat.js` on GSAP only). `scaffold` and `render` copy it into the version's `kit/` the same way.
 - A three.js page: `references/three.md`.
 - `render` refuses a page that HyperFrames cannot seek: it needs `window.__timelines["<root id>"] = tl` or a `window.addEventListener("hf-seek", ...)`. A root with `data-no-timeline` (anime.js, Motion) needs the `hf-seek` listener (`references/anime.md`, `references/motion.md`).
 

@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<script src="three.min.js"></script>
+<script src="kit/camera.js"></script>
+<script src="kit/glow.js"></script>
+<script src="kit/labels3d.js"></script>
+<script src="kit/shadow.js"></script>
+<script src="kit/tiltshift.js"></script>
+<script src="kit/pipeline.js"></script>
+<style>
+  :root {
+    --bg: #070b16;           /* sky, fog and clear colour */
+    --ground: #0c1222;       /* floor */
+    --grid: #3c7fb0;         /* floor grid lines */
+    --connector: #3c7fb0;    /* tubes between stations */
+    --body: #2c3550;         /* station objects (lit by their accent) */
+    --base: #141a2c;         /* platforms and backdrop blocks */
+    --accent-1: #8e7cff;     /* one accent per station, in order; more stations reuse them */
+    --accent-2: #ffc46b;
+    --accent-3: #4fd8ff;
+    --accent-4: #ff8a3d;
+    --accent-5: #9fe9ff;
+    --flow: #ffffff;         /* particles between stations of the line (the hub uses the node accents) */
+    --dust: #9fe9ff;         /* floating dust */
+    --bokeh: #8e7cff;        /* far glows of the plain backdrop */
+    --beacon: #ff8a3d;       /* glows on the blocks backdrop */
+    --light-sky: #4a5aa0;    /* hemisphere light from above */
+    --light-ground: #0a0f1e; /* hemisphere light from below */
+    --light-sun: #a8baff;    /* the shadow-casting key light */
+    --text: #f5efe6;
+    --muted: rgba(245, 239, 230, 0.6);
+    --label-bg: rgba(10, 16, 38, 0.86);
+    --font: "Barlow", Inter, "Helvetica Neue", Arial, sans-serif;
+    --font-kicker: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: var(--font); color: var(--text); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: var(--bg); }
+  #gl { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+  .label { position: absolute; left: 0; top: 0; opacity: 0; display: flex; flex-direction: column; align-items: center; }
+  .label .box { background: var(--label-bg); border: 3px solid var(--c); border-radius: 12px; padding: 8px 22px 10px;
+                box-shadow: 0 0 30px color-mix(in srgb, var(--c) 45%, transparent); white-space: nowrap; text-align: center; }
+  .label .name { font-weight: 700; font-size: 42px; line-height: 1.05; }
+  .label .leader { width: 2px; height: 36px; background: var(--c); opacity: 0.8; }
+  #title { position: absolute; left: 120px; bottom: 120px; opacity: 0; }
+  #title .kicker { font-family: var(--font-kicker); font-weight: 700; font-size: 32px; letter-spacing: 0.22em; color: var(--muted); text-transform: uppercase; }
+  #title .head { font-weight: 800; font-size: 72px; line-height: 1.05; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="pipeline_3d" data-start="0" data-duration="10"
+     data-full-length data-width="1920" data-height="1080" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="10" data-full-length data-track-index="0"></div>
+  <div id="anchored" class="bg">
+    <canvas id="gl" width="1920" height="1080"></canvas>
+    <div id="labels"></div>
+  </div>
+  <!-- overlays fixed to the frame here -->
+  <div id="title"><div class="kicker">Process</div><div class="head">Step by step</div></div>
+</div>
+<script>
+  // A process as a glowing line of stations. Each station lights on its time (its word in a narrated scene), the
+  // camera travels along the line from station to station, a connector draws on to the next station and a stream
+  // of particles flows along it. At T_ALL every station flashes in turn, the camera pulls back to a distance that
+  // fits the whole line and swings across it to the end. LAYOUT "hub" draws one source in the middle with flows to
+  // N nodes on an arc instead. One clock tween drives draw(t); every value is computed from t.
+  const FW = 1920, FH = 1080, D = Number(document.getElementById("root").dataset.duration);
+  const LAYOUT = "line";                       // "line" or "hub"
+  const WORLD = "plain";                       // the backdrop around the stations: "plain" or "blocks" (buildWorld)
+  // Line: label, placeholder kind ("box", "cylinder", "ring", "stack") and the time it lights. Replace each t with
+  // W(n, "word") in a narrated scene.
+  const STATIONS = [
+    { label: "Step 1", kind: "box", t: 1.0 },
+    { label: "Step 2", kind: "stack", t: 2.3 },
+    { label: "Step 3", kind: "ring", t: 3.6 },
+    { label: "Step 4", kind: "cylinder", t: 4.9 },
+    { label: "Step 5", kind: "box", t: 6.2 },
+  ];
+  const T_ALL = 7.2;                           // every station flashes in turn; the camera pulls back
+  // Hub: the source lights at SOURCE.t; each node's t is when its flow leaves the source, and the node lights when
+  // the flow arrives, 1 / FLOW_SPEED later.
+  const SOURCE = { label: "Source", kind: "cylinder", t: 0.8 };
+  const NODES = [
+    { label: "Node 1", kind: "box", t: 1.8 },
+    { label: "Node 2", kind: "stack", t: 2.8 },
+    { label: "Node 3", kind: "ring", t: 3.8 },
+    { label: "Node 4", kind: "cylinder", t: 4.8 },
+  ];
+  const FLOW_SPEED = 0.8;                      // curve lengths per second
+  const TITLE_IN = 0.2, TITLE_OUT = 2.0;
+  const SPACING = 7;                           // line: units between stations
+  const HUB_GAP = 7;                           // hub: least distance between neighbouring nodes
+
+  const P = Kit.pipeline;
+  const css = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const col = (k) => new THREE.Color(css(k));
+  const ACC = [1, 2, 3, 4, 5].map((i) => css("--accent-" + i));
+  const FOV = 35, HALF_H = Math.atan(Math.tan(FOV / 2 * Math.PI / 180) * FW / FH);   // half the horizontal fov
+
+  // ---------- stations, flows and camera keys ----------
+  // items: {label, kind, color, pos, tOn (time the station lights), size}; flows: {from, to, t0, color, arc}
+  const items = [], flows = [];
+  let keys, extent;                            // extent: radius around the origin that holds every station
+  if (LAYOUT === "hub") {
+    const n = NODES.length;
+    const spread = Math.min(180, 90 + 15 * n);   // at most a half circle, away from the camera
+    const gap = spread / Math.max(1, n - 1) * Math.PI / 180;
+    const radius = Math.max(8.5, HUB_GAP / (2 * Math.sin(Math.min(gap, Math.PI) / 2)));
+    const k = radius / 8.5;                    // camera distances scale with the radius
+    const pos = P.hub(n, { radius: radius, spread: spread, facing: 0 });
+    items.push({ label: SOURCE.label, kind: SOURCE.kind, color: ACC[0], pos: [0, 0, 0], tOn: SOURCE.t, size: 1.3 });
+    NODES.forEach((nd, i) => items.push({ label: nd.label, kind: nd.kind, color: ACC[(i + 1) % ACC.length], pos: pos[i], tOn: nd.t + 1 / FLOW_SPEED }));
+    NODES.forEach((nd, i) => flows.push({ from: 0, to: i + 1, t0: nd.t, color: ACC[(i + 1) % ACC.length], arc: 1.6 }));
+    // a high view that leans toward each node as its flow arrives, then a swing of 60 degrees to the end
+    keys = [{ t: 0, tx: 0, ty: 0.5, tz: -4 * k, d: 29 * k, pitch: 50, yaw: -26, fov: FOV }];
+    NODES.forEach((nd, i) => keys.push({ t: nd.t + 1 / FLOW_SPEED + 0.3, tx: pos[i][0] * 0.15, ty: 0.8, tz: -4 * k + (pos[i][2] + 4 * k) * 0.15,
+                                         d: 25 * k, pitch: 42, yaw: -20 + 40 * i / Math.max(1, n - 1), ease: "sineInOut" }));
+    keys.push({ t: D - 0.5, tx: 0, ty: 0.5, tz: -4 * k, d: 31 * k, pitch: 55, yaw: 44, ease: "sineInOut" });
+    extent = radius + 3;
+  } else {
+    const n = STATIONS.length;
+    const pos = P.line(n, { spacing: SPACING });
+    STATIONS.forEach((s, i) => items.push({ label: s.label, kind: s.kind, color: ACC[i % ACC.length], pos: pos[i], tOn: s.t }));
+    for (let i = 0; i < n - 1; i++) flows.push({ from: i, to: i + 1, t0: STATIONS[i].t + 0.15, color: css("--flow"), arc: 0.5 });
+    // close beside the first station, then one key per station (the camera tracks the line)
+    keys = [{ t: 0, tx: pos[0][0] + 2.5, ty: 1, tz: 0, d: 12, pitch: 20, yaw: -24, fov: FOV }];
+    STATIONS.forEach((s, i) => keys.push({ t: s.t + 0.35, tx: pos[i][0], ty: 1, tz: 0, d: 11, pitch: 16, yaw: i % 2 ? -8 : 8, ease: "sineInOut" }));
+    // the pull back: the line plus a margin for platforms and labels fills 70% of the frame width, then the camera
+    // dollies a little along the line while it swings 36 degrees in yaw until the end
+    const span = (n - 1) * SPACING, width = span + 7;
+    const dFit = Math.max(16, width / 2 / Math.tan(HALF_H) / 0.7);
+    const lastKey = keys[keys.length - 1].t;
+    const tPull = Math.max(lastKey + 0.8, Math.min(T_ALL + 0.9, D - 1.6));
+    const shift = 0.03 * width;
+    keys.push({ t: tPull, tx: -shift, ty: 1, tz: -0.5, d: dFit, pitch: 24, yaw: -18, ease: "sineInOut" });
+    keys.push({ t: Math.max(tPull + 0.8, D - 0.5), tx: shift, ty: 1, tz: -0.5, d: dFit * 0.94, pitch: 22, yaw: 18, ease: "sineInOut" });
+    extent = span / 2 + 3;
+  }
+  const cam = Kit.camera.path(keys);
+  const dMax = Math.max.apply(null, keys.filter((q) => q.d !== undefined).map((q) => q.d));
+
+  // ---------- renderer, scene, light ----------
+  const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("gl"), antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(FW, FH, false);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  const scene = new THREE.Scene();
+  scene.background = col("--bg");
+  scene.fog = new THREE.Fog(col("--bg"), dMax + extent, (dMax + extent) * 2.6);   // fog starts past every station
+  const camera = new THREE.PerspectiveCamera(FOV, FW / FH, 0.2, 400);
+  const L = Kit.lights(scene, renderer, { sky: col("--light-sky"), ground: col("--light-ground"), fill: 0.25, sun: col("--light-sun"),
+                                          intensity: 0.45, elevation: 50, azimuth: -55, extent: extent + 6, mapSize: 2048 });
+  const post = Kit.tiltShift(renderer, { tilt: 0, dof: 0.5, focus: 12, range: 20, vignette: 0.9 });
+
+  // ---------- the world: the replaceable backdrop around the stations ----------
+  // A floor with a grid and drifting dust in both kinds; "plain" adds far soft glows, "blocks" seeded low blocks
+  // with glowing tops. Nothing is placed within `extent` of the origin. Returns update(t).
+  function buildWorld(kind) {
+    const rand = P.rng(11), R = extent;
+    const gridCv = document.createElement("canvas"); gridCv.width = gridCv.height = 256;
+    const g = gridCv.getContext("2d"); g.fillStyle = "#000"; g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = css("--grid"); g.globalAlpha = 0.6; g.lineWidth = 3; g.strokeRect(0, 0, 256, 256);
+    g.globalAlpha = 0.25; g.lineWidth = 1.5; g.beginPath(); g.moveTo(128, 0); g.lineTo(128, 256); g.moveTo(0, 128); g.lineTo(256, 128); g.stroke();
+    const gridTex = new THREE.CanvasTexture(gridCv);
+    gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping; gridTex.repeat.set(120, 120); gridTex.anisotropy = 8;
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(360, 360).rotateX(-Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color: col("--ground"), roughness: 0.45, metalness: 0.3, emissive: 0xffffff, emissiveMap: gridTex, emissiveIntensity: 0.22 }));
+    floor.receiveShadow = true; scene.add(floor);
+    const dustPos = [];
+    for (let i = 0; i < 900; i++) dustPos.push([-R - 10 + rand() * (2 * R + 20), 0.3 + rand() * 7, -R - 8 + rand() * (2 * R + 12)]);
+    const dust = Kit.glowPoints(dustPos, { color: col("--dust"), size: 0.12, opacity: 0.6 });
+    scene.add(dust);
+    let glows;
+    if (kind === "blocks") {
+      const blocks = [];
+      for (let i = 0; i < 600; i++) {
+        const x = (rand() - 0.5) * (4 * R + 80), z = (rand() - 0.5) * (4 * R + 80);
+        if (Math.hypot(x, z) < R + 2) continue;
+        blocks.push([x, z, 0.3 + rand() * rand() * 3.2, 0.6 + rand() * 1.6, rand()]);
+      }
+      const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: col("--base"), roughness: 0.5, metalness: 0.5 }), blocks.length);
+      const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+      blocks.forEach((b, i) => { q.setFromAxisAngle(up, b[4] * 0.4); mesh.setMatrixAt(i, m.compose(p.set(b[0], b[2] / 2, b[1]), q, s.set(b[3], b[2], b[3] * 0.7))); });
+      Kit.shadows(mesh, true, true); scene.add(mesh);
+      glows = Kit.glowPoints(blocks.filter((b) => b[2] > 1.6).map((b) => [b[0], b[2] + 0.2, b[1]]), { color: col("--beacon"), size: 1.2, opacity: 0.8 });
+    } else {
+      const far = [];
+      for (let i = 0; i < 60; i++) { const a = rand() * Math.PI * 2, r = R + 20 + rand() * 40; far.push([Math.sin(a) * r, 2 + rand() * 12, -Math.abs(Math.cos(a)) * r]); }
+      glows = Kit.glowPoints(far, { color: col("--bokeh"), size: 4, opacity: 0.35 });
+    }
+    scene.add(glows);
+    const base = glows.material.opacity;
+    return (t) => {
+      dust.position.set(0.2 * t, 0.05 * Math.sin(t * 0.7), 0);
+      glows.material.opacity = base * Kit.pulse(t, 2.2, 0.6, 1);
+    };
+  }
+  const world = buildWorld(WORLD);
+
+  const labelsEl = document.getElementById("labels");
+  function makeLabel(text, color) {
+    const el = document.createElement("div"); el.className = "label"; el.style.setProperty("--c", color);
+    el.innerHTML = '<div class="box"><div class="name">' + text + '</div></div><div class="leader"></div>';
+    labelsEl.appendChild(el); return el;
+  }
+  const stations = items.map((it) => {
+    const st = P.station({ kind: it.kind, color: it.color, body: css("--body"), base: css("--base"), size: it.size || 1, position: it.pos, light: 10 });
+    scene.add(st.group);
+    st.item = it;
+    st.label = makeLabel(it.label, it.color);
+    return st;
+  });
+  flows.forEach((f) => {
+    f.curve = P.curve(items[f.from].pos, items[f.to].pos, { lift: 0.9, arc: f.arc });
+    f.conn = P.connector(f.curve, { color: col("--connector"), radius: 0.035, halo: 0.14, opacity: 0.7 });
+    f.stream = P.flow(f.curve, { color: f.color, count: 70, speed: FLOW_SPEED, spread: 0.07, size: 0.32, seed: 3 + f.to });
+    scene.add(f.conn.group, f.stream.group);
+  });
+
+  // ---------- draw ----------
+  function stationLevel(i, t) {
+    let l = P.level(t, items[i].tOn, { base: 0.15 });
+    if (LAYOUT === "line") l += 0.8 * P.bump(t, T_ALL + 0.22 * i, 0.18);
+    return l;
+  }
+  function draw(t) {
+    cam.apply(camera, t);
+    const cs = cam.at(t);
+    post.set({ focus: cs.d, range: Math.max(12, cs.d * 1.1) });
+    L.aim([cs.tx, 0, cs.tz], Math.max(extent + 6, cs.d * 0.8));
+    world(t);
+    stations.forEach((st, i) => {
+      st.set(stationLevel(i, t));
+      st.obj.rotation.y = 0.25 * t + i;                        // objects turn slowly so a lit station never freezes
+      const pop = P.smooth((t - st.item.tOn + 0.1) / 0.45);
+      st.obj.scale.setScalar(0.85 + 0.15 * pop + 0.06 * P.bump(t, st.item.tOn + 0.1, 0.2));
+      const top = (st.item.size || 1) * 2.1;
+      Kit.anchor(st.label, camera, [st.item.pos[0], top, st.item.pos[2]], { width: FW, height: FH, anchor: [0.5, 1] });
+      st.label.style.opacity = pop.toFixed(3);
+    });
+    flows.forEach((f) => {
+      f.conn.progress(P.clamp((t - f.t0) * FLOW_SPEED, 0, 1), 0, 1);
+      f.stream.update(t, f.t0, { gain: 1 });
+    });
+    post.render(scene, camera);
+  }
+
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: D, duration: D, ease: "none", onUpdate: () => draw(clock.t) }, 0);
+  tl.fromTo("#title", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, TITLE_IN);
+  tl.to("#title", { opacity: 0, y: -16, duration: 0.5, ease: "power2.in" }, TITLE_OUT);
+  draw(0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["pipeline_3d"] = tl;
+</script>
+</body>
+</html>

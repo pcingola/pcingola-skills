@@ -18,6 +18,8 @@ Commands:
     render     Check, lint and render a scene (a video scene: animate its image
                with the video model); mux its narration; contact sheet.
     clip       Import a video made elsewhere as the next version of a clip scene.
+    screencast Compose screen recordings and screenshots into a clip from a
+               YAML shot list (`screencast`), for `clip`.
     frames     Extract full-size frames of a rendered scene at given times.
     stills     PNGs of an HTML scene's page at given times, from the page in the
                render browser (no render needed); a marked copy, a contact sheet.
@@ -39,6 +41,9 @@ Commands:
                track a film is mixed from.
     setup      Install the pinned HyperFrames/GSAP and the render browser.
     play       Open a media file in the player set in assets/settings.yaml.
+    particle-text
+               Write the particle targets and glyph texture of a text block
+               from a font file, for a particle-text page (kit/particles.js).
 
 Every command except `init`, `credit`, `audiocheck FILE`, `setup` and `play`
 works on the project given by `--project` (a path; default: the current
@@ -439,6 +444,47 @@ def _cmd_clip(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_screencast(args: argparse.Namespace) -> int:
+    from . import screencast
+    scene = None
+    if args.scene:
+        project = _project(args)
+        scene = _scene(_valid(project), args.scene)
+        if not storyboard.is_clip(scene):
+            config.error(f"scene {args.scene} is not a clip scene; give it `Engine: clip` in the storyboard")
+        out = Path(args.out).expanduser() if args.out else project / "sources" / f"{args.scene}-screencast.mp4"
+    else:
+        if not args.out:
+            config.error("give -o OUT, or --scene ID to write into the project's sources/")
+        project = config.resolve_project(args.project)
+        settings.use_project(project if (project / settings.PROJECT_FILE).is_file() else None)
+        out = Path(args.out).expanduser()
+    shots = Path(args.shots).expanduser()
+    try:
+        if args.at:
+            try:
+                times = [float(t) for t in args.at.split(",") if t.strip()]
+            except ValueError:
+                config.error("--at takes comma-separated seconds, e.g. 0.5,2.1")
+            for p in screencast.stills(shots, times, out.with_suffix("")):
+                print(p)
+            return 0
+        screencast.render(shots, out)
+    except (screencast.ScreencastError, media.ToolError) as e:
+        config.error(str(e))
+    print(out)
+    if scene is not None:
+        seconds = media.video_duration(out)
+        vdir = state.latest_voice(project, scene["id"]) if storyboard.narrated(scene) else None
+        if vdir and (vdir / "narration.wav").is_file():
+            narration = media.duration(vdir / "narration.wav")
+            if seconds < narration:
+                config.warn(f"the clip is {seconds:.2f} s and the narration {narration:.2f} s; `clip` holds its "
+                            "last frame for the difference: lengthen the shots instead")
+        print(f"next: clip --scene {scene['id']} {out}")
+    return 0
+
+
 def _cmd_frames(args: argparse.Namespace) -> int:
     project = _project(args)
     try:
@@ -670,6 +716,47 @@ def _cmd_critic(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_particle_text(args: argparse.Namespace) -> int:
+    from . import particle_text
+
+    if args.out:
+        out = Path(args.out).expanduser()
+        project = config.resolve_project(args.project)
+        settings.use_project(project if (project / settings.PROJECT_FILE).is_file() else None)
+    else:
+        if not args.scene:
+            config.error("give --scene ID (its latest page version) or --out DIR")
+        project = _project(args)
+        data = _valid(project)
+        try:
+            out = pages.scene_page(project, data, _scene(data, args.scene)).dir
+        except scenes.SceneError as e:
+            config.error(str(e))
+    try:
+        if args.frame:
+            width, height = particle_text.parse_frame(args.frame)
+        else:
+            v = settings.get()["video"]
+            width, height = int(v["width"]), int(v["height"])
+        text = particle_text.ParticleText(
+            tuple(args.lines), Path(args.font).expanduser(), size=args.size, tracking=args.tracking,
+            line_gap=args.line_gap, count=args.count, edge_share=args.edge_share, seed=args.seed,
+            width=width, height=height, fov=args.fov, distance=args.distance)
+        if args.fit is not None:
+            text = text.fitted(args.fit)
+        for p in text.write(args.name or particle_text.default_name(args.lines), out):
+            print(p)
+        w, h = text.measure()
+        print(f"size {text.size:g} px: text {w:.0f}x{h:.0f} px at the end distance, {w / width:.0%} x "
+              f"{h / height:.0%} of the {width}x{height} frame", file=sys.stderr)
+        if w > particle_text.MAX_WIDTH * width:
+            print(f"warning: the text is wider than {particle_text.MAX_WIDTH:.0%} of the frame; lower --size or "
+                  f"pass --fit 0.7", file=sys.stderr)
+    except ValueError as e:
+        config.error(str(e))
+    return 0
+
+
 BRAND_HELP = "The brand folder the brand skill reports"
 
 
@@ -735,6 +822,14 @@ def _build_parser() -> argparse.ArgumentParser:
     c.add_argument("file", metavar="FILE", help="Video at the `video:` size and fps")
     c.set_defaults(func=_cmd_clip)
 
+    c = project_cmd("screencast", "Compose screen recordings and screenshots into a clip from a YAML shot list")
+    c.add_argument("--shots", required=True, metavar="FILE", help="The shot list (references/screencast.md)")
+    c.add_argument("--scene", help="A clip scene: write sources/<ID>-screencast.mp4 and print the `clip` step")
+    c.add_argument("-o", "--out", help="Output MP4 (default with --scene: sources/<ID>-screencast.mp4)")
+    c.add_argument("--at", help="Write PNG frames at these comma-separated clip times instead of the MP4, "
+                   "named <OUT without .mp4>_<time>.png")
+    c.set_defaults(func=_cmd_screencast)
+
     c = project_cmd("frames", "Extract full-size frames from a rendered scene")
     c.add_argument("--scene", required=True)
     c.add_argument("--at", required=True, help="Comma-separated times in seconds, e.g. 3.2,7.5")
@@ -798,6 +893,30 @@ def _build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("play", help="Open images and media files in the applications set under `play:` in assets/settings.yaml")
     c.add_argument("files", nargs="+", metavar="FILE")
     c.set_defaults(func=_cmd_play)
+
+    c = sub.add_parser("particle-text", help="Write <name>_targets.js and <name>_tex.png of a text block for a "
+                       "particle-text page (kit/particles.js)")
+    c.add_argument("lines", nargs="+", metavar="LINE", help="Text, one argument per centred line")
+    c.add_argument("--font", required=True, help="Font file: .woff2, .woff, .ttf or .otf")
+    c.add_argument("--name", help="Targets name: PT_TARGETS key and file prefix (default: from the text)")
+    c.add_argument("--size", type=float, default=150, help="Font size (em) in frame pixels at --distance "
+                   "(default: 150)")
+    c.add_argument("--fit", type=float, metavar="F", help="Pick --size so the text is F of the frame width at the "
+                   "page's end camera distance, e.g. 0.6")
+    c.add_argument("--tracking", type=float, default=0.0, help="Extra letter spacing in em (default: 0)")
+    c.add_argument("--line-gap", type=float, default=1.12, help="Line pitch in em (default: 1.12)")
+    c.add_argument("--count", type=int, default=24000, help="Particles (default: 24000)")
+    c.add_argument("--edge-share", type=float, default=0.34, help="Share of particles on letter outlines "
+                   "(default: 0.34)")
+    c.add_argument("--seed", type=int, default=1, help="Seed of the particle samples (default: 1)")
+    c.add_argument("--frame", metavar="WxH", help="Frame size (default: `video:` of settings.yaml, 1920x1080)")
+    c.add_argument("--fov", type=float, default=35, help="Camera vertical field of view, degrees (default: 35)")
+    c.add_argument("--distance", type=float, default=20, help="Camera distance at which the text measures "
+                   "--size px (default: 20)")
+    c.add_argument("-p", "--project", help="Project folder path; default: current dir")
+    c.add_argument("--scene", help="Write into this scene's latest page version (a world scene: its world's)")
+    c.add_argument("--out", metavar="DIR", help="Write into DIR instead of a scene version")
+    c.set_defaults(func=_cmd_particle_text)
 
     routes.command(sub, ROUTE_TASKS)
     return p

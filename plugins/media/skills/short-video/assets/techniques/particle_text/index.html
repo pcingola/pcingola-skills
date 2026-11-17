@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<script src="three.min.js"></script>
+<script src="kit/particles.js"></script>
+<script src="title_targets.js"></script>
+<style>
+  :root {
+    --sky-top: #080b14;     /* night gradient behind the text */
+    --sky-bottom: #141a2e;
+    --haze: #3a4a8c;        /* soft blobs in the sky */
+    --ink: #f3f5fa;         /* letter fill, top */
+    --accent: #ffb454;      /* letter fill bottom, light sweep, hairline, sparks */
+    --glow: #ff9a3c;        /* glow around the letters */
+    --stream-1: #5cc8ff;    /* particle colours in flight, orbit and ambient field */
+    --stream-2: #9b8cff;
+    --stream-3: #ffb454;
+    --caption: #e6e9f2;
+    --font-caption: Inter, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--sky-top); }
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; color: var(--caption);
+          font-family: var(--font-caption); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 100%); }
+  #gl canvas { display: block; }
+  .tex { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  #vignette { background: radial-gradient(ellipse 78% 72% at 50% 50%, rgba(0,0,0,0) 52%, rgba(0,0,0,0.75) 100%); }
+  #caption { position: absolute; left: 0; top: 0; width: max-content; white-space: nowrap; font-weight: 500;
+             letter-spacing: 0.24em; text-transform: uppercase; opacity: 0; padding-left: 0.24em; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="particle_text" data-start="0" data-duration="6"
+     data-full-length data-width="1920" data-height="1080" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="6" data-full-length data-track-index="0"></div>
+  <div id="anchored" class="bg">
+    <div id="gl" class="bg"></div>
+  </div>
+  <!-- overlays fixed to the frame here -->
+  <img id="tex-title" class="tex" src="title_tex.png" alt="" />
+  <div id="caption">A caption line under the word</div>
+  <div id="vignette" class="bg"></div>
+</div>
+<script>
+(function () {
+  // Particle text. Seven spiral arms of particles, already in flight at t = 0, come in from beyond the frame and
+  // lock onto their own letter, left to right; each letter flashes, throws sparks and its glyph fades in. A light
+  // sweep crosses the word, a hairline draws under it, a ring of particles orbits it, an ambient field and near
+  // bokeh drift toward the camera, which pushes in with a slight roll. The last 0.5 s holds still.
+  // The word comes from title_targets.js and title_tex.png (`short-video.sh particle-text`).
+  const P = Kit.particles;
+  const D = Number(document.getElementById("root").dataset.duration);
+  const HOLD = D - 0.5;
+  const NAME = "title";
+  const V = (k, f) => P.css(k, f);
+  const T = P.targets(NAME);              // the camera the targets were made for: frame, fov, distance, end
+  const st = P.stage({ fov: T.camera.fov, sky: { top: V("--sky-top", "#0a0a0c"), bottom: V("--sky-bottom", "#1a1b20"), blobs: [
+    { dir: [-0.5, 0.3, -1], col: V("--haze", "#333333"), amp: 0.2, w: 0.32 },
+    { dir: [0.55, -0.1, -1], col: V("--haze", "#333333"), amp: 0.08, w: 0.3 },
+    { dir: [0.0, -0.55, -1], col: V("--stream-1", "#555555"), amp: 0.05, w: 0.3 }] } });
+  const { scene, camera, renderer } = st;
+  const AR = st.width / st.height;
+  const WY = 0.4, NL = T.letters;
+  const pal = [V("--stream-1", "#ffffff"), V("--stream-2", "#cccccc"), V("--stream-3", "#999999"), V("--ink", "#ffffff")].map(P.col);
+  const accent = P.col(V("--accent", "#ffffff")), ink = P.col(V("--ink", "#ffffff"));
+  const stars = P.stars(st, 2400, 31, [V("--ink", "#ffffff"), V("--stream-1", "#ffffff"), V("--stream-2", "#ffffff")]);
+
+  // Letter k is in place at ARR(k): from 0.8 s, left to right, the last at 2.0 s for any letter count.
+  const STEP = 1.2 / Math.max(NL - 1, 1);
+  const ARR = k => 0.8 + k * STEP;
+
+  // Camera: from 1.35 times to T.camera.end (0.9) times the targets' distance; `particle-text` reports the
+  // text's size at the end distance.
+  const DT = T.camera.distance, DEND = DT * T.camera.end;
+  function camAt(t) {
+    const u = P.lin(t, 0, HOLD), e = P.sineIO(u);
+    return { d: P.mix(DT * 1.35, DEND, 0.35 * u + 0.65 * e), yaw: P.mix(-3, 3, e), pitch: P.mix(3.5, 1.2, e),
+             roll: P.mix(-2.5, 1.5, e), ty: WY - 0.4 * T.em };
+  }
+  // Half width of the frame at the start distance: the spirals begin beyond it.
+  const HALF0 = DT * 1.35 * Math.tan(THREE.MathUtils.degToRad(T.camera.fov / 2)) * AR;
+
+  // Text particles, each with G trailing ghosts while in flight.
+  const N = T.n, G = 3;
+  const text = P.cloud(N * (G + 1), st, { core: 0.35 });
+  const r = P.rng(4242);
+  const ARI = new Float32Array(N), SD = new Float32Array(N), TRV = new Float32Array(N), TH = new Float32Array(N), R0 = new Float32Array(N),
+        PH = new Float32Array(N), SZ = new Float32Array(N), CI = new Uint8Array(N), TC = new Float32Array(3 * N);
+  const armCol = [2, 0, 1, 2, 0, 1, 2];
+  for (let i = 0; i < N; i++) {
+    const arm = Math.floor(r() * 7);
+    ARI[i] = ARR(T.li[i]) + r() * 0.08;
+    TRV[i] = 1.15 + r() * 0.45;
+    SD[i] = ARI[i] - TRV[i];
+    TH[i] = arm * 0.8976 + (r() - 0.5) * 0.22;
+    R0[i] = HALF0 * (0.95 + r() * 0.25);
+    PH[i] = r() * 100; SZ[i] = (0.045 + Math.pow(r(), 3) * 0.07) * T.em / 2.3;
+    CI[i] = r() < 0.85 ? armCol[arm] : 3;
+    const g = r(), tc = g < 0.6 ? accent : g < 0.9 ? ink : pal[0];
+    TC[3 * i] = tc[0]; TC[3 * i + 1] = tc[1]; TC[3 * i + 2] = tc[2];
+  }
+  // Radius factor along the path: 1 at the start, 0 on the target, growing linearly before the start.
+  const rho = u => u >= 1 ? 0 : u >= 0 ? Math.pow(1 - u, 1.6) : 1 - 1.6 * u;
+  function npos(i, t, out) {
+    const u = (t - SD[i]) / TRV[i];
+    const tx = T.x[i], ty = T.y[i] + WY;
+    if (u >= 1) {
+      const q = Math.max(0, t - ARI[i]);
+      const am = (0.012 + 0.04 * Math.exp(-q * 6)) * T.em / 2.3;
+      out[0] = tx + am * Math.sin(t * 6.3 + PH[i]); out[1] = ty + am * Math.sin(t * 5.1 + PH[i] * 1.7); out[2] = 1.6 * am * Math.sin(t * 4.4 + PH[i] * 2.3);
+      return 1;
+    }
+    const p = rho(u), R = R0[i] * p;
+    const th = TH[i] + 2.4 * p + 0.5 * t;
+    out[0] = tx + R * Math.cos(th);
+    out[1] = ty + R * Math.sin(th) * 0.62;
+    out[2] = R * Math.sin(th) * 0.45 - 2 * p;
+    return 1 - Math.min(p, 1);
+  }
+
+  // Sparks thrown off each letter as it locks.
+  const SPL = 110, NS = SPL * NL, sp = P.cloud(NS * 3, st, { core: 0.8 }), rs = P.rng(919);
+  const SX = new Float32Array(NS), SY = new Float32Array(NS), VX = new Float32Array(NS), VY = new Float32Array(NS), VZ = new Float32Array(NS),
+        SL = new Float32Array(NS), SLife = new Float32Array(NS), SS = new Float32Array(NS);
+  const sv = T.em / 2.3;
+  for (let j = 0; j < NS; j++) {
+    const k = Math.floor(j / SPL);
+    SX[j] = T.lc[k] + (rs() - 0.5) * 0.3 * T.em; SY[j] = WY + T.ly[k] + (rs() - 0.5) * 0.5 * T.em;
+    const a = rs() * 6.2832, v = (2 + rs() * 5) * sv;
+    VX[j] = Math.cos(a) * v; VY[j] = Math.abs(Math.sin(a)) * v * 0.9 + sv; VZ[j] = (rs() - 0.3) * v * 0.8;
+    SL[j] = ARR(k) - 0.02 + rs() * 0.08; SLife[j] = 0.4 + rs() * 0.6; SS[j] = (0.045 + rs() * 0.04) * sv;
+  }
+  // Orbit ring around the text, sized from the text box.
+  const RW = Math.max(T.w, T.h * 1.6);
+  const NO = 3400, orb = P.cloud(NO, st, { core: 0.6 }), ro = P.rng(616);
+  const OA = new Float32Array(NO), OR = new Float32Array(NO), OS = new Float32Array(NO), OH = new Float32Array(NO), OC = new Uint8Array(NO), OZ = new Float32Array(NO);
+  for (let i = 0; i < NO; i++) {
+    OA[i] = ro() * 6.2832; const wide = ro() < 0.4;
+    OR[i] = RW * (wide ? 0.85 + ro() * 0.22 : 0.6 + ro() * 0.18); OS[i] = wide ? 0.15 + ro() * 0.1 : 0.25 + ro() * 0.25;
+    OH[i] = (ro() - 0.5) * (wide ? 0.37 : 0.045) * RW; OC[i] = [2, 2, 3, 0, 1][Math.floor(ro() * 5)]; OZ[i] = 0.03 + Math.pow(ro(), 3) * 0.06;
+  }
+  // Ambient field and near bokeh drifting toward the camera.
+  const NA = 9000, NB = 260, amb = P.cloud(NA, st, { core: 0.5 }), ra = P.rng(717);
+  const AX = new Float32Array(NA), AY = new Float32Array(NA), AZ = new Float32Array(NA), AS = new Float32Array(NA), AC = new Uint8Array(NA), AP = new Float32Array(NA), AB = new Float32Array(NA);
+  for (let i = 0; i < NA; i++) {
+    const bok = i < NB;
+    AX[i] = (ra() - 0.5) * (bok ? 15 : 34) * AR; AY[i] = (ra() - 0.5) * (bok ? 15 : 34);
+    AZ[i] = bok ? 3 + ra() * 11 : -60 + ra() * 60;
+    AS[i] = bok ? 0.12 + ra() * 0.25 : 0.04 + Math.pow(ra(), 4) * 0.2; AC[i] = Math.floor(ra() * 4); AP[i] = ra() * 100; AB[i] = bok ? 0.5 : 0.45;
+  }
+
+  // Glyph plane: letters fade in 0.2 s before their particles finish locking.
+  const glyph = P.glyphPlane(st, "tex-" + NAME, T.w, T.h, { top: V("--ink", "#ffffff"), bottom: V("--accent", "#ffffff"),
+    glow: V("--glow", "#cccccc"), sweepW: 0.13, sweepCol: V("--accent", "#ffffff"), reveal: true, revealDur: 0.3 });
+  glyph.mesh.position.set(0, WY, 0.02);
+  for (let k = 0; k < NL; k++) glyph.u.uLock.value[k] = ARR(k) - 0.1;
+  const halo = P.glow(st, V("--stream-2", "#888888")), warm = P.glow(st, V("--accent", "#888888")),
+        hair = P.glow(st, V("--accent", "#ffffff"), "streak"), front = P.glow(st, V("--ink", "#ffffff")),
+        floor = P.glow(st, V("--accent", "#888888")), bloom = P.glow(st, V("--stream-2", "#888888"));
+  halo.mesh.position.set(0, WY, -3); warm.mesh.position.set(0, WY - 0.3, -1);
+  hair.mesh.position.set(0, WY - T.h / 2 - 0.05, 0.1);
+  // Caption: 40 px on a 1920 px frame side, at most 80% of the frame width (a portrait frame scales it down).
+  const caption = document.getElementById("caption");
+  caption.style.fontSize = Math.round(40 * Math.max(st.width, st.height) / 1920) + "px";
+  const CAPMAX = 0.8 * st.width;
+  const spark = P.col(V("--accent", "#ffffff"));
+
+  const tmp = [0, 0, 0];
+  function draw(t0) {
+    const t = Math.min(t0, HOLD);
+    P.pose(camera, camAt(t));
+    stars.update(t);
+    for (let i = 0; i < N; i++) {
+      const fc = pal[CI[i]];
+      const tw = 0.75 + 0.25 * Math.sin(t * 8 + PH[i] * 3);
+      const lockedU = P.lin(t, ARI[i], ARI[i] + 0.4);
+      const flash = t >= ARI[i] ? Math.exp(-(t - ARI[i]) / 0.15) : 0;
+      for (let g = 0; g <= G; g++) {
+        const k = i * (G + 1) + g;
+        const e = npos(i, t - g * 0.03, tmp);
+        const pr = 1 - e;
+        text.pos[3 * k] = tmp[0]; text.pos[3 * k + 1] = tmp[1]; text.pos[3 * k + 2] = tmp[2];
+        const moving = e > 0 && e < 1 ? 1 : 0;
+        const a = (g === 0 ? (0.95 + 0.35 * pr) * tw * (1 - 0.86 * lockedU) : 0.75 / g * moving) * (1 + 1.5 * flash);
+        text.alpha[k] = a; text.size[k] = SZ[i] * (1 + 2.8 * pr) * (g === 0 ? 1 : 0.8);
+        const cm = P.smooth(e);
+        for (let c = 0; c < 3; c++) text.col[3 * k + c] = fc[c] + (TC[3 * i + c] - fc[c]) * cm;
+      }
+    }
+    text.flush();
+    for (let j = 0; j < NS; j++) {
+      for (let g = 0; g < 3; g++) {
+        const k = 3 * j + g, dt = t - SL[j] - g * 0.02;
+        const live = dt > 0 && dt < SLife[j];
+        sp.pos[3 * k] = SX[j] + VX[j] * dt; sp.pos[3 * k + 1] = SY[j] + VY[j] * dt - 4.5 * sv * dt * dt; sp.pos[3 * k + 2] = VZ[j] * dt;
+        sp.alpha[k] = live ? (1 - dt / SLife[j]) * (g === 0 ? 1.4 : 0.6 / g) : 0;
+        sp.size[k] = SS[j]; sp.col[3 * k] = spark[0]; sp.col[3 * k + 1] = spark[1]; sp.col[3 * k + 2] = spark[2];
+      }
+    }
+    sp.flush();
+    const oin = P.smooth(P.lin(t, 1.6, 2.8));
+    for (let i = 0; i < NO; i++) {
+      const a = OA[i] + t * OS[i];
+      const rr = OR[i] * (1 + 0.5 * (1 - oin));
+      const x = rr * Math.cos(a), z = rr * Math.sin(a) * 0.4;
+      orb.pos[3 * i] = x; orb.pos[3 * i + 1] = WY + OH[i] + z * 0.3 + 0.08 * Math.sin(t * 2 + OA[i] * 5); orb.pos[3 * i + 2] = z;
+      const c = pal[OC[i]];
+      orb.col[3 * i] = c[0]; orb.col[3 * i + 1] = c[1]; orb.col[3 * i + 2] = c[2];
+      orb.size[i] = OZ[i] * 1.5; orb.alpha[i] = oin * (0.7 + 0.4 * Math.sin(t * 5 + OA[i] * 7));
+    }
+    orb.flush();
+    for (let i = 0; i < NA; i++) {
+      const c = pal[AC[i]], bok = i < NB;
+      amb.pos[3 * i] = AX[i] + 0.4 * Math.sin(t * 0.5 + AP[i]); amb.pos[3 * i + 1] = AY[i] + 0.3 * Math.cos(t * 0.4 + AP[i]);
+      amb.pos[3 * i + 2] = AZ[i] + (bok ? 0.6 : 3.2) * t;
+      amb.alpha[i] = AB[i] * (0.7 + 0.3 * Math.sin(t * 3 + AP[i])); amb.size[i] = AS[i];
+      amb.col[3 * i] = c[0]; amb.col[3 * i + 1] = c[1]; amb.col[3 * i + 2] = c[2];
+    }
+    amb.flush();
+    // Glyph: letters revealed at their lock times; a light sweep from 2.45 s to 3.05 s.
+    glyph.tex.poll();
+    const sweep = t >= 2.45 ? P.mix(-0.15, 1.2, P.sineIO(P.lin(t, 2.45, 3.05))) : -1;
+    const sweepOn = t >= 2.5 && t <= 3.3 ? Math.sin(Math.PI * P.lin(t, 2.5, 3.3)) : 0;
+    glyph.u.uT.value = t; glyph.u.uOpacity.value = 1; glyph.u.uFill.value = 0.7;
+    glyph.u.uGlow.value = 0.32 + 0.05 * Math.sin(t * 4) + 0.35 * sweepOn;
+    glyph.u.uSweep.value = sweep; glyph.u.uSweepAmt.value = 1.6;
+    const textIn = P.lin(t, 1.5, 2.5);
+    halo.mat.opacity = 0.16 + 0.22 * textIn; halo.mesh.scale.set(RW * 2.5, T.h * 5, 1);
+    warm.mat.opacity = 0.14 * textIn + 0.1 * sweepOn; warm.mesh.scale.set(RW * 1.6, T.h * 2, 1);
+    floor.mesh.position.set(0, WY - T.h * 0.55, -0.5); floor.mesh.scale.set(RW * 1.9, T.h, 1); floor.mat.opacity = 0.32 * textIn;
+    bloom.mesh.position.set(0, WY, -4); bloom.mesh.scale.set(RW * 2.5, T.h * 8, 1); bloom.mat.opacity = t >= 1 ? 0.55 * Math.exp(-(t - 1) / 0.25) : 0;
+    // Hairline under the text from 2.7 s to 3.4 s.
+    const hu = P.outCubic(P.lin(t, 2.7, 3.4));
+    hair.mat.opacity = 0.9 * hu; hair.mesh.scale.set(T.w * 1.05 * hu + 0.001, 0.07, 1);
+    // The letter locking now gets a hot point.
+    let lk = -1; for (let k = 0; k < NL; k++) if (t >= ARR(k) - 0.05 && t < ARR(k) + 0.25) lk = k;
+    if (lk >= 0) { const q = t - ARR(lk) + 0.05; front.mat.opacity = 0.8 * Math.exp(-q / 0.12); front.mesh.position.set(T.lc[lk], WY + T.ly[lk], 0.3); front.mesh.scale.setScalar(1.5 * T.em); }
+    else front.mat.opacity = 0;
+    // Caption from 3.0 s to 3.7 s, rising onto its place under the hairline.
+    const mu = P.outCubic(P.lin(t, 3.0, 3.7));
+    caption.style.opacity = mu.toFixed(3);
+    P.pin(caption, camera, [0, WY - T.h / 2 - 0.3 * T.em, 0], DEND * 1.17, 26 * (1 - mu), CAPMAX);
+    renderer.render(scene, camera);
+  }
+
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: D, duration: D, ease: "none", onUpdate: () => draw(clock.t) }, 0);
+  P.prime(renderer, scene, camera, draw, () => clock.t);   // compile and draw twice now and at load: frame 0 has particles
+  window.__timelines = window.__timelines || {};
+  window.__timelines["particle_text"] = tl;
+})();
+</script>
+</body>
+</html>
