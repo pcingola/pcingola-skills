@@ -3,8 +3,8 @@
 The agent that builds an HTML scene (or a world) does not judge its own
 stills. Once the scene passes the motion check, one critic that saw none of
 the work reviews its stills, once, through the eyes of the film's audience.
-`references/critic.md` is a different review (the scene critic of
-`critic.claude` and the film critic): stillness, facts, narration and sound.
+`references/critic.md` is a different review, the film critic's on the
+MP4: stillness, facts, narration and sound.
 
 ## The review
 

@@ -1060,8 +1060,8 @@ def validate_settings(project_dir: Path, brand_dir: Path | None = None) -> Valid
     if m.get("file") and not (project_dir / str(m["file"])).is_file():
         err(f"music file {m['file']!r} does not exist (relative to the project)")
     c = s.get("critic") or {}
-    if not isinstance(c.get("claude", True), bool):
-        err("`critic.claude` must be true or false")
+    if "claude" in c:
+        r.warnings.append("`critic.claude` is no longer read: the scene critic was removed; delete the key")
     if c.get("model") is not None and not (isinstance(c["model"], str) and c["model"].strip()):
         err("`critic.model` must be a model name or null")
     for key, default in (("rounds", 1), ("max_findings", 5), ("scene_max_findings", 5)):

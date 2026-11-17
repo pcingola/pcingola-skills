@@ -283,7 +283,7 @@ The film critic runs only on an MP4 film, through `ai:second-opinion`, with the 
 a viewer: still stretches, wrong facts or numbers, narration that does not match the picture, unreadable text, and
 narration hard to hear or audio defects. Consistency of fonts and colours and the brand logo are not on its list; the
 logo is checked in post-production. Each round ends in one assembly, and `critic.rounds` (default 1) sets how many
-rounds run. The scene critic subagent (`critic.claude`) is off by default. `validate` checks that `critic.rounds`,
+rounds run. `validate` checks that `critic.rounds`,
 `critic.max_findings` and `critic.scene_max_findings` are whole numbers of at least 1.
 
 ## Audio check

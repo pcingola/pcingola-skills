@@ -10,9 +10,9 @@ metadata:
 
 Output: a short film narrated by a voiceover (or silent), with music under
 the voice. The default deliverable is the HTML film, one standalone
-`film/html/v<N>/film.html` (Workflow, step 8); the user reviews the film
+`film/html/v<N>/film.html` (Workflow, step 7); the user reviews the film
 there. An MP4 (`film/v<N>/film.mp4`, with the creator credit) is made only
-when the user asks for a video file (step 9). The film is a movie: the
+when the user asks for a video file (step 8). The film is a movie: the
 explanation is carried by what moves and changes on screen. Every scene shows
 continuous movement in step with its sentences, and no stretch of a scene is
 still for longer than about 2 s (the last 0.5 s of a scene excepted),
@@ -210,18 +210,14 @@ scene.
    `assets/techniques/<name>/` directory of a technique it starts from; a
    manim scene gets `references/manim.md` and `references/scenes.md`; a video
    or presenter scene gets `references/video-model.md`.
-6. Scene critic, only when `critic.claude` is true (default false): a
-   subagent that wrote no scene, given `references/critic.md`, the
-   storyboard, the source text, `lessons.md`, every latest `brief.md`, the
-   film's author and the `stills` command (`frames` for rendered scenes). Fix what holds and re-render.
-7. Music, unless the film is voice only or silent: `length` prints the
+6. Music, unless the film is voice only or silent: `length` prints the
    length to request. Generate a track of that length into `sources/` with
    `media:music` (usually instrumental; with Lyria, a scene PNG as image input
    makes music that fits the pictures), or take the user's track. Set `music.file`
    to its path relative to the project and run `music`. Play it, and replace
    it until the user approves. With `music.file` null the film has the voice
    only.
-8. HTML film: check every audio track that exists (narration, music) as in
+7. HTML film: check every audio track that exists (narration, music) as in
    `references/audio-check.md`; a silent film has none to check. Then
    `html` writes `film/html/v<N>/film.html` and prints its size; open it for
    the user with `play`. The file is standalone and plays from file:// on
@@ -232,7 +228,7 @@ scene.
    neither shows a card with its id, and `html` warns. Run `html` again after
    every change. `film.html#t=12.5` opens the film paused at 12.5 s. Keys: space plays and pauses, the arrows step 1 s (with
    Shift 5 s), `f` toggles fullscreen.
-9. MP4, only when the user asks for a video file: `render --scene ID` on
+8. MP4, only when the user asks for a video file: `render --scene ID` on
    every HTML scene (one call per world), then
    `assemble [--music vN] [--brand DIR]` and play `film/v<N>/film.mp4` to
    the user before the critic starts, so the user watches it while the
@@ -241,7 +237,7 @@ scene.
    when `author:` names someone. If the voice is hard to hear, lower
    `mix.music_db` and assemble again. Do the checks in
    `references/post-production.md` before handing the film over.
-10. Film critic, only on an MP4 film: `critic` prints its model (task `film_critic` of the model
+9. Film critic, only on an MP4 film: `critic` prints its model (task `film_critic` of the model
    config, or `critic.model` of `settings.yaml`), or `off`.
    Only a Gemini model of a `google` provider in that config takes video.
    Load `ai:second-opinion` and ask
@@ -261,7 +257,7 @@ scene.
    is not set, skip this step and tell the user that the film critic needs
    task `film_critic` set to a Gemini model of a `google` provider in the
    model config.
-11. Final: when the user approves a film version as final, make a symlink in
+10. Final: when the user approves a film version as final, make a symlink in
    the project folder named `<film_title>_<format>.mp4`, words joined by
    underscores (`Studio_for_Claude_Code_promo_1080p.mp4`), to that version's
    file; one per encode the user keeps (1080p, 720p, phone). A later approved
@@ -430,7 +426,7 @@ timings are under `mix:` in `settings.yaml`.
 - `references/video-model.md`: writing a video scene's motion prompt and checking its clip.
 - `references/reference-video.md`: reading a reference video or images with `refs` and writing `reference.md` before the storyboard.
 - `references/short-version.md`: a 2-minute or a phone version of an existing film.
-- `references/critic.md`: critic brief (scene critic and film critic).
+- `references/critic.md`: the film critic's brief.
 - `references/scene-critic.md`: the stills critic of an HTML scene: one review, its inputs and its prompt.
 - `references/post-production.md`: the creator credit and brand logo, `credit` for other MP4s.
 - `references/audio-check.md`: checking the audio tracks.
