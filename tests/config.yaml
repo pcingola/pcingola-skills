@@ -32,6 +32,18 @@ providers:
         width: 128
         height: 96
         max_frames: 9
+      # Random weights, the LTX-2 pipeline classes: video with a sound track (stereo, 24 kHz vocoder).
+      ltx2-tiny:
+        repo: optimum-intel-internal-testing/tiny-random-ltx2
+        pipeline: LTX2ImageToVideoPipeline
+        steps: 2
+        guidance: 3.0
+        fps: 24
+        size_multiple: 32
+        frame_step: 8
+        width: 128
+        height: 96
+        max_frames: 9
       # Random weights, the Kandinsky S2V modular pipeline of the diffusers tests. Its text RoPE has
       # 128 positions, so the prompt is short.
       s2v-tiny:

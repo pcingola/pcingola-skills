@@ -1,7 +1,7 @@
 """Integration tests of `Engine: video` scenes (references/video-model.md):
 `video_scene.fill` with the real FFmpeg, and scaffold + render of a video
-scene with the real `ai_models.video.animate` and the `video` model of the
-user's ai_models config (a real model call).
+scene with the real `ai_models.video.animate` and the `video` model of
+tests/config.yaml (a real call of the tiny model).
 
 The voice version is made by hand (a tone WAV and its timing.json; the
 voiceover skill is not used).
@@ -13,7 +13,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ai_models import config as ai_config
 from tests.prereq import requires
+from tests.settings_env import TEST_CONFIG
 from short_video_tool import media, settings, state, storyboard, versions, video_scene
 
 DURATION = 3.0
@@ -89,10 +91,11 @@ class TestFill(unittest.TestCase):
 
 @requires(HAS_FFMPEG, "ffmpeg and ffprobe not installed")
 class TestVideoRender(unittest.TestCase):
-    """scaffold + render of a video scene with the real video model."""
+    """scaffold + render of a video scene with the `video` model of tests/config.yaml."""
 
     @classmethod
     def setUpClass(cls) -> None:
+        ai_config.use(TEST_CONFIG)
         cls._tmp = tempfile.TemporaryDirectory()
         cls.project = p = Path(cls._tmp.name) / "video_project"
         for d in ("images", "sources", "voice", "scenes", "music", "film"):
@@ -115,6 +118,7 @@ class TestVideoRender(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         settings.use_project(None)
+        ai_config.use(None)
         cls._tmp.cleanup()
 
     def test_scene_video(self) -> None:
@@ -130,7 +134,6 @@ class TestVideoRender(unittest.TestCase):
         """video_scene.render asks the video model for its own size in the `video:` aspect ratio
         (`ai_models.video.clip_size`), and `fill` scales the clip to `video:`. Guards a small model rendering
         at the project size."""
-        from ai_models import config as ai_config
         from ai_models import video
         from plugin_settings import DiffusersRole
 
