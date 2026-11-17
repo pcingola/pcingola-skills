@@ -172,8 +172,8 @@ def test_tasks_reference_configured_providers_and_entries():
 def test_null_sections_take_their_defaults():
     """A section, a `models:` map, a model entry or a list that holds only comments parses as null and takes its
     default (empty); a null required key still fails."""
-    cfg = Config.model_validate({k: None for k in ("providers", "tasks", "network", "huggingface", "brand",
-                                                   "studio", "voiceover")})
+    cfg = Config.model_validate({k: None for k in ("providers", "tasks", "network", "huggingface", "local_models",
+                                                   "brand", "studio", "voiceover")})
     assert cfg == Config()
     cfg = Config.model_validate({"providers": {"o": {"kind": "ollama", "models": None},
                                                "g": {"kind": "google", "api_key": "k", "models": {"lyria-3": None}}},
@@ -218,3 +218,13 @@ def test_proxies_are_urls():
     assert cfg.network.http_proxy == "http://proxy.example.com:8080"
     assert problems({"network": {"https_proxy": "proxy.example.com:8080"}}) == [
         "network.https_proxy: URL scheme should be 'http', 'https', 'socks4', 'socks5' or 'socks5h'"]
+
+
+def test_lock_wait_is_unset_or_positive():
+    """`local_models.lock_wait` is unset by default (no limit on the wait for the local-model lock) or a positive
+    number of seconds; zero and negative values fail at load (docs/plugin_settings.md)."""
+    assert Config().local_models.lock_wait is None
+    assert Config.model_validate({"local_models": {"lock_wait": 1.5}}).local_models.lock_wait == 1.5
+    for bad in (0, -1):
+        assert problems({"local_models": {"lock_wait": bad}}) == [
+            "local_models.lock_wait: Input should be greater than 0"]

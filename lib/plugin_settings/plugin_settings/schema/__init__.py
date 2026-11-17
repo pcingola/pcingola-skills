@@ -16,6 +16,7 @@ from .google_model import GoogleModel
 from .huggingface import HuggingFace
 from .image_limits import ImageLimits
 from .kokoro_model import KokoroModel
+from .local_models import LocalModels
 from .model_id import ModelId, split_id
 from .network import Network
 from .openai_image_limits import OpenAIImageLimits
@@ -39,7 +40,7 @@ __all__ = [
     "TASK_KINDS", "TASK_ROLES", "AzureProvider", "BrandSettings", "ChatterboxModel", "ChatterboxProvider", "Config",
     "DiffusersEntry", "DiffusersImageLimits", "DiffusersImageModel", "DiffusersModel", "DiffusersMusicModel",
     "DiffusersPresenterModel", "DiffusersProvider", "DiffusersRole", "DiffusersVideoModel", "GoogleModel",
-    "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "ModelId", "Network",
+    "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "LocalModels", "ModelId", "Network",
     "OllamaProvider", "OpenAIImageLimits", "OpenAIKindProvider", "OpenAIModel", "OpenAIProvider",
     "OpenRouterProvider", "OwnEnvironment", "Provider", "ProviderKind", "Quality", "RemoteProvider", "Strict",
     "StudioSettings", "Task", "TimedProvider", "TorchaudioModel", "TorchaudioProvider", "VllmOmniModel",

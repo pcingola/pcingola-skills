@@ -14,11 +14,11 @@ again. A video model also has
 `pipeline` (the class to load), `fps`, `size_multiple`, `frame_step`, `width`, `height` and
 `max_frames` (see `video`); a presenter model `pipeline`, `fps`, `buckets`, `audio_rate` and `output` (see
 `video`, `present`). `pipeline` may name a `ModularPipeline` class. The device is CUDA, else MPS; `to_device` moves the weights there.
-Pipelines stay loaded for the life of the process. torch and diffusers are
+Pipelines stay loaded until the process exits or calls `unload`. torch and diffusers are
 imported only here.
 
-Memory: the first load takes an exclusive file lock (`hold_lock`) that the process keeps until it exits, so
-one process at a time holds local models. A load whose weights exceed the device's free memory raises
+Memory: the first load takes an exclusive file lock (`hold_lock`) that the process keeps until it exits or calls
+`unload`, so one process at a time holds local models. A load whose weights exceed the device's free memory raises
 `AIModelsError` before any weight moves to the device (`check_memory`); on CUDA the allocator is capped at
 the memory free before the load (`cap_memory`), and an out-of-memory error becomes the same `AIModelsError`
 (`out_of_memory`).
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import gc
 import io
 import itertools
 import json
@@ -40,13 +41,14 @@ import threading
 import time
 import urllib.request
 import wave
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import plugin_settings
 from plugin_settings import DiffusersModel, DiffusersRole, ProviderKind
 from pydantic import BaseModel
 from pydantic_ai.exceptions import UserError
@@ -59,6 +61,7 @@ from .errors import AIModelsError, ConfigError
 _pipes: dict[str, Any] = {}
 _lock = None  # the FileLock this process holds once it loads a model
 _load_lock = threading.RLock()  # one thread at a time takes the FileLock and fills _pipes
+_unloaders: list[Callable[[], None]] = []  # the functions that empty each in-process model cache (`on_unload`)
 LOCK_FILE = "ai-models-local.lock"
 PID_FILE = "ai-models-local.pid"
 GB = 1e9
@@ -124,11 +127,21 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
         return _pipes[key]
 
 
+def lock_wait() -> float | None:
+    """`local_models.lock_wait` of the config: the seconds `hold_lock` waits for another holder; None, no limit."""
+    try:
+        return plugin_settings.load_config().local_models.lock_wait
+    except plugin_settings.ConfigFileError as e:
+        raise ConfigError(str(e)) from None
+
+
 def hold_lock() -> bool:
     """Take the exclusive lock `LOCK_FILE` in the system temporary directory, once per process, and keep it until
-    the process exits (the OS releases it then, also after a crash). The holder writes its PID to `PID_FILE`
-    beside it. Another process that holds the lock makes this one wait, with a line on stderr naming that PID, and
-    then wait up to `SETTLE_SECONDS` for that process to exit. True when this call waited."""
+    the process exits (the OS releases it then, also after a crash) or calls `unload`. The holder writes its PID to
+    `PID_FILE` beside it. Another process that holds the lock makes this one wait, with a line on stderr naming
+    that PID, and then wait up to `SETTLE_SECONDS` for that process to exit (not after an `unload`, which empties
+    `PID_FILE`). The wait has no limit unless `local_models.lock_wait` sets one; past it, `AIModelsError` names
+    the holder's PID, the lock and the setting. True when this call waited."""
     global _lock
     if _lock is not None:
         return False
@@ -139,14 +152,17 @@ def hold_lock() -> bool:
     try:
         lock.acquire(timeout=0)
     except Timeout:
-        try:
-            holder = pid_file.read_text().strip()
-        except OSError:
-            holder = "unknown"
+        holder = read_pid(pid_file) or "unknown"
         print(f"ai_models: waiting for process {holder}, which holds local models (lock {lock.lock_file})",
               file=sys.stderr, flush=True)
-        lock.acquire()
-        wait_for_exit(holder)
+        wait = lock_wait()
+        try:
+            lock.acquire(timeout=-1 if wait is None else wait)
+        except Timeout:
+            raise AIModelsError(f"process {holder} holds local models (lock {lock.lock_file}) and did not release "
+                                f"them within {wait:g} s (local_models.lock_wait)") from None
+        if read_pid(pid_file) == holder:  # released at exit; `unload` empties the file first
+            wait_for_exit(holder)
         waited = True
     else:
         waited = False
@@ -156,6 +172,14 @@ def hold_lock() -> bool:
     except OSError:  # a file another user wrote; the PID only helps find a stuck holder
         pass
     return waited
+
+
+def read_pid(pid_file: Path) -> str:
+    """The text of `pid_file` (`PID_FILE`), stripped; empty when it is missing or unreadable."""
+    try:
+        return pid_file.read_text().strip()
+    except OSError:
+        return ""
 
 
 def wait_for_exit(pid: str) -> None:
@@ -199,11 +223,41 @@ def wait_for_settled_memory(dev: str) -> int:
 
 
 def release_lock() -> None:
-    """Release the lock of `hold_lock` (after a load that failed while no pipeline was loaded)."""
+    """Release the lock of `hold_lock` (after a load that failed while no pipeline was loaded, and in `unload`)."""
     global _lock
     if _lock is not None:
         _lock.release()
         _lock = None
+
+
+def on_unload(clear: Callable[[], None]) -> Callable[[], None]:
+    """Register `clear`, a function that empties an in-process model cache, for `unload`; return it. Each module
+    that keeps loaded models registers one at import."""
+    _unloaders.append(clear)
+    return clear
+
+
+def unload() -> None:
+    """Drop every model this process holds: run each function of `on_unload`, collect garbage, empty the CUDA
+    allocator cache when torch is imported (it is not imported here), empty `PID_FILE`, and release the lock of
+    `hold_lock`, so another process loads local models at once, without waiting for this one to exit."""
+    with _load_lock:
+        for clear in _unloaders:
+            clear()
+        gc.collect()
+        if (torch := sys.modules.get("torch")) is not None:
+            torch.cuda.empty_cache()  # a no-op when CUDA was never initialized
+        if _lock is not None:
+            pid_file = Path(tempfile.gettempdir()) / PID_FILE
+            if read_pid(pid_file) == str(os.getpid()):
+                try:
+                    pid_file.write_text("")  # a waiter then takes the lock without waiting for this process to exit
+                except OSError:
+                    pass
+        release_lock()
+
+
+on_unload(_pipes.clear)
 
 
 def weight_bytes(modules: Iterable[Any]) -> int:

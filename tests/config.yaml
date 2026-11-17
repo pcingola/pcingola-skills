@@ -64,3 +64,7 @@ tasks:
   presenter: local:s2v-tiny
   speech: kokoro:kokoro-v1.0-int8
   align: torchaudio:MMS_FA
+# A test waits at most this long for another process that holds the local models, below the 25 s
+# subprocess and 30 s test timeouts, so a held lock fails the test with the holder's PID.
+local_models:
+  lock_wait: 20

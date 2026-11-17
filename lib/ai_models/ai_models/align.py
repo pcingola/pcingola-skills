@@ -17,13 +17,14 @@ from collections.abc import Sequence
 from pathlib import Path
 from plugin_settings import ProviderKind, TorchaudioModel, TorchaudioProvider
 
-from . import config, weights
+from . import config, local, weights
 from .errors import AIModelsError, ConfigError
 
 KIND = ProviderKind.TORCHAUDIO
 TASK = "align"
 
 _aligners: dict[str, "Aligner"] = {}
+local.on_unload(_aligners.clear)
 
 
 class Aligner:

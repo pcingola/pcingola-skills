@@ -10,7 +10,8 @@
 #     tasks        the model of each task, as <provider name>:<model>
 #     network      proxies and CA certificates
 #     huggingface  the weights cache and token of the local diffusers models
-#     brand        brand:brand and the Studio catalogue
+#     local_models the wait for another process that holds the local models
+#     brand       brand:brand and the Studio catalogue
 #     studio       the Studio
 #     voiceover    media:voiceover
 #
@@ -426,6 +427,15 @@ huggingface:
   #home: /path/to/huggingface
   # Hugging Face token (HF_TOKEN). Needed only for a gated repository.
   #token: hf_replace-me
+
+
+# === local_models ============================================================
+local_models:
+  # One process at a time holds the local models (images, music, video). A
+  # second process waits for the first to exit. lock_wait: the seconds it
+  # waits before it fails with an error naming the holder's PID (a positive
+  # number). Default: no limit.
+  #lock_wait: 600
 
 
 # === brand ===================================================================

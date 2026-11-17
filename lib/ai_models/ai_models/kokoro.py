@@ -17,7 +17,7 @@ from typing import Any
 
 from plugin_settings import KokoroModel, KokoroProvider, ProviderKind
 
-from . import espeak, weights
+from . import espeak, local, weights
 from .errors import AIModelsError
 
 KIND = ProviderKind.KOKORO
@@ -25,6 +25,7 @@ SAMPLE_RATE = 24_000
 
 _models: dict[Path, Any] = {}
 _lock = threading.Lock()  # one load at a time when callers run in several threads
+local.on_unload(_models.clear)
 
 
 def files(spec: KokoroProvider, entry: KokoroModel, model: str) -> tuple[Path, Path]:

@@ -3,3 +3,7 @@
 # provider of the same kind from the user's config into a temporary config.
 providers: {}
 tasks: {}
+# Below the 900 s subprocess timeouts of this suite, so a held lock fails a test with the holder's PID
+# before its subprocess times out.
+local_models:
+  lock_wait: 850

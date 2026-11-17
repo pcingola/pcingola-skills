@@ -11,6 +11,7 @@ from .base import Strict
 from .brand import BrandSettings
 from .diffusers_model import DiffusersModel
 from .huggingface import HuggingFace
+from .local_models import LocalModels
 from .model_id import ModelId, split_id
 from .network import Network
 from .provider_kind import LOCAL_KINDS
@@ -28,6 +29,7 @@ class Config(Strict):
     tasks: dict[Task, ModelId] = {}
     network: Network = Network()
     huggingface: HuggingFace = HuggingFace()
+    local_models: LocalModels = LocalModels()
     brand: BrandSettings = BrandSettings()
     studio: StudioSettings = StudioSettings()
     voiceover: VoiceoverSettings = VoiceoverSettings()

@@ -14,6 +14,7 @@ import torch
 
 from ai_models import AIModelsError, local
 from tests.prereq import requires
+from tests.settings_env import write_config
 from tests.subproc import child_env, run_python
 
 
@@ -161,6 +162,64 @@ def test_waiter_returns_after_the_holder_exits(tmp_path):
             assert out.split() == ["True", "False"], err
         finally:
             second.kill()
+    finally:
+        first.kill()
+        first.wait()
+
+
+UNLOADER = """
+    import sys
+    from ai_models import local
+    cache = {"model": object()}
+    local.on_unload(cache.clear)
+    local.hold_lock()
+    local.unload()
+    print("unloaded", len(cache), flush=True)
+    sys.stdin.readline()
+"""
+
+
+def test_unload_releases_the_lock_at_once(tmp_path):
+    """Guards integration tests that load a local model in the test process (tests/integration/conftest.py):
+    after `unload`, the registered caches are empty and another process takes the lock without waiting, while
+    the first process still runs."""
+    env = lock_env(tmp_path)
+    first = start(UNLOADER, env)
+    try:
+        assert first.stdout.readline().split() == ["unloaded", "0"], first.stderr.read()
+        started = time.monotonic()
+        out, err = start(HOLDER, env).communicate("\n", timeout=20)
+        assert out.strip() == "held", err
+        assert "waiting" not in err
+        assert time.monotonic() - started < 10
+    finally:
+        first.kill()
+        first.wait()
+
+
+IMPATIENT = """
+    from ai_models import AIModelsError, local
+    try:
+        local.hold_lock()
+    except AIModelsError as e:
+        print(e, flush=True)
+"""
+
+
+def test_lock_wait_limits_the_wait(tmp_path):
+    """Guards against a test or command that waits forever for the local models: with `local_models.lock_wait: 1`,
+    a process fails within a few seconds while another holds the lock, with an error that names the holder's PID,
+    the lock file and the setting."""
+    env = lock_env(tmp_path)
+    impatient = {**env, "SKILLS_CONFIG": str(write_config(tmp_path / "wait.yaml", local_models={"lock_wait": 1}))}
+    first = start(HOLDER, env)
+    try:
+        assert first.stdout.readline().strip() == "held", first.stderr.read()
+        started = time.monotonic()
+        out, err = start(IMPATIENT, impatient).communicate(timeout=20)
+        assert time.monotonic() - started < 10, err
+        assert f"process {first.pid} holds local models (lock {tmp_path / local.LOCK_FILE})" in out, err
+        assert "within 1 s (local_models.lock_wait)" in out
     finally:
         first.kill()
         first.wait()
