@@ -28,6 +28,9 @@ MARKETPLACE = json.loads(
     (Path(__file__).resolve().parents[1] / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
 )["name"]
 
+# The settings file of the unit and integration tests: the tiny models tests load or call.
+TEST_CONFIG = Path(__file__).resolve().parent / "config.yaml"
+
 _ROOT = Path(tempfile.mkdtemp(prefix="skills-settings-"))
 atexit.register(shutil.rmtree, _ROOT, ignore_errors=True)
 

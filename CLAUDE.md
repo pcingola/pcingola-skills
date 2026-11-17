@@ -41,7 +41,8 @@ Each rule and its reason are in `docs/architecture.md`, with the test that enfor
 
 All tests run in one environment, the root project's `dev` group: `lib/` from this directory and the dependencies of every skill project. Its pytest `pythonpath` lists each skill's `scripts/`.
 
-- All tests: `scripts/tests.sh unit|integration|all`, with pytest arguments after it.
+- All tests: `scripts/tests.sh unit|integration|all`, with pytest arguments after it; `all` is unit and integration.
+- Full-size model tests: `scripts/tests.sh models` (`tests/models/`, never collected by `unit`, `integration` or `all`).
 - One suite: `uv run --group dev pytest tests/unit/<suite>`; `<suite>` is the skill name with `-` as `_`.
 - One test: the pytest node id, for example `uv run --group dev pytest tests/unit/plugin/test_manifest.py::test_marketplace_json`.
 - Manifests with Claude Code: `claude plugin validate .` (marketplace) and `claude plugin validate plugins/<plugin>` (each plugin).

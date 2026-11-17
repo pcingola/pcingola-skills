@@ -12,6 +12,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-timeout>=2.4",
     # lib/
     "ai-models[diffusers]",
     "plugin-settings",
@@ -58,6 +59,10 @@ url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [tool.pytest.ini_options]
+# Every test has a timeout (seconds); a tests/models/ test sets a larger one of its own
+timeout = 30
+# unit and integration only: tests/models/ runs only when named (scripts/tests.sh models)
+testpaths = ["tests/unit", "tests/integration"]
 # The skill packages (<skill>_tool) and the studio server, importable by every suite
 pythonpath = [
     "plugins/ai/skills/classify/scripts",

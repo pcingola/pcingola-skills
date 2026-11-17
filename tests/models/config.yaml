@@ -1,0 +1,5 @@
+# The settings file of tests/models/: the full-size models of that suite, which only
+# `scripts/tests.sh models` runs. No api_key: a test of a remote provider copies the key of the
+# provider of the same kind from the user's config into a temporary config.
+providers: {}
+tasks: {}

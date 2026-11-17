@@ -1,0 +1,66 @@
+# The settings file of the unit and integration tests: the tiny models that tests load or call.
+# In-process tests name it with `config.use(TEST_CONFIG)`; child processes get it in SKILLS_CONFIG
+# (tests/settings_env.py). No remote provider, no api_key. Weights of the kokoro and torchaudio
+# providers go under ~/.cache/pcingola-skills-tests/; diffusers models use the Hugging Face cache.
+providers:
+  ollama:
+    kind: ollama
+  local:
+    kind: diffusers
+    models:
+      # Random weights, the FLUX.2 klein pipeline classes.
+      klein-tiny:
+        repo: optimum-intel-internal-testing/tiny-random-flux.2-klein
+        steps: 2
+        guidance: 1.0
+        inpaint: Flux2KleinInpaintPipeline
+      # Random weights, the LTX-Video 0.9.5 pipeline class.
+      ltx-tiny:
+        repo: optimum-intel-internal-testing/tiny-random-ltx-video-0.9.5
+        pipeline: LTXImageToVideoPipeline
+        steps: 2
+        guidance: 3.0
+        fps: 24
+        size_multiple: 32
+        frame_step: 8
+        width: 128
+        height: 96
+        max_frames: 9
+      # Random weights, the Kandinsky S2V modular pipeline of the diffusers tests. Its text RoPE has
+      # 128 positions, so the prompt is short.
+      s2v-tiny:
+        repo: kandinskylab/tiny-kandinsky-s2v-distilled-modular-pipe
+        pipeline: KandinskyS2VDistilledModularPipeline
+        steps: 2
+        fps: 25
+        buckets: [[64, 64], [64, 96], [96, 64]]
+        audio_rate: 16000
+        output: videos
+        args: {prompt: A person speaks.}
+  kokoro:
+    kind: kokoro
+    dir: ~/.cache/pcingola-skills-tests/kokoro
+    models:
+      kokoro-v1.0-int8:
+        model_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx
+        voices_url: https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+        langs: {af_: en-us, am_: en-us, bf_: en-gb, bm_: en-gb}
+        voice: af_heart
+  torchaudio:
+    kind: torchaudio
+    dir: ~/.cache/pcingola-skills-tests/torchaudio
+    models:
+      MMS_FA:
+        url: https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt
+tasks:
+  chat: ollama:gemma3:270m
+  system1: ollama:laya:421m-english-bf16
+  audio: ollama:lfm3-audio
+  image: local:klein-tiny
+  image_best: local:klein-tiny
+  image_edit: local:klein-tiny
+  image_multi_ref: local:klein-tiny
+  video: local:ltx-tiny
+  presenter: local:s2v-tiny
+  speech: kokoro:kokoro-v1.0-int8
+  align: torchaudio:MMS_FA
