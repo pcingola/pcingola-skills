@@ -18,7 +18,8 @@ class TestFilterGraph(unittest.TestCase):
     def test_second_pass(self) -> None:
         """mix.build_filter_graph second pass: each scene's voice trimmed and padded to its video length, concat
         into the caption, music trimmed, faded and gained, sidechain ducking and the measured loudnorm values
-        applied linearly. Guards the film's stage order and the voice staying in sync with the pictures."""
+        applied linearly, the normalized audio cut to the film's length. Guards the film's stage order and the voice
+        staying in sync with the pictures."""
         stages = mix.build_filter_graph([20.0, 12.5], -14.0, MEASURED, caption="drawtext=x").split(";")
         self.assertEqual(stages[:4], [
             "[0:a:0]atrim=0:20,apad=whole_dur=20[a0]",
@@ -32,6 +33,7 @@ class TestFilterGraph(unittest.TestCase):
         self.assertTrue(any(s.startswith("[music][key]sidechaincompress") for s in stages))
         self.assertIn("measured_I=-23.40", stages[-1])
         self.assertIn("offset=0.35:linear=true", stages[-1])
+        self.assertTrue(stages[-1].endswith(",atrim=0:32.5[aout]"))
 
     def test_first_pass_and_short_film(self) -> None:
         """mix.build_filter_graph first pass of a 4 s film: audio-only concat, fades clamped to half the film
@@ -51,7 +53,7 @@ class TestFilterGraph(unittest.TestCase):
         self.assertEqual(stages[2], "[0:v:0][a0][1:v:0][a1]concat=n=2:v=1:a=1[v][voice_raw]")
         self.assertTrue(stages[-1].startswith("[voice_raw]aresample="))
         self.assertIn("measured_I=-23.40", stages[-1])
-        self.assertTrue(stages[-1].endswith("[aout]"))
+        self.assertTrue(stages[-1].endswith(",atrim=0:32.5[aout]"))
         self.assertFalse(any("[2:a:0]" in s or "sidechaincompress" in s or "amix" in s for s in stages))
         self.assertEqual(mix.ffmpeg_inputs([Path("a.mp4")], None), ["-i", "a.mp4"])
 

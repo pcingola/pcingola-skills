@@ -90,6 +90,9 @@ def build_filter_graph(
     audio_format = _audio_format()
     # Each scene's voice is cut or padded to its video length, so the voice
     # track stays in sync and the film is exactly as long as its pictures.
+    # The normalized audio ends on a whole 100 ms (7.5 s for a 7.433 s film),
+    # so it is cut to the film's length again.
+    end = f"aresample={s['sample_rate']},atrim=0:{num(duration)}[aout]"
     fit = [f"[{i}:a:0]atrim=0:{num(d)},apad=whole_dur={num(d)}[a{i}]" for i, d in enumerate(scene_durations)]
     if video:
         inputs = "".join(f"[{i}:v:0][a{i}]" for i in range(n_scenes))
@@ -104,7 +107,7 @@ def build_filter_graph(
         return ";".join([
             *fit,
             concat,
-            f"[voice_raw]{audio_format},{loudnorm_filter(measured)},aresample={s['sample_rate']}[aout]",
+            f"[voice_raw]{audio_format},{loudnorm_filter(measured)},{end}",
         ])
     m = n_scenes
     return ";".join([
@@ -117,7 +120,7 @@ def build_filter_graph(
         f"volume={num(music_db)}dB[music]",
         f"[music][key]{s['duck']}[ducked]",
         "[voice][ducked]amix=inputs=2:normalize=0:duration=first[mix]",
-        f"[mix]{loudnorm_filter(measured)},aresample={s['sample_rate']}[aout]",
+        f"[mix]{loudnorm_filter(measured)},{end}",
     ])
 
 
