@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<style>
+  /* Noto Sans Mono (SIL OFL): copy its files into the version's fonts/ (note.md, Fonts). */
+  @font-face { font-family: "Noto Sans Mono"; font-weight: 400; src: url("fonts/NotoSansMono-Regular.ttf"); }
+  @font-face { font-family: "Noto Sans Mono"; font-weight: 700; src: url("fonts/NotoSansMono-Bold.ttf"); }
+  :root {
+    --bg-top: #101a3a;      /* night gradient, centre to edge */
+    --bg: #070b16;
+    --glow-1: rgba(79, 216, 255, 0.20);   /* drifting light behind the window */
+    --glow-2: rgba(142, 124, 255, 0.22);
+    --dot: #bfe9ff;         /* drifting specks */
+    --term-bg: #0e1326;     /* terminal body */
+    --term-bar: #161c33;    /* title bar */
+    --term-edge: rgba(142, 124, 255, 0.45);
+    --ink: #f5efe6;         /* typed commands */
+    --muted: #8b95a8;       /* output lines, title */
+    --prompt: #8e7cff;      /* the $ */
+    --caret: #4fd8ff;
+    --ok: #3ddc97;          /* output lines marked "ok", progress bar */
+    --accent: #ffc46b;      /* output lines marked "accent" */
+    --page-bg: #f4f1ea;     /* the placeholder page in the browser */
+    --page-ink: #1b2233;
+    --page-acc: #ff8a3d;
+    --font-mono: "Noto Sans Mono", "Liberation Mono", monospace;
+    --font-ui: Inter, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; color: var(--ink); font-family: var(--font-ui); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: radial-gradient(ellipse at 60% 35%, var(--bg-top) 0%, var(--bg) 75%); }
+  .blob { position: absolute; width: 1200px; height: 1200px; border-radius: 50%; filter: blur(30px); }
+  #blob-1 { left: -250px; top: -420px; background: radial-gradient(circle, var(--glow-1) 0%, transparent 65%); }
+  #blob-2 { left: 1000px; top: 260px; background: radial-gradient(circle, var(--glow-2) 0%, transparent 65%); }
+  .dot { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 8px 2px rgba(79, 216, 255, 0.45); }
+  #stage { position: absolute; inset: 0; perspective: 1800px; }
+  #anchored, #term-fx { transform-style: preserve-3d; }
+  #term { position: absolute; left: 300px; top: 230px; width: 1320px; height: 620px; border-radius: 20px; overflow: hidden;
+          background: var(--term-bg); border: 1px solid var(--term-edge);
+          box-shadow: 0 40px 90px rgba(0, 0, 0, 0.6), 0 0 60px rgba(142, 124, 255, 0.22); }
+  #term .bar { height: 56px; display: flex; align-items: center; gap: 12px; padding-left: 24px; background: var(--term-bar);
+               border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+  .bar i { width: 16px; height: 16px; border-radius: 50%; display: block; }
+  #term .bar span { margin-left: 18px; font: 700 24px var(--font-mono); letter-spacing: 0.08em; color: var(--muted); }
+  #view { position: absolute; left: 0; right: 0; top: 56px; bottom: 0; padding: 30px 44px; overflow: hidden; }
+  #lines { font: 400 38px/58px var(--font-mono); white-space: pre; }
+  .row { height: 58px; opacity: 0; }
+  .ps { color: var(--prompt); }
+  .out { color: var(--muted); }
+  .out.ok { color: var(--ok); }
+  .out.accent { color: var(--accent); }
+  .track { display: inline-block; width: 576px; height: 34px; vertical-align: -6px; border-radius: 4px; background: rgba(139, 149, 168, 0.18); overflow: hidden; }
+  .fill { display: block; height: 100%; background: var(--ok); }
+  .caret { display: inline-block; width: 20px; height: 44px; vertical-align: -9px; background: var(--caret); box-shadow: 0 0 12px var(--caret); }
+  #sweep-t, #sweep-b { position: absolute; top: 0; left: -40%; width: 35%; height: 100%; pointer-events: none;
+                       background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.12), transparent); }
+  #browser { position: absolute; left: 260px; top: 120px; width: 1400px; height: 840px; border-radius: 18px; overflow: hidden; opacity: 0;
+             background: var(--page-bg); border: 1px solid rgba(79, 216, 255, 0.5);
+             box-shadow: 0 50px 120px rgba(0, 0, 0, 0.7), 0 0 80px rgba(79, 216, 255, 0.3); }
+  #browser .bar { height: 60px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: #1d1f29; }
+  #browser .url { margin-left: 30px; flex: 1; max-width: 640px; height: 38px; border-radius: 19px; background: #2a2d3a;
+                  font: 400 24px/38px var(--font-mono); color: #c9cfdb; padding-left: 22px; }
+  #page { position: absolute; left: 0; right: 0; top: 60px; bottom: 0; padding: 70px 90px; }
+  .blk { position: absolute; border-radius: 10px; opacity: 0; }
+  #pg-nav { left: 90px; top: 50px; width: 1220px; height: 16px; background: rgba(27, 34, 51, 0.12); }
+  #pg-h1 { left: 90px; top: 130px; font: 800 72px var(--font-ui); color: var(--page-ink); }
+  #pg-sub { left: 90px; top: 240px; width: 760px; height: 22px; background: rgba(27, 34, 51, 0.25); }
+  #pg-sub2 { left: 90px; top: 280px; width: 560px; height: 22px; background: rgba(27, 34, 51, 0.25); }
+  #pg-btn { left: 90px; top: 350px; width: 260px; height: 70px; background: var(--page-acc); border-radius: 35px; }
+  .pg-card { top: 480px; width: 380px; height: 240px; background: #ffffff; box-shadow: 0 12px 30px rgba(27, 34, 51, 0.12); }
+  .pg-card::before { content: ""; position: absolute; left: 30px; top: 30px; width: 70px; height: 70px; border-radius: 16px; background: var(--c); }
+  .pg-card::after { content: ""; position: absolute; left: 30px; top: 130px; width: 260px; height: 18px; border-radius: 9px; background: rgba(27, 34, 51, 0.2); }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="terminal" data-start="0" data-duration="10"
+     data-full-length data-width="1920" data-height="1080" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="10" data-full-length data-track-index="0"></div>
+  <div id="space" class="bg">
+    <div id="blob-1" class="blob"></div>
+    <div id="blob-2" class="blob"></div>
+  </div>
+  <div id="stage">
+    <div id="anchored" class="bg">
+      <div id="term-fx" class="bg">
+      <div id="term">
+        <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><span>terminal</span></div>
+        <div id="view"><div id="lines"></div></div>
+        <div id="sweep-t"></div>
+      </div>
+      </div>
+      <div id="browser">
+        <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i><div class="url">localhost:8080</div></div>
+        <div id="page">
+          <div id="pg-nav" class="blk"></div>
+          <div id="pg-h1" class="blk">Example Tool</div>
+          <div id="pg-sub" class="blk"></div>
+          <div id="pg-sub2" class="blk"></div>
+          <div id="pg-btn" class="blk"></div>
+          <div class="blk pg-card" style="left: 90px; --c: #4fd8ff;"></div>
+          <div class="blk pg-card" style="left: 510px; --c: #8e7cff;"></div>
+          <div class="blk pg-card" style="left: 930px; --c: #ff8a3d;"></div>
+        </div>
+        <div id="sweep-b"></div>
+      </div>
+    </div>
+  </div>
+  <!-- overlays fixed to the frame here -->
+</div>
+<script>
+  // Terminal. Each command of COMMANDS types character by character from `at` over `dur` with a solid caret,
+  // waits PAUSE, takes Enter, optionally fills a progress bar for `busy` seconds, then prints its output lines.
+  // A fresh prompt with a blinking caret waits for the next command. The window tilts and pushes to a new framing
+  // on each command; after the last one a browser window opens over the terminal (OPEN_BROWSER).
+  // Every time below is literal: in a narrated scene, replace `at` and `dur` with S(n), W(n, "word"), WE(n, "word").
+  const D = Number(document.getElementById("root").dataset.duration);  // scene length, set by scaffold
+  const CHAR = 0.045;           // seconds per typed character when a command has no `dur`
+  const PAUSE = 0.25;           // typed command to Enter
+  const OUT_DELAY = 0.12;       // Enter to the first output line
+  const OUT_GAP = 0.09;         // between output lines
+  const BLINK = 0.53;           // caret half period while idle
+  const ROWS = 8;               // rows the window shows before it scrolls
+  const LH = 58;                // row height in px, as .row
+  const OPEN_BROWSER = true;    // false: the camera keeps pushing on the terminal to the end
+  // out: a string (muted) or [text, "ok" | "accent"].
+  const COMMANDS = [
+    { cmd: "npm install example-tool", at: 0.6, busy: 1.1,
+      out: [["added 42 packages in 1.8s", "ok"]] },
+    { cmd: "example-tool init demo", at: 3.7,
+      out: ["Created demo/", "  demo/config.yaml", "  demo/README.md"] },
+    { cmd: "example-tool serve --open", at: 5.65,
+      out: [["Listening on http://localhost:8080", "accent"], "Opening the browser"] },
+  ];
+
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+  const smooth = x => { x = clamp01(x); return x * x * (3 - 2 * x); };
+
+  // Rows: built once, each with the time it appears; draw(t) fills them.
+  const lines = document.getElementById("lines");
+  const rows = [];
+  function addRow(kind, appear, extra) {
+    const el = document.createElement("div");
+    el.className = "row";
+    lines.appendChild(el);
+    const r = Object.assign({ el, kind, appear }, extra);
+    rows.push(r);
+    return r;
+  }
+  // A command starts at its `at`, or later when the previous output is still printing: rows take their place in
+  // DOM order, so a command may not start before the rows above it appear.
+  let ready = 0;                // when the next prompt appears
+  const STARTS = [];            // each command's start after that push
+  COMMANDS.forEach(c => {
+    const at = Math.max(c.at, ready);
+    STARTS.push(at);
+    const dur = c.dur !== undefined ? c.dur : c.cmd.length * CHAR;
+    const enter = at + dur + PAUSE;
+    addRow("prompt", ready, { c, at, dur, enter });
+    let t0 = enter + OUT_DELAY;
+    if (c.busy) {
+      addRow("busy", enter + 0.08, { from: enter + 0.08, to: enter + 0.08 + c.busy });
+      t0 = enter + 0.08 + c.busy + 0.15;
+    }
+    c.out.forEach((o, k) => {
+      const [text, cls] = typeof o === "string" ? [o, ""] : o;
+      addRow("out", t0 + k * OUT_GAP, { text, cls });
+    });
+    ready = t0 + Math.max(0, c.out.length - 1) * OUT_GAP + 0.2;
+  });
+  const last = addRow("prompt", ready, { c: null });
+  const DONE = ready;           // the last output is on screen
+
+  function bar(p) {
+    return `<span class="track"><span class="fill" style="width:${(p * 100).toFixed(2)}%"></span></span> ` +
+           `<span class="out">${String(Math.round(p * 100)).padStart(3)}%</span>`;
+  }
+  const caret = on => `<span class="caret" style="opacity:${on ? 1 : 0}"></span>`;
+
+  // The caret sits on the newest prompt row; it is solid while typing, hidden from Enter to the next prompt,
+  // and blinks while it waits.
+  function draw(t) {
+    let shown = 0;
+    let active = null;
+    rows.forEach(r => { if (t >= r.appear && r.kind === "prompt") active = r; });
+    rows.forEach(r => {
+      const a = t - r.appear;
+      r.el.style.opacity = a < 0 ? 0 : smooth(a / 0.06).toFixed(3);
+      shown += smooth(a / 0.14);
+      if (a < 0) return;
+      if (r.kind === "out") {
+        r.el.innerHTML = `<span class="out ${r.cls}">${esc(r.text)}</span>`;
+      } else if (r.kind === "busy") {
+        r.el.innerHTML = bar(clamp01((t - r.from) / (r.to - r.from)));
+      } else {
+        const c = r.c;
+        let typed = "";
+        let on = false;
+        if (c && t >= r.at) {
+          const n = Math.min(c.cmd.length, Math.floor((t - r.at) / r.dur * c.cmd.length + 1e-6) + 1);
+          typed = c.cmd.slice(0, n);
+        }
+        if (r === active) {
+          if (c && t >= r.at && t < r.enter) on = true;
+          else if (!c || t < r.at) on = Math.floor((t - r.appear) / BLINK) % 2 === 0;
+        }
+        r.el.innerHTML = `<span class="ps">$</span> ${esc(typed)}${r === active ? caret(on) : ""}`;
+      }
+    });
+    lines.style.transform = `translateY(${(-Math.max(0, shown - ROWS) * LH).toFixed(2)}px)`;
+  }
+
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: D, duration: D, ease: "none", onUpdate: () => draw(clock.t) }, 0);
+
+  // Night space: two lights and seeded specks drift for the whole scene.
+  const rand = (s => () => (s = (s * 16807) % 2147483647) / 2147483647)(7);
+  const space = document.getElementById("space");
+  for (let i = 0; i < 60; i++) {
+    const d = document.createElement("div");
+    d.className = "dot";
+    Object.assign(d.style, { left: rand() * 1920 + "px", top: rand() * 1080 + "px", opacity: (0.2 + rand() * 0.6).toFixed(2) });
+    space.appendChild(d);
+    tl.fromTo(d, { x: 0, y: 0 }, { x: (rand() - 0.5) * 80, y: -(40 + rand() * 140), duration: D, ease: "none" }, 0);
+  }
+  tl.fromTo("#blob-1", { x: 0, y: 0 }, { x: 240, y: 110, duration: D, ease: "sine.inOut" }, 0);
+  tl.fromTo("#blob-2", { x: 0, y: 0 }, { x: -300, y: -90, duration: D, ease: "sine.inOut" }, 0);
+
+  // The window floats in, then turns to a new framing as each command starts, alternating sides.
+  // The entrance tweens opacity, z and y; the framings tween rotation, x, yPercent and scale, so they never overlap.
+  tl.fromTo("#term", { opacity: 0, z: -320, y: 60 }, { opacity: 1, z: 0, y: 0, duration: 0.8, ease: "power3.out" }, 0);
+  gsap.set("#term", { rotationY: -18, rotationX: 8 });
+  COMMANDS.forEach((c, i) => {
+    const start = i === 0 ? 0 : STARTS[i] - 0.2;
+    const next = i + 1 < COMMANDS.length ? STARTS[i + 1] - 0.2 : DONE + 0.15;
+    const side = i % 2 ? -1 : 1;
+    tl.to("#term", { rotationY: 7 * side, rotationX: i % 2 ? -2 : 3, x: -50 * side, yPercent: -4 * i, scale: 1.04 + 0.05 * i,
+                     duration: next - start, ease: i === 0 ? "power2.out" : "sine.inOut" }, start);
+  });
+  tl.fromTo("#sweep-t", { x: 0 }, { x: 2000, duration: 0.8, ease: "power1.inOut", immediateRender: false }, STARTS[0] + 0.2);
+
+  if (OPEN_BROWSER) {
+    // The terminal falls back, the browser opens over it, its page builds, a light sweeps it, the camera pushes in.
+    const B = DONE + 0.15;
+    tl.to("#term-fx", { z: -420, x: -340, rotationY: 14, opacity: 0.35, duration: 0.8, ease: "power3.inOut" }, B);
+    tl.fromTo("#browser", { opacity: 0, scale: 0.5, y: 160, rotationX: 14 },
+              { opacity: 1, scale: 1, y: 0, rotationX: 0, duration: 0.8, ease: "power3.out", immediateRender: false }, B);
+    tl.fromTo("#page .blk", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.35, stagger: 0.08, ease: "power2.out", immediateRender: false }, B + 0.4);
+    tl.fromTo("#sweep-b", { x: 0 }, { x: 2100, duration: 0.9, ease: "power1.inOut", immediateRender: false }, B + 0.7);
+    tl.fromTo("#browser", { scale: 1 }, { scale: 1.1, x: -40, duration: D - 0.5 - (B + 0.8), ease: "sine.inOut", immediateRender: false }, B + 0.8);
+  } else {
+    tl.to("#term-fx", { scale: 1.12, rotationX: -3, duration: D - 0.5 - (DONE + 0.15), ease: "sine.inOut" }, DONE + 0.15);
+  }
+  tl.set({}, {}, D);
+
+  draw(0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["terminal"] = tl;
+</script>
+</body>
+</html>

@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1920, height=1080" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<script src="three.min.js"></script>
+<script src="kit/camera.js"></script>
+<script src="kit/glow.js"></script>
+<script src="kit/tiltshift.js"></script>
+<script src="kit/gallery.js"></script>
+<style>
+  :root {
+    --bg: #07080b;          /* clear colour behind the sky */
+    --fog: #0d0f14;         /* horizon and fog */
+    --sky-top: #171a22;
+    --floor: #050608;
+    --seam: #1f232c;        /* floor tile seams */
+    --frame: #08090c;       /* card frames */
+    --sweep: #fff2e0;       /* light sweep across a card */
+    --spot: #ffd9a8;        /* spot lights from above */
+    --ink: #f2f0ec;
+    --accent-1: #f0b45a;    /* card edge lights, in turn */
+    --accent-2: #5fc8e8;
+    --accent-3: #a59af0;
+    --accent-4: #ee8a5a;
+    --font: "Barlow", Inter, "Helvetica Neue", Arial, sans-serif;
+    --font-cond: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: var(--font); color: var(--ink); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: linear-gradient(180deg, var(--sky-top) 0%, var(--bg) 100%); }
+  #gl { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+  #pics { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+  #pics img, #pics canvas { width: 1px; height: 1px; }
+  #shade { position: absolute; left: 0; bottom: 0; width: 1100px; height: 420px;
+           background: radial-gradient(ellipse at 0% 100%, rgba(5, 6, 9, 0.8) 0%, rgba(5, 6, 9, 0.45) 45%, rgba(5, 6, 9, 0) 75%); }
+  #cap { position: absolute; left: 110px; bottom: 120px; opacity: 0; }
+  #cap .row { display: flex; align-items: center; gap: 22px; }
+  #cap .idx { font-family: var(--font-mono); font-weight: 500; font-size: 36px; padding: 8px 16px 9px; border-radius: 10px;
+              background: rgba(5, 6, 9, 0.72); border: 2px solid var(--accent-1); }
+  #cap .idx b { font-weight: 500; color: var(--accent-1); }
+  #cap .word { font-family: var(--font-cond); font-weight: 700; font-size: 100px; line-height: 0.9; letter-spacing: 0.14em;
+               text-transform: uppercase; transform-origin: 0% 100%; text-shadow: 0 4px 18px rgba(0, 0, 0, 0.6); }
+  #cap .ticks { display: flex; gap: 8px; margin-top: 18px; }
+  #cap .ticks i { display: block; width: 46px; height: 6px; border-radius: 3px; background: rgba(242, 240, 236, 0.22); }
+  #cap .ticks i.on { background: var(--accent-1); }
+  #end { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; gap: 26px; opacity: 0; }
+  #end .big { font-family: var(--font-cond); font-weight: 700; font-size: 170px; letter-spacing: 0.18em; text-transform: uppercase;
+              text-shadow: 0 0 50px rgba(255, 220, 170, 0.45); }
+  #end .sub { font-size: 44px; font-weight: 600; letter-spacing: 0.04em; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="gallery_3d" data-start="0" data-duration="8"
+     data-full-length data-width="1920" data-height="1080" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="8" data-full-length data-track-index="0"></div>
+  <div id="anchored" class="bg">
+    <canvas id="gl" width="1920" height="1080"></canvas>
+  </div>
+  <!-- overlays fixed to the frame here -->
+  <div id="shade"></div>
+  <div id="cap"><div class="row"><div class="idx"><b class="n">01</b> / <span class="of">08</span></div><div class="word">Title</div></div>
+    <div class="ticks"></div></div>
+  <div id="end"><div class="big">The end word</div><div class="sub">A line under it</div></div>
+  <div id="pics"></div>
+</div>
+<script>
+  // A 3D picture gallery: framed cards lit by spots, over a glossy floor that mirrors them, with depth blur.
+  // MODE "float": the camera flies from hero card to hero card through cards floating at three depths; each hero
+  // snaps forward, turns to the camera and takes a light sweep. MODE "museum": large canvases in one row on the
+  // floor, the camera dollies along the row and each canvas lights up in turn, then it pulls back to the whole row.
+  // MODE "vortex": the float fly-through, then every card spirals past the camera into one point that flares
+  // under an end word. One clock tween drives draw(t).
+  const MODE = "float";
+
+  // The pictures, in order: heroes (float) or the row (museum) first, the rest fill the background. src is a file
+  // next to index.html ("img/01.jpg") or null for a placeholder drawn on a canvas; title is the caption; aspect
+  // (width / height, optional) sizes the card before a file is decoded, or shapes a placeholder (default 1.6).
+  const PICTURES = [
+    { src: null, title: "Dawn" }, { src: null, title: "Coast" }, { src: null, title: "Forest", aspect: 0.75 },
+    { src: null, title: "Valley" }, { src: null, title: "Harbour" }, { src: null, title: "Summit", aspect: 1 },
+    { src: null, title: "Field" }, { src: null, title: "Night" }, { src: null, title: "" }, { src: null, title: "" },
+    { src: null, title: "" }, { src: null, title: "" }, { src: null, title: "" }, { src: null, title: "" },
+  ];
+  // Times (s) at which each item is the subject: a hero card (float, vortex) or a canvas of the row (museum).
+  // In a narrated scene replace them with W(n, "word") of the words that name each picture. The final camera move
+  // runs from the last time to D - 0.5 s: a push (float), the pull back to the whole row (museum, from 0.6 s after
+  // the last time) or the rush (vortex, from TV).
+  const FLOAT_T = [0, 1, 2, 3, 4, 5, 6, 7];
+  const MUSEUM_T = [0.4, 1.3, 2.2, 3.1, 4.0, 4.9];
+  const TV = 4.6, DV = 2.0;            // vortex: start and length of the rush; the point flares at TV + DV
+  const D = Number(document.getElementById("root").dataset.duration), FW = 1920, FH = 1080;
+
+  const css = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
+  const ACC = ["--accent-1", "--accent-2", "--accent-3", "--accent-4"].map(css);
+  let seed = 23;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const sm = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
+  const clamp01 = (x) => Math.min(1, Math.max(0, x));
+
+  // Placeholder pictures: a sky gradient, a sun and three hill layers in one hue per picture, drawn once.
+  function placeholder(k, aspect) {
+    const cv = document.createElement("canvas");
+    cv.id = "pic-" + k; cv.width = Math.round(aspect >= 1 ? 960 : 960 * aspect); cv.height = Math.round(aspect >= 1 ? 960 / aspect : 960);
+    const g = cv.getContext("2d"), h = (k * 137.5 + 25) % 360;
+    const sx = cv.width / 960, sy = cv.height / 600;      // drawn on a 960 x 600 grid; the sun and number stay round
+    g.setTransform(sx, 0, 0, sy, 0, 0);
+    let s = 101 + k * 7;
+    const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    const sky = g.createLinearGradient(0, 0, 0, 600);
+    sky.addColorStop(0, `hsl(${h}, 45%, 22%)`); sky.addColorStop(0.65, `hsl(${(h + 30) % 360}, 50%, 60%)`);
+    sky.addColorStop(1, `hsl(${(h + 45) % 360}, 55%, 76%)`);
+    g.fillStyle = sky; g.fillRect(0, 0, 960, 600);
+    g.fillStyle = `hsl(${(h + 50) % 360}, 90%, 86%)`;
+    const sunX = 200 + r() * 560, sunY = 170 + r() * 160, sunR = 46 + r() * 30;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.beginPath(); g.arc(sunX * sx, sunY * sy, sunR * Math.min(sx, sy), 0, Math.PI * 2); g.fill();
+    g.setTransform(sx, 0, 0, sy, 0, 0);
+    for (let l = 0; l < 3; l++) {
+      const base = 330 + l * 90, amp = 40 + r() * 50, f1 = 0.004 + r() * 0.006, f2 = 0.011 + r() * 0.01, ph = r() * 6;
+      g.fillStyle = `hsl(${(h + 200 + l * 12) % 360}, ${35 + l * 8}%, ${34 - l * 10}%)`;
+      g.beginPath(); g.moveTo(0, 600);
+      for (let x = 0; x <= 960; x += 12) g.lineTo(x, base - amp * Math.sin(x * f1 + ph) - amp * 0.4 * Math.sin(x * f2 + 2 * ph));
+      g.lineTo(960, 600); g.fill();
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = "rgba(255, 255, 255, 0.85)"; g.font = "600 44px sans-serif"; g.textAlign = "right";
+    g.fillText(String(k + 1).padStart(2, "0"), cv.width - 40, cv.height - 30);
+    return cv;
+  }
+  const pics = document.getElementById("pics");
+  const picEls = PICTURES.map((p, k) => {
+    let el;
+    if (p.src) { el = document.createElement("img"); el.id = "pic-" + k; el.src = p.src; el.alt = ""; }
+    else el = placeholder(k, p.aspect || 1.6);
+    pics.appendChild(el);
+    return el;
+  });
+
+  const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("gl"), antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(FW, FH, false);
+  renderer.setClearColor(new THREE.Color(css("--bg")));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(35, FW / FH, 0.1, 220);
+  const museum = MODE === "museum", vortexOn = MODE === "vortex";
+  const G = Kit.gallery(renderer, scene, { fog: css("--fog"), skyTop: css("--sky-top"), floor: css("--floor"),
+    seam: css("--seam"), frame: css("--frame"), sweep: css("--sweep"), fogNear: museum ? 16 : 12, fogFar: museum ? 58 : 44,
+    reflect: museum ? 0.55 : 0.6, reflectFall: museum ? 2.4 : 2.6 });
+  const post = Kit.tiltShift(renderer, { tilt: 0, dof: museum ? 0.55 : 0.5, focus: 6, range: museum ? 12 : 14, vignette: 0.55 });
+
+  // ---- The items: hero cards on alternate sides of a corridor (float, vortex) or one row of canvases (museum).
+  const HY = museum ? 2.15 : 1.85;
+  const itemT = museum ? MUSEUM_T : FLOAT_T.filter((t) => !vortexOn || t < TV);
+  const items = itemT.map((t, k) => ({ t, title: PICTURES[k % PICTURES.length].title, pic: picEls[k % picEls.length],
+                                       aspect: PICTURES[k % PICTURES.length].aspect }));
+  const aspectOf = (n) => PICTURES[n % PICTURES.length].aspect;
+  let z = 0;
+  items.forEach((h, k) => {
+    if (museum) {
+      h.x = k * 4.6; h.z = 0; h.side = 0;
+      h.card = G.card({ picture: h.pic, aspect: h.aspect, w: 3.6, h: 2.6, b: 0.09, edge: ACC[k % 4], glow: 0.5, bright: 0.6, pos: [h.x, HY, 0] });
+      h.spot = G.spot({ x: h.x, z: -2.4, color: css("--spot"), radius: 1.6, height: 7.8, poolR: 1.6, poolI: 0.12, poolColor: ACC[k % 4] });
+    } else {
+      if (k) z -= 6.8;
+      h.x = (k % 2 ? 2.9 : -2.9) + 0.6 * Math.sin(k * 2.1); h.z = z; h.side = k % 2 ? 1 : -1;
+      h.card = G.card({ picture: h.pic, aspect: h.aspect, w: 3.4, h: 2.1, b: 0.07, edge: ACC[k % 4], glow: 0.7, bright: 0.7 });
+      h.spot = G.spot({ x: h.x, z: h.z - 3.0, color: css("--spot"), radius: 1.6, height: 8, poolColor: ACC[k % 4], poolI: 0.1, poolR: 2.2 });
+    }
+  });
+
+  // ---- Camera: one key per item, then a push (float), a pull back to the whole row (museum) or the rush (vortex).
+  const flyEase = (u) => 0.22 * u + 0.78 * Kit.ease.cubicInOut(u);
+  let keys;
+  if (museum) {
+    // The pull back ends at the distance where the whole row, with a 12% margin, fills the horizontal field of view.
+    const last = items[items.length - 1], k0 = items.length - 1;
+    const x0 = Math.min(...items.map((h) => h.x - h.card.w / 2)), x1 = Math.max(...items.map((h) => h.x + h.card.w / 2));
+    const tanH = Math.tan(camera.fov * Math.PI / 360) * camera.aspect;
+    const dAll = Math.max(12, (x1 - x0) / 2 * 1.12 / tanH), tPull = last.t + 0.6, tEnd = Math.max(D - 0.5, tPull + 0.5);
+    keys = [{ t: 0, tx: -1.0, ty: HY, tz: 0, d: 10.0, pitch: 7, yaw: 42 }];
+    items.forEach((h, k) => keys.push({ t: h.t, tx: h.x + 0.6, d: 9.0 - 0.1 * k, pitch: 5, yaw: 32 - 3 * k, ease: flyEase }));
+    keys.push({ t: tPull, tx: last.x + 1.0, d: 8.7 - 0.1 * k0, yaw: 29 - 3 * k0, ease: "linear" });
+    keys.push({ t: tEnd, tx: (x0 + x1) / 2, ty: HY + 0.1, d: dAll, pitch: 6, yaw: 0, ease: "cubicInOut" });
+  } else {
+    keys = items.map((h, k) => ({ t: h.t, tx: h.x, ty: HY - 0.45, tz: h.z, d: 6.1, pitch: 3.5 + 1.5 * Math.cos(k),
+                                  yaw: k % 2 ? -7 : 7, ease: flyEase }));
+    keys[0].d = 6.6;
+    const lk = keys[keys.length - 1];
+    if (vortexOn) keys.push({ t: D - 0.5, tx: lk.tx * 0.3, tz: lk.tz - 4.5, d: 6.4, pitch: 2, yaw: 0, ease: "sineInOut" });
+    else {
+      // The final push runs to D - 0.5 s whatever the gap after the last hero; a longer gap pushes further.
+      const gap = Math.max(0.3, D - 0.5 - lk.t);
+      keys.push({ t: lk.t + gap, d: 6.1 - Math.min(2.6, 0.6 + 0.5 * gap), pitch: 2.5,
+                  yaw: lk.yaw * (0.6 - 1.2 * Math.min(1, Math.max(0, gap - 0.5) / 2.5)), ease: "sineInOut" });
+    }
+  }
+  const cam = Kit.camera.path(keys);
+
+  // ---- Background cards. Float: scattered at three depths, out of the camera's corridor and the sight lines to
+  // the heroes. Museum: two rows of floating canvases behind the row.
+  const bg = [];
+  if (museum) {
+    const last = items[items.length - 1].x;
+    [[-7, 0.5, 2.6, 3.3, 3.6], [-15, 0.38, 3.0, 4.6, 4.4]].forEach(([zz, br, w0, step, yr], ri) => {
+      for (let x = -14 + ri * 1.6; x < last + 16; x += step + rand() * 1.8) {
+        const w = w0 + rand(), n = items.length + (bg.length % (picEls.length - items.length));
+        const c = G.card({ picture: picEls[n], aspect: aspectOf(n), w, h: w * 0.7, b: 0.06, edge: ACC[bg.length % 4], glow: 0.3, bright: br, reflect: 0.7 });
+        bg.push({ c, x, z: zz + (rand() - 0.5) * 2, y: 0.6 + w * 0.3 + rand() * yr, yaw: (rand() - 0.5) * 0.6, ph: rand() * 6.28, beat: -1 });
+      }
+    });
+  } else {
+    const camPts = [], sight = [];
+    for (let t = 0; t <= D; t += 0.05) { cam.apply(camera, t); camPts.push([camera.position.x, camera.position.z]); }
+    items.forEach((h) => {
+      cam.apply(camera, h.t);
+      for (let u = 0; u <= 1; u += 0.08) sight.push([camera.position.x + (h.x - camera.position.x) * u, camera.position.z + (h.z - camera.position.z) * u]);
+    });
+    const near = (x, zz, pts, r) => pts.some((p) => (p[0] - x) ** 2 + (p[1] - zz) ** 2 < r * r);
+    const zMax = 8, zMin = items[items.length - 1].z - 26;
+    for (let a = 0; a < 9000 && bg.length < 110; a++) {
+      const x = -15 + rand() * 30, zz = zMin + rand() * (zMax - zMin), w = 1.3 + rand() * 2.0;
+      if (near(x, zz, camPts, 1.3 + w * 0.55) || near(x, zz, sight, 0.9 + w * 0.55)) continue;
+      if (items.some((h) => (h.x - x) ** 2 + (h.z - zz) ** 2 < (3.2 + w * 0.55) ** 2)) continue;
+      if (bg.some((c) => (c.x - x) ** 2 + (c.z - zz) ** 2 < (0.35 + (c.w + w) * 0.4) ** 2)) continue;
+      const dist = Math.min(...camPts.map((p) => Math.hypot(p[0] - x, p[1] - zz)));
+      const depth = dist < 5 ? 0 : dist < 9 ? 1 : 2;
+      const c = G.card({ picture: picEls[bg.length % picEls.length], aspect: aspectOf(bg.length), w, h: w * 0.7, b: 0.05, edge: ACC[Math.floor(rand() * 4)], glow: 0.35,
+                         bright: [0.7, 0.58, 0.46][depth], reflect: 0.8 });
+      bg.push({ c, x, z: zz, w, y: 0.35 + w * 0.29 + rand() * (depth === 2 ? 3.8 : 2.6),
+                yaw: (x < 0 ? 1 : -1) * (0.15 + rand() * 0.55) + (rand() - 0.5) * 0.3, ph: rand() * 6.28, beat: Math.floor(rand() * 16) });
+    }
+  }
+  [[-30, 9, -40, ACC[2], 46, 0.12], [28, 6, -60, ACC[1], 40, 0.1], [0, 4, -95, ACC[2], 60, 0.07]]
+    .forEach((g) => scene.add(Kit.glow({ color: new THREE.Color(g[3]), size: g[4], opacity: g[5], position: [g[0], g[1], g[2]] })));
+  const dust = G.dust(items.map((h) => (museum ? [h.x, 1.0, 2.0] : [h.x, h.z - 0.3, 2.2])), 32, { seed: 9, color: css("--spot") });
+
+  // ---- Vortex: an axis from the camera at TV, level, toward a point VL ahead; each card's spiral starts from
+  // wherever the fly-through has it, so cards the camera already passed rush past it from behind.
+  const VL = 22, VO = new THREE.Vector3(), VF = new THREE.Vector3(), VR = new THREE.Vector3(), VU = new THREE.Vector3(0, 1, 0), VC = new THREE.Vector3();
+  let core = null, halo = null;
+  if (vortexOn) {
+    cam.apply(camera, TV);
+    camera.getWorldDirection(VF); VF.y = 0; VF.normalize();
+    VR.crossVectors(VF, VU).normalize();
+    VO.copy(camera.position);
+    VC.copy(VO).addScaledVector(VF, VL); VC.y = HY;
+    G.cards.forEach((c) => { c.vd = rand() * 0.45; c.vs = 0.6 + rand() * 0.5; });
+    core = Kit.glow({ color: new THREE.Color(css("--sweep")), size: 1, opacity: 0, position: VC.toArray() });
+    halo = Kit.glow({ color: new THREE.Color(ACC[2]), size: 1, opacity: 0, position: VC.toArray() });
+    core.material.depthTest = false; halo.material.depthTest = false;
+    core.renderOrder = halo.renderOrder = 20;
+    scene.add(halo, core);
+  }
+  const q = new THREE.Vector3(), qFace = new THREE.Quaternion(), m4 = new THREE.Matrix4(), origin = new THREE.Vector3();
+  function vortex(c, t) {
+    const s = t - TV;
+    if (s <= 0) return;
+    const u = clamp01((s - c.vd) / (DV - c.vd)), e = Math.pow(u, 1.35);
+    const g = c.group;
+    q.copy(g.position).sub(VC);
+    const a = q.dot(VF), x = q.dot(VR), y = q.y;
+    const phi = Math.atan2(y, x) + s * (0.6 + 2.4 * s) * c.vs * Math.min(1, u * 4);
+    let rho = Math.hypot(x, y) * Math.pow(1 - e, 0.75);
+    const a2 = a * (1 - e);
+    rho = Math.max(rho, 2.4 * (1 - sm(1.5, 5, Math.abs(a2 + VL))) * (1 - e));   // keep clear of the camera as it passes
+    const sc = Math.max(0.0001, Math.pow(1 - e, 0.55));
+    g.position.copy(VC).addScaledVector(VF, a2).addScaledVector(VR, rho * Math.cos(phi)).addScaledVector(VU, rho * Math.sin(phi) * 0.8);
+    g.position.y = Math.max(g.position.y, 0.15 + sc * c.h * 0.5);
+    m4.lookAt(q.copy(camera.position).sub(g.position).normalize(), origin, VU);
+    qFace.setFromRotationMatrix(m4);
+    g.quaternion.slerp(qFace, sm(0, 0.25, u));
+    g.rotateZ(phi * 0.35 * u);
+    g.scale.multiplyScalar(sc);
+    c.u.uFade.value = 1 - sm(0.8, 1, e);
+    g.visible = sc > 0.01 && c.u.uFade.value > 0.001;
+  }
+
+  // ---- Caption: index, title and ticks of the active item.
+  const capN = document.querySelector("#cap .n"), capWord = document.querySelector("#cap .word");
+  document.querySelector("#cap .of").textContent = String(items.length).padStart(2, "0");
+  const ticksEl = document.querySelector("#cap .ticks");
+  items.forEach(() => ticksEl.appendChild(document.createElement("i")));
+  const ticks = Array.from(ticksEl.children);
+
+  const backOut = (u) => { const c = 1.9; u = clamp01(u); return 1 + (c + 1) * (u - 1) ** 3 + c * (u - 1) ** 2; };
+  const qRest = new THREE.Quaternion(), tmp = new THREE.Vector3(), eul = new THREE.Euler(), qSet = new THREE.Quaternion();
+
+  function drawFloat(t) {
+    items.forEach((h, k) => {
+      const snap = backOut((t - (h.t - 0.16)) / 0.3), next = items[k + 1];
+      const relax = next ? sm(next.t + 0.05, next.t + 0.6, t) : 0;
+      const f = Math.max(0, snap - 0.55 * relax), g = h.card.group;
+      g.position.set(h.x + h.side * 1.6 * relax, HY + 0.08 * Math.sin(t * 1.3 + k), h.z - 0.9 * (1 - Math.min(1, f)) - 1.8 * relax);
+      g.scale.setScalar(1 + 0.05 * f);
+      qRest.setFromEuler(eul.set(0.05 * h.side, h.side * 0.62, 0.04 * h.side));
+      tmp.copy(camera.position).sub(g.position); tmp.y *= 0.4;
+      m4.lookAt(tmp.normalize(), origin, VU);
+      qFace.setFromRotationMatrix(m4);
+      g.quaternion.copy(qRest).slerp(qFace, clamp01(f));
+      const settle = 0.07 * Math.exp(-Math.max(0, t - h.t) * 5) * sm(h.t - 0.2, h.t, t);
+      g.quaternion.multiply(qSet.setFromEuler(eul.set(0, -h.side * settle, 0)));
+      const on = sm(h.t - 0.2, h.t, t) * (1 - 0.45 * relax);
+      h.card.u.uBright.value = 0.6 + 0.45 * on;
+      h.card.u.uSpot.value = on;
+      h.card.u.uGlow.value = 0.45 + 0.9 * Math.exp(-Math.max(0, t - h.t) * 4) * sm(h.t - 0.1, h.t, t);
+      h.card.u.uSweep.value = -0.3 + 1.7 * sm(h.t - 0.05, h.t + 0.42, t);
+      const flare = Math.exp(-Math.max(0, t - h.t) * 5) * sm(h.t - 0.12, h.t, t);
+      const off = next ? 1 - sm(next.t - 0.3, next.t - 0.05, t) : 1;
+      const ax = Math.hypot(camera.position.x - h.x, camera.position.z - (h.z - 3.0));
+      h.spot.set(0.6 * (0.25 + 0.75 * on + 0.8 * flare) * off * sm(3.5, 6.0, ax) * (vortexOn ? 1 - sm(TV, TV + 0.5, t) : 1));
+    });
+    const beatT = Math.floor(t * 2) / 2;
+    bg.forEach((b) => {
+      const g = b.c.group;
+      g.position.set(b.x, b.y + 0.12 * Math.sin(t * 0.8 + b.ph), b.z);
+      g.rotation.set(0.03 * Math.sin(t * 0.5 + b.ph), b.yaw + 0.08 * Math.sin(t * 0.45 + b.ph * 2), 0);
+      g.scale.setScalar(1);
+      const ping = Math.round(beatT * 2) % 16 === b.beat ? Math.exp(-(t - beatT) * 5) : 0;
+      b.c.u.uGlow.value = 0.3 + 1.0 * ping;
+    });
+  }
+
+  function drawMuseum(t) {
+    const all = sm(items[items.length - 1].t + 0.4, items[items.length - 1].t + 1.2, t);
+    items.forEach((h, k) => {
+      const on = Math.max(sm(h.t - 0.12, h.t + 0.25, t), all);
+      const glow = Math.exp(-Math.max(0, t - h.t) * 2.5) * sm(h.t - 0.1, h.t, t);
+      h.card.u.uBright.value = 0.5 + 0.52 * on;
+      h.card.u.uSpot.value = on;
+      h.card.u.uSweep.value = -0.3 + 1.7 * sm(h.t - 0.12, h.t + 0.5, t);
+      h.card.u.uGlow.value = 0.35 + 0.5 * on + 1.0 * glow;
+      h.spot.set(0.3 + 0.7 * on + 0.9 * glow);
+      h.card.group.position.y = HY + 0.04 * Math.sin(t * 1.1 + k);
+    });
+    bg.forEach((b) => {
+      b.c.group.position.set(b.x, b.y + 0.14 * Math.sin(t * 0.7 + b.ph), b.z);
+      b.c.group.rotation.set(0, b.yaw + 0.07 * Math.sin(t * 0.5 + b.ph), 0.02 * Math.sin(t * 0.6 + b.ph));
+    });
+  }
+
+  function draw(t) {
+    cam.apply(camera, t);
+    if (vortexOn) camera.rotateZ(-0.38 * Math.sin(Math.PI * sm(TV, D - 0.5, t)));
+    camera.updateMatrixWorld();
+    let act = 0;
+    items.forEach((h, k) => { if (t >= h.t - 0.12) act = k; });
+    G.cards.forEach((c) => { c.group.visible = true; c.u.uFade.value = 1; });
+    if (museum) drawMuseum(t); else drawFloat(t);
+    if (vortexOn) {
+      G.cards.forEach((c) => vortex(c, t));
+      const tc = TV + DV;
+      const flare = sm(tc - 0.5, tc, t) * (t > tc ? 0.35 + 0.65 * Math.exp(-(t - tc) * 3) : 1);
+      core.material.opacity = flare; core.scale.setScalar(1 + 3 * flare + 1.5 * sm(tc, D, t));
+      halo.material.opacity = 0.5 * flare; halo.scale.setScalar(4 + 11 * flare);
+      dust.points.material.opacity = 0.8 * (1 - sm(TV, TV + 1, t));
+    }
+    dust.update(t);
+    capN.textContent = String(act + 1).padStart(2, "0");
+    capWord.textContent = items[act].title;
+    capWord.style.transform = `scale(${1 + 0.25 * Math.exp(-Math.max(0, t - items[act].t + 0.12) * 12)})`;
+    ticks.forEach((tk, j) => tk.classList.toggle("on", j <= act));
+    G.update(camera);
+    const target = museum ? new THREE.Vector3(Math.min(items[items.length - 1].x, Math.max(0, cam.at(t).tx)), HY, 0)
+                          : items[act].card.group.position;
+    post.set({ focus: vortexOn && t > TV ? VL * 0.6 : Math.max(3, camera.position.distanceTo(target)) });
+    post.render(scene, camera);
+  }
+
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: D, duration: D, ease: "none", onUpdate: () => draw(clock.t) }, 0);
+  tl.fromTo("#cap", { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.35, ease: "power3.out" }, 0.1);
+  if (museum) tl.to(["#cap", "#shade"], { opacity: 0, x: -30, duration: 0.4, ease: "power2.in" }, items[items.length - 1].t + 0.6);
+  if (vortexOn) {
+    tl.to(["#cap", "#shade"], { opacity: 0, x: -30, duration: 0.3, ease: "power2.in" }, TV);
+    tl.fromTo("#end", { opacity: 0, scale: 1.5 }, { opacity: 1, scale: 1, duration: 0.45, ease: "power3.out" }, TV + DV + 0.05);
+    tl.fromTo("#end .sub", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" }, TV + DV + 0.35);
+  }
+  draw(0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["gallery_3d"] = tl;
+</script>
+</body>
+</html>

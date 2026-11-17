@@ -176,3 +176,60 @@ manim:
   length_tolerance_frames: 1
   verbosity: WARNING
   background_color: "#0b1320"
+
+# `screencast --shots FILE`: screen recordings and screenshots composed into a
+# clip for an `Engine: clip` scene (references/screencast.md). A shot list's
+# `style:` is merged over this section. Colours are #RRGGBB or a palette name;
+# sizes are px of the output frame. palette: accent (highlights, clicks, labels
+# by default), mark (drawn boxes and loops), divider (wipes) are required; add
+# any other names. background: a diagonal gradient from colors[0] (top left)
+# to colors[1] (bottom right); glows: soft lights drifting around x, y
+# (fractions of the frame), radius a fraction of the width; particles: rising
+# dots (0 = none). panel: corner radius (page px), shadow strength, a glow of
+# ambient_color around the panel, edge_light on its rim. label: font file
+# (TrueType or OpenType; null = Pillow's built-in font), size, pill fill and
+# text colours. caption: captions sit in a band `height` px tall at the bottom,
+# darkened to band_color over `ramp` px on panel shots when the list has a
+# caption. focal: perspective focal length in frame widths. safe_margin:
+# labels stay this far from every frame edge (title-safe). fade: crossfade
+# seconds between shots (0 = hard cuts). crf: quality of the clip written
+# (`clip` re-encodes it at `encode.crf`).
+screencast:
+  palette:
+    accent: "#4C9AFF"
+    accent2: "#A78BFA"
+    accent3: "#F59E0B"
+    mark: "#EF4444"
+    divider: "#FACC15"
+    white: "#F2F4F7"
+  background:
+    colors: ["#101318", "#1E232D"]
+    glows: []
+    particles: 0
+    particle_color: white
+  panel:
+    radius: 22
+    shadow: 0.75
+    ambient_color: white
+    ambient: 0.06
+    edge_light: 0.25
+  label:
+    font: null
+    size: 46
+    fill: "#0E1116"
+    fill_opacity: 0.84
+    outline_opacity: 0.24
+    text: "#ECEFF3"
+  caption:
+    band: true
+    band_color: "#0B0D12"
+    band_opacity: 0.93
+    height: 175
+    ramp: 55
+    size: 46
+    align: left
+  focal: 1.25
+  vignette: 0.28
+  safe_margin: 90
+  fade: 0.3
+  crf: 14

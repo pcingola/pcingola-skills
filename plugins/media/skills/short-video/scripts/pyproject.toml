@@ -5,6 +5,12 @@ requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
     "numpy>=1.26",
+    # particle-text: glyph outlines from font files (brotli decodes woff2), texture and samples with Pillow
+    "fonttools>=4.50",
+    "brotli>=1.1",
+    "Pillow>=10.1",
+    # screencast: frames, warps, masks and alignment (labels with Pillow)
+    "opencv-python-headless>=4.10",
     # the video model of video scenes (`Engine: video`) through the ai_models config (lib/ai_models, git source)
     "ai-models",
     # the settings file config.yaml (lib/plugin_settings, git source)

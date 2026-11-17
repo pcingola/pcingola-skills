@@ -345,6 +345,9 @@ between two scenes).
    is made at least as long as its narration (`length` gives it), so it
    never ends in a frozen frame. Default transformation durations: 3.5 s
    for a fast-paced film, 5.6 to 7 s for a calmer one; 10.5 s is too slow.
+   For a demo of a software UI, write a shot list of its screen recordings
+   and screenshots and run `screencast --shots FILE --scene ID`
+   (`references/screencast.md`).
 2. `clip --scene ID FILE` imports it as the scene's next version; do the
    motion check on it. It refuses a file whose size or
    frame rate differs from `video:`; make the clip again at those values.
@@ -376,6 +379,7 @@ be the `brand:` value.
 | `render --scene ID [--seed N] [--model ID]` | check, render (a video or presenter scene: call the model, `--seed` its seed, `--model` replaces the task's model; a world scene: the whole world, cut into the next version of each of its scenes), mux the narration, write the contact sheet |
 | `routes [--task video\|presenter]` | the model routes of the video and presenter tasks (Model routes) |
 | `clip --scene ID FILE` | import a video as the next version of a clip scene, mux, contact sheet |
+| `screencast --shots FILE (--scene ID \| -o OUT) [--at T1,T2]` | screen recordings and screenshots composed from a YAML shot list into a clip at the `video:` size and fps; `--scene`: `sources/<ID>-screencast.mp4` and the `clip` step; `--at`: PNG frames instead (`references/screencast.md`) |
 | `stills --scene ID --at 1.2,3.4 [--version vN] [--mark X,Y[,W,H]] [--sheet]` | full-size PNGs of an HTML scene's page at scene times, from the render browser with no render (a world scene: its world page at start + t; `--version` names the world version); `--mark` adds a copy with a red point or box in frame pixels; `--sheet` adds one labelled contact sheet |
 | `check --scene ID` | the static checks of `render` on the latest page, without rendering |
 | `html [--out PATH]` | the HTML film `film/html/v<N>/film.html` (or `PATH`), one standalone file |
@@ -388,6 +392,7 @@ be the `brand:` value.
 | `audiocheck [FILE...] [--film vN]` | bursts and clicks in each source track; exit 1 if any |
 | `credit FILE [-o OUT] --author NAME... [--brand DIR]` | credit caption, logo and tags on any MP4 |
 | `setup` | install HyperFrames and GSAP; `render` runs it when needed |
+| `particle-text LINE... --font FILE [--name N] [--size PX \| --fit F] [--tracking EM] [--line-gap EM] [--count N] [--frame WxH] [--fov DEG] [--distance D] (--scene ID \| --out DIR)` | `<name>_targets.js` and `<name>_tex.png` of a text block (one argument per line, font .woff2/.woff/.ttf/.otf) for a particle-text page (`kit/particles.js`, technique `particle_text`), into the scene's latest page version or `DIR`; prints the text's size in frame pixels and share of the frame, warns above 80% of the width; `--fit F`: the size at which the text is F of the frame width; `--frame` defaults to `video:` of the project |
 | `play FILE...` | macOS: open images in `play.image_app`, video and audio in `play.app`, HTML in the default browser; Linux: open each file with `xdg-open`; do not open media with QuickTime or a bare `open` |
 
 ## Project layout
@@ -429,11 +434,12 @@ timings are under `mix:` in `settings.yaml`.
 - `references/scenes.md`: writing an HTML scene on GSAP and its movement, the library files, the motion check, the Brief check, the title, summary and end scenes.
 - `references/anime.md`, `references/motion.md`: an HTML scene on anime.js or Motion.
 - `references/three.md`: a three.js scene and the kit.
-- `assets/kit/`: three.js helper scripts (camera paths, labels on 3D points, glow, lights and shadows, route ribbons, tilt-shift); its `README.md` lists their functions.
-- `assets/techniques/<name>/`: working scenes to start from, each with `index.html`, `still.png` and `note.md` (when to use it, its camera and timing, what to vary); `assets/techniques/README.md` lists them.
+- `assets/kit/`: three.js helper scripts (camera paths, labels on 3D points, glow, lights and shadows, route ribbons, tilt-shift, particle text); its `README.md` lists their functions.
+- `assets/techniques/<name>/`: working scenes to start from, each with `index.html`, `still.png` and `note.md` (when to use it, its camera and timing, what to vary); `assets/techniques/README.md` lists them. A technique whose page loads generated files names the command that writes them in its `note.md` (`particle_text`: `particle-text`).
 - `references/motion-rules.md`: movement of flat charts and diagrams.
 - `references/manim.md`: writing a manim scene and its movement.
 - `references/video-model.md`: writing a video scene's motion prompt and checking its clip.
+- `references/screencast.md`: the shot list of `screencast`: panel, picture and cards shots, camera, highlights, clicks, typing, marks, wipes, labels, captions, style.
 - `references/reference-video.md`: reading a reference video or images with `refs` and writing `reference.md` before the storyboard.
 - `references/short-version.md`: a 2-minute or a phone version of an existing film.
 - `references/critic.md`: the film critic's brief.
