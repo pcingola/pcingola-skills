@@ -85,9 +85,11 @@ makes `silent.mp4` from it:
   narration ends;
 - a clip longer than the narration is cut at its end.
 
-A hold longer than about 2 s fails the motion check. For a long sentence
-split the scene into several video scenes, or use an HTML scene over the
-clip (an imported clip, `Engine: clip`, or "Background video" in
+A hold longer than about 2 s fails the motion check. The fix is a
+storyboard change, which the main agent makes: a scene subagent whose clip
+fails on its held tail reports it to the main agent. For a long sentence the
+main agent splits the scene into several video scenes, or uses an HTML scene
+over the clip (an imported clip, `Engine: clip`, or "Background video" in
 `references/scenes.md`).
 
 ## Writing the prompt
@@ -112,7 +114,8 @@ picture.
 
 1. `short-video.sh scaffold -p <project> --scene ID`.
 2. Edit `prompt.txt` from `brief.md` and the rules above.
-3. `short-video.sh render -p <project> --scene ID`. Each render is a model
+3. `short-video.sh render -p <project> --scene ID [--model ID]`, with the
+   `--model ID` the main agent gave for the scene, if any. Each render is a model
    call, which costs time and money. `--seed N` fixes the model's seed, so a
    prompt change is compared at the same seed. A fix found while looking at
    frames edits `prompt.txt` and runs `render` again on the same version;

@@ -330,7 +330,11 @@ between two scenes).
 1. Make the clip at the size and fps of `video:` in `settings.yaml`, written
    into `sources/`. For an effect, load `media:video-effects` with the Skill
    tool and ask it for the clip: the start image, the end image or a style
-   prompt, the effect, the transformation duration, the holds before and
+   prompt (a transition's start and end images are the neighbouring scenes'
+   `Image:` files; a neighbour without `Image:` gives a full-size still of
+   its frame at the cut, `stills` or `frames` at 0 for the next scene and
+   at its end for the previous one, so the transition is made after its
+   neighbours pass their checks), the effect, the transformation duration, the holds before and
    after it (each shorter than about 2 s), and any push-in. A narrated clip
    is made at least as long as its narration (`length` gives it), so it
    never ends in a frozen frame. Default transformation durations: 3.5 s

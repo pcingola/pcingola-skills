@@ -88,7 +88,8 @@ A page loads libraries with a `<script src>` of the bare file name, from the ver
 | `d3.min.js` | d3 7.9.0 | `d3` |
 | `three.min.js` | three.js 0.159.0 | `THREE` |
 
-GSAP has its own no-charge licence; `gsap.min.js` is 72 KB minified. The
+GSAP has its own no-charge licence; `gsap.min.js` is 72 KB minified. d3 is
+ISC, `d3.min.js` 280 KB; three.js is MIT, `three.min.js` 668 KB. The
 licence and size of anime.js and Motion are at the top of
 `references/anime.md` and `references/motion.md`.
 
