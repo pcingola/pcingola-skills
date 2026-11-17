@@ -300,6 +300,11 @@ scene.
    film critic needs task `film_critic` set to a Gemini model of a `google`
    provider in the model config. `critic.model: null` in `settings.yaml` turns
    the step off.
+11. Final: when the user approves a film version as final, make a symlink in
+   the project folder named `<film_title>_<format>.mp4`, words joined by
+   underscores (`Studio_for_Claude_Code_promo_1080p.mp4`), to that version's
+   file; one per encode the user keeps (1080p, 720p, phone). A later approved
+   version replaces the link.
 
 After a later change to the storyboard or `settings.yaml`, `status` lists the
 scenes that need a new voice or a new version; redo what "What an edit needs" in

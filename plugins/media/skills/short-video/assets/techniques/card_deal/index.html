@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1080, height=1920" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<style>
+  :root {
+    --bg-top: #101a3a;      /* background gradient, top to bottom */
+    --bg-mid: #0b1230;
+    --bg: #070b16;
+    --ink: #f5efe6;         /* caption text */
+    --card-bg: #0d1530;     /* card face behind the drawing */
+    --line: rgba(245, 239, 230, 0.55);  /* text lines drawn on the cards */
+    --acc-1: #ffc46b;       /* group accents: card border, glow, counter */
+    --acc-2: #4fd8ff;
+    --acc-3: #8e7cff;
+    --glow-1: rgba(255, 160, 80, 0.55);
+    --glow-2: rgba(79, 216, 255, 0.5);
+    --glow-3: rgba(142, 124, 255, 0.6);
+    --c1: #ff8a3d;          /* colour blocks inside the cards */
+    --c2: #4fd8ff;
+    --c3: #8e7cff;
+    --c4: #ffc46b;
+    --c5: #3ddc97;
+    --c6: #ff5f7e;
+    --font: Barlow, Inter, "Helvetica Neue", Arial, sans-serif;
+    --font-caption: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+  #root { position: relative; width: 1080px; height: 1920px; overflow: hidden; font-family: var(--font); color: var(--ink); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 45%, var(--bg) 100%); }
+  .layer { position: absolute; inset: 0; overflow: hidden; }
+  .wall { position: absolute; left: 0; top: 0; }
+  .wcard { position: absolute; border-radius: 10px; overflow: hidden; background: var(--card-bg);
+           border: 2px solid rgba(160, 180, 255, 0.18); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55); }
+  #wall-far { filter: blur(2.5px) brightness(0.32) saturate(0.8); }
+  #wall-near { filter: blur(1.5px) brightness(0.34) saturate(0.85); }
+  #floor { background: linear-gradient(180deg, rgba(7, 11, 22, 0) 62%, rgba(7, 11, 22, 0.55) 82%, rgba(7, 11, 22, 0.8) 100%); }
+  #glow { background: radial-gradient(900px 900px at 50% 52%, rgba(142, 124, 255, 0.10) 0%, rgba(79, 216, 255, 0.05) 40%, rgba(0, 0, 0, 0) 70%); }
+  #shade { background: radial-gradient(760px 820px at 50% 55%, rgba(7, 11, 22, 0.62) 0%, rgba(7, 11, 22, 0.38) 55%, rgba(7, 11, 22, 0) 100%); }
+  #vig { background: radial-gradient(1500px 2100px at 50% 50%, rgba(0, 0, 0, 0) 55%, rgba(4, 6, 14, 0.7) 100%); }
+  #stage { position: absolute; inset: 0; }
+  .grp { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; }
+  .card { position: absolute; left: 0; top: 0; border-radius: 18px; visibility: hidden;
+          transform-origin: 50% 50%; backface-visibility: hidden; }
+  .card .face { position: absolute; inset: 0; border-radius: 18px; overflow: hidden; border: 6px solid var(--acc); background: var(--card-bg); }
+  .card .dim { position: absolute; inset: 0; background: var(--bg); opacity: 0; }
+  .card .shine { position: absolute; top: -10%; left: 0; width: 46%; height: 120%; opacity: 0;
+                 background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.24) 50%, rgba(255, 255, 255, 0) 100%); }
+  .card .halo { position: absolute; inset: -6px; border-radius: 22px; box-shadow: 0 0 46px var(--acc-glow), 0 0 12px var(--acc-glow); opacity: 0.5; }
+  .card .shadow { position: absolute; inset: 0; border-radius: 18px; box-shadow: 0 44px 90px rgba(0, 0, 0, 0.7), 0 12px 28px rgba(0, 0, 0, 0.5); }
+  /* Card drawing: every part is an absolutely placed block in percent of the card, so any aspect ratio works. */
+  .pt { position: absolute; }
+  .bar-title { border-radius: 6px; }
+  .txt { height: 3.2%; min-height: 10px; border-radius: 6px; background: var(--line); }
+  .g0 { --acc: var(--acc-1); --acc-glow: var(--glow-1); }
+  .g1 { --acc: var(--acc-2); --acc-glow: var(--glow-2); }
+  .g2 { --acc: var(--acc-3); --acc-glow: var(--glow-3); }
+  .cap { position: absolute; left: 76px; top: 196px; opacity: 0; transform-origin: 0% 0%; }
+  .cap .idx { display: inline-block; font-family: var(--font-mono); font-weight: 500; font-size: 44px; color: var(--ink);
+              padding: 8px 18px 9px; border-radius: 12px; background: rgba(7, 11, 22, 0.72);
+              border: 2px solid var(--acc); box-shadow: 0 0 26px var(--acc-glow); letter-spacing: 0.02em; }
+  .cap .idx b { font-weight: 500; color: var(--acc); }
+  .cap .word { margin-top: 20px; font-family: var(--font-caption); font-weight: 700; font-size: 112px; line-height: 0.9;
+               letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); white-space: nowrap;
+               text-shadow: 0 0 40px var(--acc-glow), 0 4px 18px rgba(0, 0, 0, 0.6); }
+  .cap .ticks { display: flex; gap: 10px; margin-top: 22px; }
+  .cap .ticks i { display: block; width: 56px; height: 8px; border-radius: 4px; background: rgba(245, 239, 230, 0.22); }
+  .cap .ticks i.on { background: var(--acc); box-shadow: 0 0 14px var(--acc); }
+  #shade-top { position: absolute; inset: 0; pointer-events: none;
+               background: radial-gradient(1000px 560px at 8% 16%, rgba(7, 11, 22, 0.85) 0%, rgba(7, 11, 22, 0.55) 50%, rgba(7, 11, 22, 0) 100%); }
+  #flash { position: absolute; inset: 0; opacity: 0; mix-blend-mode: screen;
+           background: radial-gradient(ellipse at 50% 55%, rgba(255, 240, 220, 0.5) 0%, rgba(120, 140, 255, 0.22) 50%, rgba(0, 0, 0, 0) 78%); }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="card_deal" data-start="0" data-duration="8"
+     data-full-length data-width="1080" data-height="1920" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="8" data-full-length data-track-index="0"></div>
+  <div id="glow" class="bg"></div>
+  <div id="wall-far" class="layer"><div class="wall" id="wf"></div></div>
+  <div id="wall-near" class="layer"><div class="wall" id="wn"></div></div>
+  <div id="shade" class="bg"></div>
+  <div id="floor" class="bg"></div>
+  <div id="vig" class="bg"></div>
+  <div id="stage"></div>
+  <div id="shade-top"></div>
+  <div id="flash"></div>
+  <!-- overlays here -->
+  <!-- the captions are built from GROUPS in the script -->
+</div>
+<script>
+  // A deck of cards dealt on the beat. Each card flies in from off-frame (alternating sides) along a quadratic arc
+  // with a small 3D tilt, lands straight on the stack, and the cards under it step back (up, smaller, rotated,
+  // dimmed). When the caption group changes, the stack sweeps out and down under a soft flash and the next group
+  // starts a new stack. Behind it two walls of dimmed cards drift at constant speed. Every element is a pure
+  // function of the time t, drawn from one paused GSAP timeline.
+
+  // Canvas and stack. Portrait 1080x1920; the stack centre sits below the caption.
+  const FW = 1080, FH = 1920, D = 8;
+  const CX = 540, CY = 1060, HW = 920;      // stack centre and card width
+  // Deal path, relative to the stack centre: start off-frame at the side, a control point beside the stack. Both
+  // sit below the caption block, so a card in flight never crosses it.
+  const PATH = { x0: 1350, y0: 230, x1: 470, y1: -30 };
+  const FLIGHT = 0.3;                        // seconds from off-frame to landing
+  // Landing times on a 120 bpm grid (0.5 s per beat). Each group deals its cards on consecutive beats from its start.
+  const BEATS = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0];
+  // Caption groups in play order. A group ends where the next starts; the last holds to the end.
+  const GROUPS = [
+    { caption: "CHARTS", start: 0.0, cards: ["c1", "c2", "c3", "c4", "c5", "c6"] },
+    { caption: "PHOTOS", start: 3.5, cards: ["p1", "p2", "p3", "p4", "p5"] },
+    { caption: "SLIDES", start: 6.0, cards: ["s1", "s2", "s3"] },
+  ];
+  // Cards: aspect ratio (width / height), drawing kind, the two main colours. Sizes come from this table only.
+  const CARDS = {
+    c1: { ar: 16 / 9, kind: "bars",  a: "--c1", b: "--c2" }, c2: { ar: 4 / 3, kind: "line",  a: "--c2", b: "--c4" },
+    c3: { ar: 16 / 9, kind: "pie",   a: "--c3", b: "--c5" }, c4: { ar: 3 / 2, kind: "bars",  a: "--c5", b: "--c1" },
+    c5: { ar: 16 / 9, kind: "line",  a: "--c6", b: "--c2" }, c6: { ar: 4 / 3, kind: "pie",   a: "--c4", b: "--c3" },
+    p1: { ar: 16 / 9, kind: "photo", a: "--c1", b: "--c3" }, p2: { ar: 3 / 2, kind: "photo", a: "--c2", b: "--c5" },
+    p3: { ar: 4 / 3, kind: "photo", a: "--c6", b: "--c4" }, p4: { ar: 16 / 9, kind: "photo", a: "--c3", b: "--c2" },
+    p5: { ar: 3 / 2, kind: "photo", a: "--c4", b: "--c1" },
+    s1: { ar: 16 / 9, kind: "slide", a: "--c2", b: "--c1" }, s2: { ar: 16 / 9, kind: "slide", a: "--c3", b: "--c5" },
+    s3: { ar: 16 / 9, kind: "slide", a: "--c1", b: "--c6" },
+  };
+  const rand = ((s) => () => (s = (s * 16807) % 2147483647) / 2147483647)(11);
+
+  const clamp = (x) => Math.min(1, Math.max(0, x));
+  const sm = (a, b, x) => { const u = clamp((x - a) / (b - a)); return u * u * (3 - 2 * u); };
+  const out3 = (u) => 1 - Math.pow(1 - u, 3);
+  const V = (name) => "var(" + name + ")";
+  const pct = (v) => v.toFixed(2) + "%";
+
+  // One placed block in percent of the card: left, top, width, height.
+  function part(face, x, y, w, h, css) {
+    const d = document.createElement("div");
+    d.className = "pt " + (css.cls || "");
+    d.style.left = pct(x); d.style.top = pct(y); d.style.width = pct(w); d.style.height = pct(h);
+    Object.keys(css).forEach((k) => { if (k !== "cls") d.style[k] = css[k]; });
+    face.appendChild(d);
+    return d;
+  }
+  // Placeholder drawings: a title bar and text lines on every card, then a chart, a landscape or a slide body.
+  function drawCard(face, c) {
+    const A = V(c.a), B = V(c.b);
+    if (c.kind === "photo") {
+      part(face, 0, 0, 100, 100, { background: `linear-gradient(180deg, ${B} 0%, ${A} 70%)`, opacity: "0.85" });
+      part(face, 62 + 10 * rand(), 14 + 8 * rand(), 16, 16 * c.ar, { borderRadius: "50%", background: V("--ink"), opacity: "0.8" });
+      part(face, -10, 46, 70, 54, { background: V("--card-bg"), opacity: "0.75", clipPath: "polygon(0 100%, 50% 0, 100% 100%)" });
+      part(face, 30, 56, 80, 44, { background: V("--bg"), opacity: "0.85", clipPath: "polygon(0 100%, 55% 0, 100% 100%)" });
+      part(face, 6, 84, 34, 7, { cls: "bar-title", background: "rgba(7, 11, 22, 0.7)" });
+      part(face, 8, 86.5, 22, 2, { cls: "txt" });
+      return;
+    }
+    part(face, 6, 7, 88, 11, { cls: "bar-title", background: A, opacity: "0.9" });
+    part(face, 9, 10.5, 30 + 20 * rand(), 4, { cls: "txt", background: V("--bg"), opacity: "0.6" });
+    if (c.kind === "slide") {
+      [0, 1, 2, 3].forEach((i) => part(face, 8, 30 + i * 11, 30 + 18 * rand(), 3.2, { cls: "txt" }));
+      part(face, 62, 28, 30, 30 * c.ar * 1.2, { borderRadius: "14px", background: B, opacity: "0.85" });
+      part(face, 69, 37, 16, 16 * c.ar, { borderRadius: "50%", background: V("--ink"), opacity: "0.7" });
+      part(face, 8, 80, 84, 8, { borderRadius: "8px", background: A, opacity: "0.35" });
+      return;
+    }
+    // Chart cards: axis lines, then bars, a polyline of blocks or a pie, and two text lines under them.
+    part(face, 8, 26, 0.5, 54, { background: V("--line") });
+    part(face, 8, 80, 84, 0.8, { background: V("--line") });
+    if (c.kind === "bars") {
+      for (let i = 0; i < 6; i++) {
+        const h = 14 + 38 * rand();
+        part(face, 13 + i * 13, 80 - h, 8, h, { background: i === 4 ? B : A, borderRadius: "6px 6px 0 0", opacity: i === 4 ? "1" : "0.75" });
+      }
+    } else if (c.kind === "line") {
+      let y = 66;
+      for (let i = 0; i < 8; i++) {
+        y = Math.max(32, Math.min(74, y - 10 + 14 * rand() - 2 * i * 0.5));
+        part(face, 12 + i * 10, y, 7, 4, { background: A, borderRadius: "8px" });
+        part(face, 13.5 + i * 10, y + 4, 4, 80 - y - 4, { background: B, opacity: "0.18" });
+      }
+    } else {
+      const k = Math.round(90 + 180 * rand());
+      part(face, 14, 27, 50 / c.ar, 50, {
+        borderRadius: "50%", background: `conic-gradient(${A} 0deg ${k}deg, ${B} ${k}deg 300deg, ${V("--line")} 300deg 360deg)` });
+      [0, 1, 2].forEach((i) => part(face, 64, 34 + i * 12, 24 - 4 * i, 3.2, { cls: "txt" }));
+    }
+    part(face, 8, 86, 50, 3.2, { cls: "txt" });
+  }
+
+  // Cards of every group, in deal order, each with its landing time from BEATS.
+  const stage = document.getElementById("stage");
+  const root = document.getElementById("root");
+  const deals = [];
+  let beat = 0;
+  GROUPS.forEach((G, gi) => {
+    G.end = gi + 1 < GROUPS.length ? GROUPS[gi + 1].start : null;
+    G.el = document.createElement("div");
+    G.el.className = "grp g" + (gi % 3);
+    stage.appendChild(G.el);
+    G.deals = [];
+    G.cards.forEach((id, idx) => {
+      const c = CARDS[id], h = { id, g: gi, idx, b: BEATS[beat], side: beat % 2 ? 1 : -1 };
+      beat++;
+      h.w = HW; h.h = Math.round(HW / c.ar);
+      const el = document.createElement("div");
+      el.className = "card"; el.id = "card-" + id;
+      el.style.width = h.w + "px"; el.style.height = h.h + "px";
+      el.innerHTML = '<div class="shadow"></div><div class="halo"></div><div class="face"></div>';
+      const face = el.querySelector(".face");
+      drawCard(face, c);
+      face.insertAdjacentHTML("beforeend", '<div class="shine"></div><div class="dim"></div>');
+      G.el.appendChild(el);
+      h.el = el; h.halo = el.querySelector(".halo"); h.shine = el.querySelector(".shine"); h.dim = el.querySelector(".dim");
+      h.shadow = el.querySelector(".shadow");
+      // Rest offsets once buried: alternating tilt so edges peek out on both sides.
+      h.rest = { rz: (idx % 2 ? 1 : -1) * (2.2 + 1.2 * rand()), dx: (idx % 2 ? 1 : -1) * (10 + 10 * rand()) };
+      deals.push(h); G.deals.push(h);
+    });
+    // Caption: counter, word, one tick per card.
+    const cap = document.createElement("div");
+    cap.className = "cap g" + (gi % 3); cap.id = "cap-" + gi;
+    const total = String(G.cards.length).padStart(2, "0");
+    cap.innerHTML = `<div class="idx"><b class="n">01</b> / ${total}</div><div class="word">${G.caption}</div>` +
+                    `<div class="ticks">${G.cards.map(() => "<i></i>").join("")}</div>`;
+    root.appendChild(cap);
+    G.cap = cap; G.n = cap.querySelector(".n"); G.ticks = Array.from(cap.querySelectorAll(".ticks i"));
+  });
+
+  // Background walls: columns of small placeholder cards, each column drifting up at its own constant speed.
+  const WALL_COLS = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6"];
+  function buildWall(id, cw, gap, cols, x0, speedBase, rows) {
+    const wall = document.getElementById(id), ch = Math.round(cw * 9 / 16), out = [];
+    for (let c = 0; c < cols; c++) {
+      const col = document.createElement("div");
+      col.className = "wall";
+      col.style.left = (x0 + c * (cw + gap)) + "px";
+      const y0 = -((c * 0.37) % 1) * (ch + gap) - 200;
+      for (let r = 0; r < rows; r++) {
+        const d = document.createElement("div");
+        d.className = "wcard";
+        d.style.width = cw + "px"; d.style.height = ch + "px";
+        d.style.left = "0px"; d.style.top = Math.round(y0 + r * (ch + gap)) + "px";
+        const a = V(WALL_COLS[Math.floor(rand() * 6)]), b = V(WALL_COLS[Math.floor(rand() * 6)]);
+        d.style.background = `linear-gradient(${Math.round(rand() * 180)}deg, ${a} 0%, ${b} 100%)`;
+        d.innerHTML = '<div class="pt txt" style="left:8%;top:12%;width:46%;height:9%"></div>' +
+                      '<div class="pt txt" style="left:8%;top:30%;width:30%;height:9%"></div>';
+        col.appendChild(d);
+      }
+      wall.appendChild(col);
+      out.push({ el: col, v: speedBase * (0.8 + 0.4 * rand()) * (c % 2 ? 1 : 0.85) });
+    }
+    return out;
+  }
+  const far = buildWall("wf", 200, 26, 7, -120, 26, 17);
+  const near = buildWall("wn", 330, 40, 4, -150, 52, 10);
+  const wallF = document.getElementById("wf"), wallN = document.getElementById("wn");
+
+  function draw(t) {
+    // Walls: constant-speed drift, columns up, the whole wall tilted, with a slow constant sideways slide.
+    wallF.style.transform = `translate(${(-40 + 6 * t).toFixed(3)}px, 0px) rotate(-9deg)`;
+    far.forEach((c) => { c.el.style.transform = `translate3d(0, ${(-c.v * t).toFixed(3)}px, 0)`; });
+    wallN.style.transform = `translate(${(-30 - 10 * t).toFixed(3)}px, 0px) rotate(-9deg)`;
+    near.forEach((c) => { c.el.style.transform = `translate3d(0, ${(-c.v * t).toFixed(3)}px, 0)`; });
+
+    // Group stacks: a slow push in while the group is up, then the sweep out and down.
+    GROUPS.forEach((G, gi) => {
+      const life = Math.max(0, t - G.start), last = G.end === null;
+      // The last group ends on a slow push that is still moving at the last frame.
+      const push = 1 + 0.018 * life + (last ? 0.07 * sm(G.start + 1.0, D + 0.8, t) : 0);
+      const dir = gi % 2 ? 1 : -1;
+      let ty = 0, tx = 0, rz = 0, sc = push, vis = t >= G.start - FLIGHT - 0.2;
+      if (!last) {
+        const w = sm(G.end - 0.24, G.end + 0.26, t), w2 = w * w;
+        ty = 1500 * w2; tx = 140 * w2 * dir; rz = 9 * dir * w2; sc = push * (1 - 0.1 * w);
+        if (w >= 1) vis = false;
+      }
+      G.el.style.visibility = vis ? "visible" : "hidden";
+      G.el.style.transformOrigin = `${CX}px ${CY}px`;
+      G.el.style.transform = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) rotate(${rz.toFixed(3)}deg) scale(${sc.toFixed(5)})`;
+
+      // Counter and ticks: the number of cards landed so far, at least 1.
+      let n = 0;
+      G.deals.forEach((h, j) => { if (t >= h.b - 0.02) n = j + 1; });
+      n = Math.max(1, n);
+      G.n.textContent = String(n).padStart(2, "0");
+      G.ticks.forEach((tk, j) => tk.classList.toggle("on", j < n));
+    });
+
+    deals.forEach((h) => {
+      const G = GROUPS[h.g], t0 = h.b - FLIGHT;
+      if (t < t0) { h.el.style.visibility = "hidden"; return; }
+      h.el.style.visibility = "inherit";
+      const p = clamp((t - t0) / FLIGHT), e = out3(p), q = 1 - e;
+      // Quadratic arc from off-frame on the card's side, below the caption, to the stack centre.
+      const s = h.side;
+      const P0 = [CX + s * PATH.x0, CY + PATH.y0], P1 = [CX + s * PATH.x1, CY + PATH.y1], P2 = [CX, CY];
+      const x = q * q * P0[0] + 2 * q * e * P1[0] + e * e * P2[0];
+      const y = q * q * P0[1] + 2 * q * e * P1[1] + e * e * P2[1];
+      let rz = s * 16 * q, ry = -s * 30 * q, rx = 8 * q, sc = 1 + 0.12 * q;
+      // Buried depth: grows smoothly as each later card of the group lands.
+      let d = 0;
+      G.deals.forEach((o) => { if (o.idx > h.idx) d += sm(o.b - 0.14, o.b + 0.16, t); });
+      const dd = Math.min(d, 4);
+      const ox = h.rest.dx * Math.min(d, 1) + 4 * s * Math.max(0, dd - 1);
+      const oy = -30 * dd;
+      rz += h.rest.rz * Math.min(d, 1) + 0.32 * h.rest.rz * Math.max(0, dd - 1);
+      sc *= 1 - 0.035 * dd;
+      // Landing settle: a small dip in scale right after touchdown.
+      const land = t - h.b;
+      const settle = land > 0 ? 0.012 * Math.sin(Math.min(1, land / 0.3) * Math.PI) * Math.exp(-land * 6) : 0;
+      sc *= 1 - settle;
+      const L = x - h.w / 2 + ox, T = y - h.h / 2 + oy;
+      h.el.style.transform = `translate3d(${L.toFixed(2)}px, ${T.toFixed(2)}px, 0) perspective(1800px) ` +
+        `rotateX(${rx.toFixed(3)}deg) rotateY(${ry.toFixed(3)}deg) rotateZ(${rz.toFixed(3)}deg) scale(${sc.toFixed(5)})`;
+      h.dim.style.opacity = Math.min(0.62, 0.17 * d).toFixed(3);
+      h.shadow.style.opacity = (0.75 + 0.25 * e).toFixed(3);
+      // Edge glow flares on landing and fades back.
+      const flare = land > -0.05 ? Math.exp(-Math.max(0, land) * 4) * sm(h.b - 0.06, h.b, t) : 0;
+      h.halo.style.opacity = ((0.45 + 0.9 * flare) * (1 - Math.min(0.8, 0.3 * d))).toFixed(3);
+      // A light sweep crosses the card once after landing.
+      const sw = sm(h.b - 0.04, h.b + 0.5, t);
+      h.shine.style.opacity = (sw > 0 && sw < 1 ? Math.sin(sw * Math.PI) : 0).toFixed(3);
+      h.shine.style.transform = `translateX(${(-110 + 340 * sw).toFixed(2)}%)`;
+    });
+  }
+
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: D, duration: D, ease: "none", onUpdate: () => draw(clock.t) }, 0);
+  // Captions: the first is on from frame 0; each later one punches in as its first card lands; each leaves just
+  // before the sweep. A flash covers each sweep.
+  GROUPS.forEach((G, gi) => {
+    if (gi === 0) tl.fromTo(G.cap, { opacity: 1, scale: 1.03 }, { opacity: 1, scale: 1, duration: 0.6, ease: "sine.inOut" }, 0);
+    else tl.fromTo(G.cap, { opacity: 0, scale: 1.3, x: -16 }, { opacity: 1, scale: 1, x: 0, duration: 0.12, ease: "power3.out", immediateRender: false }, G.start - 0.08);
+    if (G.end !== null) {
+      tl.to(G.cap, { opacity: 0, x: -30, duration: 0.08, ease: "power2.in" }, G.end - 0.16);
+      tl.fromTo("#flash", { opacity: 0 }, { opacity: 0.75, duration: 0.08, ease: "power1.in", immediateRender: false }, G.end - 0.08);
+      tl.to("#flash", { opacity: 0, duration: 0.32, ease: "power2.out" }, G.end);
+    }
+  });
+  draw(0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["card_deal"] = tl;
+</script>
+</body>
+</html>

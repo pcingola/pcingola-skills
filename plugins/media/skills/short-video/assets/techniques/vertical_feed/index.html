@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1080, height=1920" />
+<script src="gsap.min.js"></script>
+<script src="timing.js"></script>
+<style>
+  :root {
+    --bg: #070b16;
+    --ink: #f5efe6;
+    --acc-1: #4fd8ff;       /* group accents: card edge, halo, caption counter and ticks */
+    --acc-2: #ffc46b;
+    --acc-3: #8e7cff;
+    --glow-1: rgba(79, 216, 255, 0.6);
+    --glow-2: rgba(255, 170, 80, 0.6);
+    --glow-3: rgba(142, 124, 255, 0.7);
+    --c1: #1d3557;          /* placeholder card colours */
+    --c2: #e76f51;
+    --c3: #2a9d8f;
+    --c4: #f4a261;
+    --c5: #6d597a;
+    --c6: #e9c46a;
+    --paper: #1a2233;       /* card body behind the colour blocks */
+    --line: rgba(245, 239, 230, 0.55);
+    --font: Inter, "Helvetica Neue", Arial, sans-serif;
+    --font-cond: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
+    --font-mono: "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+  #root { position: relative; width: 1080px; height: 1920px; overflow: hidden; font-family: var(--font); color: var(--ink); }
+  .bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #bg-fill { background: radial-gradient(1200px 1400px at 50% 55%, #121a30 0%, var(--bg) 70%); }
+  .layer { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; overflow: hidden; }
+  .col { position: absolute; left: 0; top: 0; width: 1080px; height: 1px; will-change: transform; }
+  #far { filter: blur(5px) brightness(0.42) saturate(0.8); }
+  #mid { filter: blur(2.6px) brightness(0.55) saturate(0.85); }
+  .bc { position: absolute; border-radius: 14px; overflow: hidden; border: 2px solid rgba(245, 239, 230, 0.35);
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55); }
+  .card { position: absolute; border-radius: 24px; overflow: hidden; border: 4px solid var(--edge); will-change: transform, filter; }
+  .halo { position: absolute; border-radius: 24px; opacity: 0; box-shadow: 0 0 70px 6px var(--glow), 0 30px 80px rgba(0, 0, 0, 0.6); }
+  .card .sweep { position: absolute; top: -10%; left: 0; width: 46%; height: 120%; opacity: 0; mix-blend-mode: screen;
+                 background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 250, 235, 0.32) 50%, rgba(255, 255, 255, 0) 100%); }
+  /* placeholder card content, all in percent of the card so one drawing serves every size */
+  .pc { position: absolute; inset: 0; background: var(--paper); }
+  .pc div { position: absolute; }
+  .pc .bar-t { left: 0; top: 0; width: 100%; height: 11%; }
+  .pc .ln { height: 3.2%; border-radius: 999px; background: var(--line); }
+  .pc .dot { width: 3.2%; aspect-ratio: 1; border-radius: 50%; background: var(--line); }
+  .pc .bar { bottom: 22%; border-radius: 6px 6px 0 0; }
+  .pc .base { left: 8%; width: 84%; bottom: 21.5%; height: 0.8%; background: var(--line); }
+  .pc .sun { border-radius: 50%; }
+  .pc .hill { left: -10%; width: 120%; bottom: 0; }
+  .g-fill { --edge: rgba(245, 239, 230, 0.35); --glow: rgba(120, 140, 255, 0.3); }
+  #shade-top { position: absolute; left: 0; top: 0; width: 1080px; height: 640px; pointer-events: none;   /* caption band */
+               background: linear-gradient(180deg, rgba(7, 11, 22, 0.985) 0%, rgba(7, 11, 22, 0.985) 70%, rgba(7, 11, 22, 0) 100%); }
+  #shade-cap { position: absolute; inset: 0; pointer-events: none;
+               background: radial-gradient(1000px 560px at 8% 16%, rgba(7, 11, 22, 0.7) 0%, rgba(7, 11, 22, 0.4) 50%, rgba(7, 11, 22, 0) 100%); }
+  #shade-bot { position: absolute; left: 0; bottom: 0; width: 1080px; height: 420px; pointer-events: none;
+               background: linear-gradient(0deg, rgba(7, 11, 22, 0.75) 0%, rgba(7, 11, 22, 0) 100%); }
+  .cap { position: absolute; left: 76px; top: 196px; opacity: 0; transform-origin: 0% 0%; }
+  .cap .idx { display: inline-block; font-family: var(--font-mono); font-weight: 500; font-size: 44px; color: var(--ink);
+              padding: 8px 18px 9px; border-radius: 12px; background: rgba(7, 11, 22, 0.72);
+              border: 2px solid var(--acc); box-shadow: 0 0 26px var(--glow); letter-spacing: 0.02em; }
+  .cap .idx b { font-weight: 500; color: var(--acc); }
+  .cap .word { margin-top: 20px; font-family: var(--font-cond); font-weight: 700; font-size: 112px; line-height: 0.9;
+               letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); white-space: nowrap;
+               text-shadow: 0 0 40px var(--glow), 0 4px 18px rgba(0, 0, 0, 0.6); }
+  .cap .ticks { display: flex; gap: 10px; margin-top: 22px; }
+  .cap .ticks i { display: block; width: 56px; height: 8px; border-radius: 4px; background: rgba(245, 239, 230, 0.22); }
+  .cap .ticks i.on { background: var(--acc); box-shadow: 0 0 14px var(--acc); }
+  #flash { position: absolute; inset: 0; opacity: 0; mix-blend-mode: screen; pointer-events: none;
+           background: radial-gradient(ellipse at 50% 46%, rgba(255, 240, 220, 0.45) 0%, rgba(120, 140, 255, 0.2) 50%, rgba(0, 0, 0, 0) 75%); }
+</style>
+</head>
+<body>
+<div id="root" data-composition-id="vertical_feed" data-start="0" data-duration="8"
+     data-full-length data-width="1080" data-height="1920" data-fps="30">
+  <div id="bg-fill" class="clip bg" data-start="0" data-duration="8" data-full-length data-track-index="0"></div>
+  <div id="far" class="layer"><div class="col" id="col-far"></div></div>
+  <div id="mid" class="layer"><div class="col" id="col-mid"></div></div>
+  <div id="main" class="layer"><div class="col" id="col-main"></div></div>
+  <svg width="0" height="0" style="position:absolute"><filter id="mb" x="0" y="-5%" width="100%" height="110%"
+       color-interpolation-filters="sRGB"><feGaussianBlur id="mbg" stdDeviation="0 0" /></filter></svg>
+  <div id="shade-top"></div>
+  <div id="shade-cap"></div>
+  <div id="shade-bot"></div>
+  <div id="flash"></div>
+  <!-- overlays fixed to the frame here; the captions are built from GROUPS -->
+  <div id="caps"></div>
+</div>
+<script>
+  // Vertical feed. One column of full-width placeholder cards scrolls upward and stops with one card centred on
+  // each beat. Two blurred, dimmed columns of smaller cards behind it move with the same scroll at lower speeds
+  // (parallax). The column blurs vertically while it moves. A caption band at the top names the group and counts
+  // its cards; a flash marks each group change. Every value is a function of the scene time t.
+  const FW = 1080, FH = 1920, D = 8;
+  const CY = 1010;            // screen y of a settled card's centre (below the caption band, above the bottom shade)
+  const CW = 960, GAP = 90;   // card width and the gap between cards in the column
+  const HOLD = 0.5;           // seconds a card holds still before the move to the next one (moves last at least 0.28 s)
+
+  // Card table: id, kind (chart, photo, slide), aspect ratio width / height, seed of its drawing.
+  const CARDS = [
+    { id: "chart-1", kind: "chart", ar: 4 / 3, seed: 3 },  { id: "chart-2", kind: "chart", ar: 16 / 9, seed: 8 },
+    { id: "chart-3", kind: "chart", ar: 1, seed: 13 },     { id: "photo-1", kind: "photo", ar: 3 / 2, seed: 21 },
+    { id: "photo-2", kind: "photo", ar: 1, seed: 34 },     { id: "photo-3", kind: "photo", ar: 4 / 3, seed: 55 },
+    { id: "slide-1", kind: "slide", ar: 16 / 9, seed: 89 }, { id: "slide-2", kind: "slide", ar: 16 / 9, seed: 144 },
+    { id: "fill-top", kind: "photo", ar: 16 / 9, seed: 5 }, { id: "fill-end", kind: "slide", ar: 16 / 9, seed: 7 },
+  ];
+  // Groups in screen order: caption, accent number (--acc-N, --glow-N), card ids, start time. The counter reads
+  // "nn / total" with total = number of cards; a group starts on the beat of its first card.
+  const GROUPS = [
+    { caption: "Charts", acc: 1, cards: ["chart-1", "chart-2", "chart-3"], start: 0 },
+    { caption: "Photos", acc: 2, cards: ["photo-1", "photo-2", "photo-3"], start: 3 },
+    { caption: "Slides", acc: 3, cards: ["slide-1", "slide-2"], start: 6 },
+  ];
+  // Stop times, one per card in GROUPS order, on the 120 bpm grid (0.5 s).
+  const BEATS = [0, 1, 2, 3, 4, 5, 6, 7];
+  const FILL = ["fill-top", "fill-end"];   // dimmed cards above the first and below the last, so the frame is full at both ends
+  const BG_KINDS = ["chart", "photo", "slide"];
+
+  // Seeded Park-Miller generator; the first draws of a small seed are near 0, so three are discarded.
+  const lcg = (seed) => {
+    let s = seed % 2147483647 || 1;
+    const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    r(); r(); r();
+    return r;
+  };
+  const rand = lcg(11);
+  const COLORS = ["--c1", "--c2", "--c3", "--c4", "--c5", "--c6"];
+  const col = (r) => "var(" + COLORS[Math.floor(r() * COLORS.length)] + ")";
+  const pct = (v) => v.toFixed(1) + "%";
+
+  // Placeholder drawing of one card: a title bar, a few lines and a simple shape, by kind.
+  function drawCard(kind, seed) {
+    const r = lcg(seed), a = col(r), b = col(r);
+    let h = '<div class="pc">';
+    if (kind === "chart") {
+      h += `<div class="bar-t" style="background:${a}"></div><div class="ln" style="left:6%;top:3.9%;width:34%;background:rgba(255,255,255,0.75)"></div>`;
+      const n = 5 + Math.floor(r() * 3), bw = 84 / n;
+      for (let i = 0; i < n; i++) {
+        const bh = 12 + r() * 46;
+        h += `<div class="bar" style="left:${pct(8 + i * bw + bw * 0.15)};width:${pct(bw * 0.7)};height:${pct(bh)};background:${i === n - 2 ? b : a}"></div>`;
+      }
+      h += '<div class="base"></div>';
+      h += `<div class="ln" style="left:8%;top:84%;width:${pct(40 + r() * 30)}"></div><div class="ln" style="left:8%;top:90%;width:${pct(20 + r() * 30)}"></div>`;
+    } else if (kind === "photo") {
+      h = `<div class="pc" style="background:linear-gradient(180deg, ${a} 0%, var(--paper) 100%)">`;
+      const sx = 15 + r() * 55, sy = 12 + r() * 20;
+      h += `<div class="sun" style="left:${pct(sx)};top:${pct(sy)};width:22%;aspect-ratio:1;background:var(--c6)"></div>`;
+      h += `<div class="hill" style="height:55%;background:${b};clip-path:polygon(0 100%, 0 ${pct(40 + r() * 30)}, ${pct(30 + r() * 20)} 0, 100% ${pct(50 + r() * 30)}, 100% 100%)"></div>`;
+      h += `<div class="hill" style="height:30%;background:var(--paper);opacity:0.85;clip-path:polygon(0 100%, 0 ${pct(20 + r() * 40)}, ${pct(55 + r() * 25)} 0, 100% 50%, 100% 100%)"></div>`;
+      h += `<div class="bar-t" style="background:rgba(7,11,22,0.55)"></div><div class="ln" style="left:6%;top:3.9%;width:${pct(22 + r() * 20)}"></div>`;
+    } else {
+      h += `<div class="bar-t" style="background:${a}"></div><div class="ln" style="left:6%;top:3.9%;width:${pct(30 + r() * 25)};background:rgba(255,255,255,0.75)"></div>`;
+      for (let i = 0; i < 4; i++) {
+        const y = 24 + i * 15;
+        h += `<div class="dot" style="left:6%;top:${pct(y)}"></div><div class="ln" style="left:12%;top:${pct(y)};width:${pct(18 + r() * 22)}"></div>`;
+      }
+      const round = r() < 0.5;
+      h += `<div style="left:58%;top:22%;width:34%;height:62%;background:${b};border-radius:${round ? "50%" : "10px"}"></div>`;
+    }
+    return h + "</div>";
+  }
+
+  const cardById = Object.fromEntries(CARDS.map((c) => [c.id, c]));
+  const heroes = [];
+  GROUPS.forEach((g, gi) => g.cards.forEach((id) => heroes.push({ ...cardById[id], g: gi, b: BEATS[heroes.length] })));
+  const items = [{ ...cardById[FILL[0]], fill: true }, ...heroes, { ...cardById[FILL[1]], fill: true }];
+
+  const colMain = document.getElementById("col-main");
+  let y = 0;
+  items.forEach((it, i) => {
+    it.h = Math.round((CW - 8) / it.ar) + 8;   // 4 px border
+    if (i) y += items[i - 1].h / 2 + GAP + it.h / 2;
+    it.y = y;   // centre in column coordinates
+    const style = it.fill ? "" : `--edge:var(--acc-${GROUPS[it.g].acc});--glow:var(--glow-${GROUPS[it.g].acc});`;
+    const box = `left:${(FW - CW) / 2}px;width:${CW}px;height:${it.h}px;top:${it.y - it.h / 2}px;`;
+    const halo = document.createElement("div");
+    halo.className = "halo" + (it.fill ? " g-fill" : ""); halo.style.cssText = style + box;
+    const el = document.createElement("div");
+    el.className = "card" + (it.fill ? " g-fill" : ""); el.style.cssText = style + box;
+    el.innerHTML = drawCard(it.kind, it.seed) + '<div class="sweep"></div>';
+    colMain.appendChild(halo); colMain.appendChild(el);
+    it.el = el; it.halo = halo; it.sweep = el.querySelector(".sweep");
+  });
+
+  // Column scroll s(t): card k is centred (s = y_k) at its beat b_k, holds, then a smoothstep move over the last
+  // M seconds of [b_k, b_k+1] carries it to y_k+1. The speed is 0 at every beat, so the velocity is continuous.
+  const sstep = (u) => { u = Math.min(1, Math.max(0, u)); return u * u * (3 - 2 * u); };
+  const segs = heroes.map((h, k) => {
+    const n = heroes[k + 1];
+    if (!n) return null;
+    const T = n.b - h.b, M = Math.min(T, Math.max(0.28, T - HOLD));
+    return { b: h.b, T, M, y0: h.y, dy: n.y - h.y };
+  });
+  function scroll(t) {
+    if (t <= 0) return heroes[0].y;
+    const k = Math.min(heroes.length - 1, heroes.filter((h) => h.b <= t).length - 1);
+    const sg = segs[k];
+    if (!sg) return heroes[k].y;
+    return sg.y0 + sg.dy * sstep((t - sg.b - (sg.T - sg.M)) / sg.M);
+  }
+
+  // Background columns: two layers of smaller cards in staggered stacks, moving at a fraction of the main scroll.
+  function bgLayer(colId, width, xs, speed, kind0) {
+    const el = document.getElementById(colId);
+    const travel = scroll(D) * speed + FH + 400;
+    let k = kind0;
+    xs.forEach((x0, j) => {
+      let yy = -300 - j * (width * 0.33);
+      while (yy < travel) {
+        const w = Math.round(width * (0.9 + 0.2 * rand())), h = Math.round(w * 9 / 16);
+        const x = x0 + (rand() - 0.5) * 60;
+        const c = document.createElement("div");
+        c.className = "bc";
+        c.style.cssText = `left:${(x - w / 2).toFixed(0)}px;top:${yy.toFixed(0)}px;width:${w}px;height:${h}px;` +
+          `transform:rotate(${((rand() - 0.5) * 5).toFixed(2)}deg)`;
+        c.innerHTML = drawCard(BG_KINDS[k % BG_KINDS.length], 1000 + Math.floor(rand() * 100000));
+        k += 1;
+        el.appendChild(c);
+        yy += h + 50 + rand() * 60;
+      }
+    });
+    return { col: el, speed };
+  }
+  const far = bgLayer("col-far", 360, [150, 560, 950], 0.22, 1);
+  const mid = bgLayer("col-mid", 470, [210, 880], 0.45, 0);
+
+  // Captions, one per group: counter "01 / nn", the word, one tick per card.
+  const capsEl = document.getElementById("caps");
+  const capEls = GROUPS.map((g, gi) => {
+    const c = document.createElement("div");
+    c.className = "cap"; c.id = "cap-" + gi;
+    c.style.cssText = `--acc:var(--acc-${g.acc});--glow:var(--glow-${g.acc})`;
+    c.innerHTML = `<div class="idx"><b class="n">01</b> / ${String(g.cards.length).padStart(2, "0")}</div>` +
+      `<div class="word">${g.caption}</div><div class="ticks">${"<i></i>".repeat(g.cards.length)}</div>`;
+    capsEl.appendChild(c);
+    return c;
+  });
+
+  const mainLayer = document.getElementById("main"), mbg = document.getElementById("mbg");
+  const last = heroes[heroes.length - 1];
+
+  function draw(t) {
+    const s = scroll(t);
+    // Vertical motion blur of the main column, from its speed in px per frame (none while it holds).
+    const v = Math.abs(scroll(t + 1 / 60) - scroll(t - 1 / 60));
+    const mb = Math.min(13, Math.max(0, (v - 12) * 0.15));
+    mainLayer.style.filter = mb > 0.25 ? "url(#mb)" : "none";
+    mbg.setAttribute("stdDeviation", "0 " + mb.toFixed(2));
+    colMain.style.transform = `translate3d(0, ${(CY - s).toFixed(2)}px, 0)`;
+    far.col.style.transform = `translate3d(${(14 * Math.sin(t * 0.6)).toFixed(2)}px, ${(-s * far.speed).toFixed(2)}px, 0)`;
+    mid.col.style.transform = `translate3d(${(-18 * Math.sin(t * 0.5 + 1)).toFixed(2)}px, ${(-s * mid.speed + 200).toFixed(2)}px, 0)`;
+    items.forEach((it) => {
+      const d = (it.y - s) / 520;                        // distance of the card centre from the stop position
+      const f = Math.exp(-d * d * 2.2);                  // focus: 1 at the stop position
+      // The last card keeps moving after its beat: a slow push from scale 1 to 1.05 until the end.
+      const push = it === last ? 0.05 * sstep((t - it.b) / (D - it.b)) : 0;
+      const tf = `translate3d(0, 0, 0) scale(${((0.86 + 0.14 * f) * (1 + push)).toFixed(4)})`;
+      it.el.style.transform = tf; it.halo.style.transform = tf;
+      it.el.style.filter = `brightness(${(0.5 + 0.5 * f).toFixed(3)})`;
+      it.halo.style.opacity = (it.fill ? 0.3 : 0.25 + 0.75 * f).toFixed(3);
+      if (!it.fill) {   // a light sweep crosses the card as it settles
+        const u = (t - (it.b - 0.1)) / 0.4;
+        it.sweep.style.opacity = u > 0 && u < 1 ? (Math.sin(Math.PI * u) * 0.9).toFixed(3) : "0";
+        it.sweep.style.transform = `translate3d(${(-120 + 340 * Math.max(0, Math.min(1, u))).toFixed(1)}%, 0, 0)`;
+      }
+    });
+    capEls.forEach((el, gi) => {
+      let n = 0;
+      heroes.forEach((h) => { if (h.g === gi && t >= h.b - 0.02) n += 1; });
+      n = Math.max(1, n);
+      el.querySelector(".n").textContent = String(n).padStart(2, "0");
+      el.querySelectorAll(".ticks i").forEach((tk, j) => tk.classList.toggle("on", j < n));
+    });
+  }
+
+  const tl = gsap.timeline({ paused: true });
+  const clock = { t: 0 };
+  tl.to(clock, { t: D, duration: D, ease: "none", onUpdate: () => draw(clock.t) }, 0);
+  GROUPS.forEach((g, gi) => {
+    const a = g.start, b = gi + 1 < GROUPS.length ? GROUPS[gi + 1].start : D;
+    if (a === 0) tl.fromTo(capEls[gi], { opacity: 1, scale: 1.2 }, { opacity: 1, scale: 1, duration: 0.2, ease: "power3.out" }, 0);
+    else {
+      tl.fromTo(capEls[gi], { opacity: 0, scale: 1.3, x: -16 }, { opacity: 1, scale: 1, x: 0, duration: 0.1, ease: "power3.out", immediateRender: false }, a - 0.1);
+      tl.fromTo("#flash", { opacity: 0.7 }, { opacity: 0, duration: 0.3, ease: "power2.out", immediateRender: false }, a);
+    }
+    if (b < D) tl.to(capEls[gi], { opacity: 0, x: -30, duration: 0.08, ease: "power2.in" }, b - 0.18);
+  });
+  draw(0);
+  window.__timelines = window.__timelines || {};
+  window.__timelines["vertical_feed"] = tl;
+</script>
+</body>
+</html>
