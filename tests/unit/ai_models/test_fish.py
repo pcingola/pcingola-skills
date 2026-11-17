@@ -1,5 +1,5 @@
 """The parts of `ai_models.fish` that need no model: the text cut at style tags (`fish_span`), the spans joined into
-one WAV file (`fish.joined`), the first take of each speaker (`fish_takes.Takes`) and a take saved to a folder and
+one WAV file (`fish.joined`), the first take of each voice (`fish_takes.Takes`) and a take saved to a folder and
 loaded back (`Take.save`, `Take.load`)."""
 
 import io
@@ -49,6 +49,16 @@ def test_speaker_tag_stays_in_force():
     assert spans[0].said(None, None) == "<|speaker:1|>[whisper] Quiet."
 
 
+def test_span_speaker_id_and_reference_transcript():
+    """`speaker_id` is the number of a span's speaker tag and 0 without one, as fish-speech reads an untagged
+    text; `with_speaker` puts the span's tag before a reference transcript, so the reference names the speaker the
+    request names."""
+    tagged, untagged = Span("[calm] Fine.", "<|speaker:12|>"), Span("Fine.")
+    assert (tagged.speaker_id, untagged.speaker_id, Span("Hi.", "<|speaker:0|>").speaker_id) == (12, 0, 0)
+    assert tagged.with_speaker("Hello there.") == "<|speaker:12|>Hello there."
+    assert untagged.with_speaker("Hello there.") == "Hello there."
+
+
 def test_style_only_for_spans_without_their_own_tag():
     """The instructions go into a span by the `style` format unless the span has its own style tag; without
     instructions or without a format the text is unchanged."""
@@ -81,6 +91,21 @@ def test_first_take_per_model_and_speaker_kept():
     assert takes.get("f:drama-3", "guest") is later
     takes.clear()
     assert takes.get("f:drama-3") is None and takes.get("f:drama-3", "guest") is None
+
+
+def test_inline_speaker_tags_get_their_own_take():
+    """Within one text, the spans of each speaker tag share one take, distinct from the spans of another tag
+    number; untagged spans and `<|speaker:0|>` spans share the caller speaker's default take, the one a saved voice
+    seeds through `keep(model, speaker, take)`. Guards the separate voices of inline speaker tags."""
+    takes = Takes()
+    seeded = takes.keep("f:drama-3", "host", Take(b"S", "Saved.", None))
+    spans = split_spans("Hi. <|speaker:1|>[whisper] Quiet. [shouting] Now! <|speaker:0|>[calm] Fine.")
+    for i, span in enumerate(spans):
+        takes.keep("f:drama-3", "host", Take(str(i).encode(), span.text, None), span.speaker_id)
+    voices = [takes.get("f:drama-3", "host", s.speaker_id) for s in spans]
+    assert voices[0] is seeded and voices[3] is seeded
+    assert voices[1] is voices[2] and voices[1].wav == b"1" and voices[1] is not seeded
+    assert takes.get("f:drama-3", None, 1) is None and takes.get("f:drama-3", "host") is seeded
 
 
 def test_take_save_and_load_round_trip(tmp_path):

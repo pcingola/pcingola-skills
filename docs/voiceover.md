@@ -33,7 +33,11 @@ recording: a recording, or a name with a recording and no saved Fish voice, is r
 
 Drama 3 makes up a speaker for each request without a reference, so `ai_models.fish` keeps the first take of each
 speaker in the process as the reference of the rest. That keeps one voice per speaker within one command only. A
-saved Fish voice keeps it across commands, for example across the scenes of a film voiced one `synth` each.
+saved Fish voice keeps it across commands, for example across the scenes of a film voiced one `synth` each. An
+inline speaker tag `<|speaker:N|>` with N above 0 is a voice of its own within the line's speaker
+(`ai_models.fish_takes`, keyed by speaker and tag number); `fish.takes.keep` and `get` without a tag number, as
+`Narrator` calls them, address tag number 0, the untagged text. So a saved voice seeds a speaker's untagged and
+`<|speaker:0|>` text, and `save_voices` and `write_takes` save only that take.
 
 A voice name other than `default` given to a `fish` model (`--voice NAME`, `--speaker SPEAKER=NAME`; lowercase
 letters, digits, `-`, `_`) names the folder `<voices dir>/NAME.fish/` (`voices.fish_folder`). It holds one take,

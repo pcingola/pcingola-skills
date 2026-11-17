@@ -4,7 +4,8 @@ Fish Audio Drama 3 ends a request with one style tag (`[whisper] ...`) on its ow
 the speech is right and near-silence follows it up to the token cap. So the text is cut before each style tag: each
 span holds the words that follow one tag. A piece with no words (a tag before another tag) joins the next piece, or
 at the end of the text the previous span. A speaker tag (`<|speaker:N|>`) at the start of a span is that span's
-`speaker`, and it stays in force for the following spans until another one starts a span.
+`speaker`, and it stays in force for the following spans of the text until another one starts a span. A span
+without a speaker tag is speaker 0 to the model (fish-speech's `with_speaker_tag` adds `<|speaker:0|>`).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import re
 from dataclasses import dataclass
 
 STYLE_TAG_RE = re.compile(r"\[[^\[\]]*\]")
-SPEAKER_TAG_RE = re.compile(r"\s*(<\|speaker:\d+\|>)\s*")
+SPEAKER_TAG_RE = re.compile(r"\s*(<\|speaker:(\d+)\|>)\s*")
 ANY_TAG_RE = re.compile(r"\[[^\[\]]*\]|<\|[^|]*\|>")
 CUT_RE = re.compile(r"(?:<\|speaker:\d+\|>\s*)?\[[^\[\]]*\]")  # a style tag with the speaker tag right before it
 
@@ -32,6 +33,17 @@ class Span:
     speaker: str = ""
 
     @property
+    def speaker_id(self) -> int:
+        """The number of the span's speaker tag; 0 without one, as the model reads an untagged text."""
+        m = SPEAKER_TAG_RE.match(self.speaker)
+        return int(m.group(2)) if m else 0
+
+    def with_speaker(self, text: str) -> str:
+        """`text` after the span's speaker tag: the request text, and the reference transcript, so that the
+        reference voices the speaker the request names."""
+        return self.speaker + text
+
+    @property
     def tagged(self) -> bool:
         """True when the span starts with a style tag of its own."""
         return STYLE_TAG_RE.match(self.text) is not None
@@ -45,7 +57,7 @@ class Span:
 
     def said(self, style: str | None, instructions: str | None) -> str:
         """What the model gets: the speaker tag, then `styled`."""
-        return self.speaker + self.styled(style, instructions)
+        return self.with_speaker(self.styled(style, instructions))
 
 
 def pieces(text: str) -> list[str]:

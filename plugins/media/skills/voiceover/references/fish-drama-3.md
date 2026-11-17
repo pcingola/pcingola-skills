@@ -68,4 +68,8 @@ across commands as above.
 
 The model also takes speaker tags inside one line, `<|speaker:0|>` to `<|speaker:15|>`: `synth` sends them as
 written and leaves them out of the aligned text. A speaker tag at the start of a part stays in force for the
-following parts of the line.
+following parts of the same line; text without a tag is `<|speaker:0|>`. Each tag number of a line's speaker gets
+its own made-up voice, kept for the command: `<|speaker:1|>` in narrator lines is one voice in every narrator line,
+another than the narrator's, and another than `<|speaker:1|>` in `@guest` lines. Only the untagged voice of a
+speaker (`<|speaker:0|>`) is written as `voice-<name>.wav` and saved as a named Fish voice; the voices of other
+tag numbers last one command, so a voice that must last across commands needs its own `@name`.

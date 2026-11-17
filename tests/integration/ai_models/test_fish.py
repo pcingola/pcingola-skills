@@ -4,7 +4,7 @@ and never end on their own, so each request runs to the model's `max_frames`."""
 
 import pytest
 
-from ai_models import config, speech
+from ai_models import config, fish, speech
 from tests.settings_env import TEST_CONFIG, kind_entry, kind_model
 from tests.wav import read
 
@@ -31,3 +31,15 @@ def test_sentence_and_two_tags():
     two = read(speech.speak("[whisper] Someone is there. [laughing] Only the cat!", model=MODEL))
     assert (two.rate, two.channels) == (44_100, 1)
     assert MAX_FRAMES * HOP < two.samples.shape[0] <= 2 * MAX_FRAMES * HOP
+
+
+def test_inline_speaker_tag_has_its_own_reference():
+    """A `<|speaker:1|>` span gets a take of its own, distinct from the untagged span's, and the next
+    `<|speaker:1|>` span gets that take as reference, its transcript behind the same speaker tag, which fish-speech's
+    prompt builder accepts. Guards the separate voices of inline speaker tags (`ai_models.fish_takes`)."""
+    fish.takes.clear()
+    wav = read(speech.speak("Hello. <|speaker:1|>[whisper] Someone is there. [laughing] Only the cat!", model=MODEL))
+    assert 2 * MAX_FRAMES * HOP < wav.samples.shape[0] <= 3 * MAX_FRAMES * HOP
+    narrator, tagged = fish.takes.get(MODEL), fish.takes.get(MODEL, None, 1)
+    assert narrator is not None and tagged is not None and tagged is not narrator
+    assert tagged.text == "[whisper] Someone is there."

@@ -351,22 +351,30 @@ GB. The model stays loaded until the process exits or calls `local.unload`.
 request, with fish-speech's sampling defaults (temperature 0.7, top-p 0.7, top-k 30). Drama 3 ends a request with
 one style tag on its own; with two tags in one request the speech is right and near-silence follows up to the token
 cap (18.6 s of audio for about 5 s of speech). A tag with no words before the next tag joins the next span. A
-speaker tag (`<|speaker:N|>`) at the start of a span stays in force for the following spans. `max_frames` caps the
+speaker tag (`<|speaker:N|>`) at the start of a span stays in force for the following spans of the same text; a
+span without one is speaker 0 to the model (fish-speech's `with_speaker_tag`). `max_frames` caps the
 audio frames of one request (about 21.5 per second; unset, fish-speech's default of 1024 per text chunk). The
 spans' audio is joined in order into one 16-bit WAV file at the codec's rate, 44.1 kHz. In English, Spanish and
 French, and with `[whisper]` or `[laughing]` alone, each request ended on its own, about 5 s of audio in 4 to 9 s.
 
 Voice: `default` only; another voice is refused (`Traits.one_voice`; Chatterbox clones a recorded voice). Drama 3
 picks a new speaker for each request without a reference, and a fixed seed does not keep it. So the first span of
-each speaker in the process is kept as its `Take` (`fish_takes.Takes`, by model id and speaker; None is the
-narrator): its WAV, its text and its codes. Its text and codes are the reference (`prompt_text`, `prompt_tokens`) of
-every later span of that speaker, so one process has one voice per speaker. A reference needs both its transcript
-and its codes. media:voiceover writes each first take as `voice.wav` or `voice-<speaker>.wav` with its text.
+each voice in the process is kept as its `Take` (`fish_takes.Takes`): its WAV, its text and its codes. A voice is
+keyed by model id, the caller's `speaker` (None is the narrator) and the span's speaker tag number (`Span.speaker_id`,
+0 without a tag). Its text and codes are the reference (`prompt_text`, `prompt_tokens`) of every later span of that
+voice, so one process has one voice per caller speaker and speaker tag number: the `<|speaker:1|>` spans of the
+narrator share one voice in every line, distinct from the narrator's untagged spans and from the `<|speaker:1|>`
+spans of the caller speaker `guest`. fish-speech writes the reference as `[Reference 1]` with its transcript's speaker tag
+(`<|speaker:0|>` when the transcript has none), so `speak` sends the transcript behind the span's own speaker tag:
+the reference then voices the speaker the request names. A reference needs both its transcript and its codes.
+media:voiceover writes the first take of each caller speaker's untagged spans as `voice.wav` or
+`voice-<speaker>.wav` with its text; the takes of inline speaker tags stay in the process.
 
 A take outlives its process through `Take.save(folder)`, which writes `voice.wav`, `voice.txt` (the text) and
 `codes.pt` (`torch.save` of the codes), and `Take.load(folder)`, which reads them back on the CPU (`weights_only`)
 and raises `AIModelsError` naming a missing file. A caller that keeps `Takes.keep(model_id, speaker, Take.load(...))`
-before the first `speak` of that speaker gets the saved voice. media:voiceover keeps named Fish voices this way in
+before the first `speak` of that speaker gets the saved voice for the speaker's untagged and `<|speaker:0|>` spans
+(`keep` and `get` take speaker tag number 0 when none is given). media:voiceover keeps named Fish voices this way in
 its voices directory (`docs/voiceover.md`, Fish voices across commands).
 
 Instructions go through the model's `style`, a format string with `{instructions}` and `{text}` (Drama 3:
