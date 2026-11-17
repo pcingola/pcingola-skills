@@ -130,6 +130,30 @@ def test_lib_sources_follow_main():
     assert url and not url.startswith("file://"), f"lib git URL is local: {url!r}"
 
 
+PLUGIN_PYPROJECTS = sorted(PLUGINS_DIR.glob("**/pyproject.toml"))
+
+
+def _tool_uv(pyproject: Path) -> dict | None:
+    return tomllib.loads(pyproject.read_text(encoding="utf-8")).get("tool", {}).get("uv")
+
+
+def test_plugin_projects_have_own_tool_uv():
+    """Every uv project under plugins/ has its own [tool.uv] table. uv takes its settings from the nearest
+    pyproject.toml with one, so without it a lock picks up the settings of the repository root project."""
+    for pyproject in PLUGIN_PYPROJECTS:
+        assert _tool_uv(pyproject) is not None, f"{pyproject}: no [tool.uv] table"
+
+
+def test_lock_dependency_metadata_from_own_project():
+    """Each plugin project's uv.lock records the dependency-metadata of its own pyproject.toml and no other.
+    Guards against a lock written with the settings of another project."""
+    for pyproject in PLUGIN_PYPROJECTS:
+        lock = pyproject.parent / "uv.lock"
+        locked = tomllib.loads(lock.read_text(encoding="utf-8")).get("manifest", {}).get("dependency-metadata", [])
+        declared = (_tool_uv(pyproject) or {}).get("dependency-metadata", [])
+        assert sorted(m["name"] for m in locked) == sorted(m["name"] for m in declared), lock
+
+
 # Model SDKs and model libraries: the provider SDKs, local model libraries and torchaudio's model pipelines.
 MODEL_SDK_IMPORT = re.compile(r"^\s*(?:from|import)\s+(google\.genai|google\s+import\s+genai|openai|kokoro_onnx|"
                               r"chatterbox|diffusers|transformers|torchaudio\.pipelines|torchaudio\s+import\s+pipelines)\b",

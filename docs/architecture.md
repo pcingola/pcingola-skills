@@ -164,6 +164,13 @@ Tests: `test_every_plugin_with_wrappers_has_uv_env`, `test_uv_env_copies_identic
 `plugin_env` under `set -eu -o pipefail`, as the wrappers do, and compares its data directory with the one
 `plugin_settings` resolves).
 
+uv takes its settings (`dependency-metadata`, for example) from the nearest `pyproject.toml` with a `[tool.uv]`
+table, searching upward from the project directory whatever the working directory. A project without that table
+would read the repository root's `[tool.uv]` and write the root's `dependency-metadata` into its `uv.lock`. Every
+uv project under `plugins/` therefore has its own `[tool.uv]` table, empty where it needs no setting. `--no-config`
+would block the root settings too, but it also drops a project's own `dependency-metadata`, which voiceover needs.
+Tests: `test_plugin_projects_have_own_tool_uv`, `test_lock_dependency_metadata_from_own_project`.
+
 ## Local models in process
 
 A local model runs in the caller's process, in the environment of the skill that calls it: diffusers pipelines,

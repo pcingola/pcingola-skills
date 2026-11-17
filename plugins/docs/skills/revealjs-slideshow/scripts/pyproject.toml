@@ -9,3 +9,7 @@ dependencies = []
 dev = [
     "pytest>=8",
 ]
+
+# uv takes its settings from the nearest pyproject.toml with a [tool.uv] table. This empty table stops that search
+# here, so the settings of a project above (the repository root) never reach this project's lock.
+[tool.uv]
