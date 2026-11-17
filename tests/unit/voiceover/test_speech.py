@@ -210,6 +210,69 @@ print([p.name for p in n.save_voices()], n.save_voices())
     assert p.returncode == 0 and p.stdout.split() == ["default", "(default)", "anna", "nara"], p.stderr
 
 
+def test_one_fish_voice_name_is_one_voice(tmp_path):
+    """Speakers given one new Fish voice name share one take key, the first speaker of that name (`--voice anna
+    --speaker host=anna`: the narrator; `--speaker a=hero --speaker b=hero`: `a`), so `fish` gives them one voice;
+    `first_takes` writes that take for each of them and `save_voices` saves it once under the name. Guards one name,
+    one voice in every command (docs/voiceover.md, Fish voices across commands)."""
+    voices_dir = tmp_path / "voices"
+    config = write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices_dir)},
+                          providers={"f": FISH}, tasks={"speech": "f:drama-3"})
+    code = f"""
+import torch
+from ai_models import fish
+from ai_models.fish_take import Take
+from voiceover_tool.speech import Narrator
+n = Narrator(speakers={{"host": "anna"}})
+n.prepare(n.lines(["Hi.", "@host Hello.", "@guest Yo."]), "anna")
+assert n.take_keys == {{None: None, "host": None, "guest": "guest"}}, n.take_keys
+assert list(n.fish_voices) == [None]
+n = Narrator(speakers={{"a": "hero", "b": "hero"}})
+n.prepare(n.lines(["Hi.", "@a Hello.", "@b Hey."]), "default")
+assert n.take_keys == {{None: None, "a": "a", "b": "a"}}, n.take_keys
+fish.takes.keep("f:drama-3", "a", Take(b"H", "Hello.", torch.ones(10, 3, dtype=torch.long)))
+takes = n.first_takes()
+assert takes["a"] == takes["b"] == (b"H", "Hello.") and None not in takes, takes
+print([p.name for p in n.save_voices()])
+"""
+    done = run_python(code, child_env(SKILLS_CONFIG=str(config)), timeout=25)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "['hero.fish']"
+    assert sorted(p.name for p in voices_dir.iterdir()) == ["hero.fish"]
+
+
+def test_fish_voice_saved_by_another_command_meanwhile(tmp_path):
+    """A new Fish voice name whose folder another command saves after `prepare` and before this command's first
+    request of the voice seeds the voice then (`fish.takes.get`, which `fish` calls with the local-model lock held),
+    and `save_voices` leaves it alone; a folder saved after this command made its own take is kept, and
+    `save_voices` says on stderr that this command's voice differs. Guards two concurrent commands with one new
+    name (docs/voiceover.md, Fish voices across commands)."""
+    voices_dir = tmp_path / "voices"
+    config = write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices_dir)},
+                          providers={"f": FISH}, tasks={"speech": "f:drama-3"})
+    code = f"""
+import torch
+from ai_models import fish
+from ai_models.fish_take import Take
+from voiceover_tool.speech import Narrator
+codes = torch.zeros(10, 2, dtype=torch.long)
+n = Narrator(speakers={{"guest": "nara", "host": "zed"}})
+n.prepare(n.lines(["Hi.", "@guest Hello.", "@host Hey."]), "default")
+Take(b"OTHER-N", "Hello.", codes).save({str(voices_dir / "nara.fish")!r})
+seeded = fish.takes.get("f:drama-3", "guest")
+assert seeded.wav == b"OTHER-N" and fish.takes.loaded("f:drama-3", "guest")
+fish.takes.keep("f:drama-3", "host", Take(b"MINE-Z", "Hey.", codes))
+Take(b"OTHER-Z", "Hey.", codes).save({str(voices_dir / "zed.fish")!r})
+print(n.save_voices())
+"""
+    done = run_python(code, child_env(SKILLS_CONFIG=str(config)), timeout=25)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.strip() == "[]"
+    assert "Fish voice 'zed' was saved by another command" in done.stderr and "nara" not in done.stderr
+    assert (voices_dir / "zed.fish" / "voice.wav").read_bytes() == b"OTHER-Z"
+    assert (voices_dir / "nara.fish" / "voice.wav").read_bytes() == b"OTHER-N"
+
+
 def test_params_parse_as_json_else_string():
     """`--param` values that parse as JSON are sent as that value, others as strings."""
     from voiceover_tool.cli import _params

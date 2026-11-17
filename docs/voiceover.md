@@ -39,15 +39,29 @@ inline speaker tag `<|speaker:N|>` with N above 0 is a voice of its own within t
 `Narrator` calls them, address tag number 0, the untagged text. So a saved voice seeds a speaker's untagged and
 `<|speaker:0|>` text, and `save_voices` and `write_takes` save only that take.
 
+`Narrator` sends `fish` a take key as the speaker (`Narrator.take_keys`): the speaker itself, or for a named Fish
+voice the first speaker given that name (the narrator first, then the script's speakers in order of first line).
+So all speakers given one name share one take and one voice in every command, the first included
+(`--voice anna --speaker host=anna`, `--speaker a=hero --speaker b=hero`). `speaker` has no other use in
+`ai_models.speech.speak` and `fish.speak`.
+
 A voice name other than `default` given to a `fish` model (`--voice NAME`, `--speaker SPEAKER=NAME`; lowercase
 letters, digits, `-`, `_`) names the folder `<voices dir>/NAME.fish/` (`voices.fish_folder`). It holds one take,
 written by `ai_models.fish_take.Take.save`: `voice.wav` (the audio), `voice.txt` (the styled text the model got) and
-`codes.pt` (the codec codes, `torch.save` of a CPU tensor). `Narrator.prepare` loads an existing folder
-(`Take.load`) and keeps it in `fish.takes` for its speaker before the first request, so every request of that
-speaker has it as reference. A name without a folder is new: after synthesis `Narrator.save_voices` saves the first
-take of its speaker there and `synth` names it on stderr. A name two speakers share is saved from the first speaker
-that has a take. `default` keeps the per-command behaviour. A saved take is reused with any `fish` model; it holds
-no model id.
+`codes.pt` (the codec codes, `torch.save` of a CPU tensor). `Narrator.prepare` links the folder to the name's take
+key (`fish.takes.link`). An existing folder is loaded then (`Take.load`), so every request of the name's speakers
+has it as reference. A name without a folder is new: after synthesis `Narrator.save_voices` saves the name's first
+take there and `synth` names it on stderr. `default` keeps the per-command behaviour.
+
+Two commands may start with the same new name. `fish` looks a take up after the model load, with the local-model
+lock held (`ai_models.local.hold_lock`), and `Takes.get` loads a linked folder that has appeared since `prepare`.
+The lock is held until the process exits, so the second command waits for the first to exit, finds the folder the
+first saved and uses it as reference. `Take.save` writes into a temporary sibling folder and renames it to
+`NAME.fish/`, so the folder never holds part of a take, after a crash too. When the rename finds the folder already
+there, the existing take is kept and `save_voices` says on stderr that this command's voice of that name differs.
+
+A saved take holds no model id. Its codes are those of the checkpoint's codec, so it is a reference only for `fish`
+checkpoints with the same codec: Drama 3 today.
 
 ## Sentence times
 
@@ -77,7 +91,7 @@ each line as the model takes it (`script.Line.of`):
   tags is refused, and so is an `@` line whose name is not a speaker name (lowercase letters, digits, `-`, `_`).
   A speaker without `--speaker NAME=VOICE` is made up: its first take is the reference of its later lines
   (`ai_models.fish` keeps one take per speaker) and is written as `voice-<name>.wav` (`write_takes`); the made-up
-  speakers are named on stderr. The narrator's `default` voice works the same way, and its first take is written as
+  speakers are named on stderr. A speaker with a named Fish voice also gets `voice-<name>.wav`, its name's take. The narrator's `default` voice works the same way, and its first take is written as
   `voice.wav`. Each take has its transcript in the `.txt` of the same stem.
 - A model that takes a style but no tags: a line that starts with `[<style>]` is that sentence's style
   (`split_style`), passed instead of `--style`, with a `style` key in `timing.json`. Such a model takes any style.

@@ -374,8 +374,14 @@ A take outlives its process through `Take.save(folder)`, which writes `voice.wav
 `codes.pt` (`torch.save` of the codes), and `Take.load(folder)`, which reads them back on the CPU (`weights_only`)
 and raises `AIModelsError` naming a missing file. A caller that keeps `Takes.keep(model_id, speaker, Take.load(...))`
 before the first `speak` of that speaker gets the saved voice for the speaker's untagged and `<|speaker:0|>` spans
-(`keep` and `get` take speaker tag number 0 when none is given). media:voiceover keeps named Fish voices this way in
-its voices directory (`docs/voiceover.md`, Fish voices across commands).
+(`keep` and `get` take speaker tag number 0 when none is given). `Takes.link(model_id, speaker, folder)` does the
+same for a folder that may not exist yet: it loads the folder at once when it exists, else at the first `get` that
+finds it; `speak` calls `get` after the model load, with the local-model lock held, so a take that another process
+saved while this one waited for the lock seeds the voice. `Take.save` writes into a temporary sibling folder and
+renames it, so a folder holds all three files or does not exist; it returns None and keeps the folder when the
+target exists already. The codes are those of the checkpoint's codec, so a saved take is a reference only for
+checkpoints with the same codec (Drama 3 today). media:voiceover keeps named Fish voices this way in its voices
+directory (`docs/voiceover.md`, Fish voices across commands).
 
 Instructions go through the model's `style`, a format string with `{instructions}` and `{text}` (Drama 3:
 `"[{instructions}] {text}"`, its inline tags), applied to each span without a style tag of its own; a model without

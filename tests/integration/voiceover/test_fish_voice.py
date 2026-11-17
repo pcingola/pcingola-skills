@@ -17,6 +17,8 @@ from tests.subproc import child_env, run_module
 
 MODEL = kind_model("fish")
 VOICE = "tiny-narrator"
+NO_REFERENCE = "0 reference(s)"  # fish-speech's log line of a Drama 3 request without a reference voice
+ONE_REFERENCE = "1 reference(s)"  # and of a request with one
 SAVED = ("voice.wav", "voice.txt", "codes.pt")
 
 
@@ -62,16 +64,21 @@ def test_first_command_saves_fish_voice(first):
     assert f"saved Fish voice {VOICE!r}" in first.result.stderr, first.result.stderr
     assert sorted(first.saved) == sorted(SAVED)
     assert first.saved["voice.txt"].decode() == "The heart pumps blood."
+    assert NO_REFERENCE in first.result.stderr and ONE_REFERENCE not in first.result.stderr, first.result.stderr
     assert (first.tmp / "one" / "voice.wav").read_bytes() == first.saved["voice.wav"]
 
 
+@pytest.mark.timeout(50)
 def test_second_command_reuses_saved_fish_voice(first):
-    """A second command with the same Fish voice name loads the saved take as the reference and saves nothing: the
-    saved files stay as they were, and the narrator's first take of the second command (`voice.wav` in its output
-    directory) is the saved take. Guards one Fish voice across the scenes of a film (docs/voiceover.md)."""
+    """A second command with the same Fish voice name sends its request with the saved take as the reference
+    (fish-speech logs one reference, where the first command logged none) and saves nothing: the saved files stay
+    as they were, and the narrator's first take of the second command (`voice.wav` in its output directory) is the
+    saved take. Guards one Fish voice across the scenes of a film (docs/voiceover.md). The timeout is 50 s since run
+    alone this test runs two fish commands, the module fixture's and its own, about 23 s in all; each has 25 s."""
     assert first.result.returncode == 0, first.result.stderr
     second = synth(first.env, "The lungs fill with air.", first.tmp / "two")
     assert second.returncode == 0, second.stderr
+    assert ONE_REFERENCE in second.stderr and NO_REFERENCE not in second.stderr, second.stderr
     assert "saved Fish voice" not in second.stderr, second.stderr
     assert {n: (first.folder / n).read_bytes() for n in SAVED} == first.saved
     assert (first.tmp / "two" / "voice.wav").read_bytes() == first.saved["voice.wav"]

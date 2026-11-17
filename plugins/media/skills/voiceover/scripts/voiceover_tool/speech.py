@@ -10,9 +10,12 @@ voices. The answer is a WAV file, resampled to 24 kHz when it has another rate (
 
 A fish model (Fish Audio Drama 3) keeps the first take of each speaker as the reference of the rest, so one command
 has one voice per speaker; `synth` writes each as `voice.wav` (`voice-<speaker>.wav`) + `.txt`. A voice name other
-than `default` given to a fish model (`--voice`, `--speaker`) is a saved Fish voice (`voices.fish_folder`): when it
-exists, its take seeds `fish.takes` before the first request, so later commands keep the voice; when it does not,
-the first take of its speaker is saved under that name after synthesis (`save_voices`).
+than `default` given to a fish model (`--voice`, `--speaker`) is a saved Fish voice (`voices.fish_folder`). All
+speakers given one name share one take: each is sent to `fish` as the first speaker of that name (`take_keys`), so
+one name is one voice. The name's folder is linked to that take (`fish.takes.link`): when it exists, its take seeds
+the voice before the first request, so later commands keep the voice; when it appears later, before the first
+request of the voice (another command saved it while this one waited for the local-model lock), it seeds the voice
+then; when it never appears, the voice's first take is saved under that name after synthesis (`save_voices`).
 """
 
 from __future__ import annotations
@@ -90,7 +93,8 @@ class Narrator:
         self.style, self.speed, self.speakers, self.params = style, speed, speakers, dict(params or {})
         self.made_up: list[str] = []  # the speakers of `@name` lines without a voice, in order of first line
         self.resolved: dict[str | None, str] = {}  # speaker (None: the narrator) -> the voice sent (a path or name)
-        self.fish_voices: dict[str | None, Path] = {}  # speaker -> the folder of its saved Fish voice (fish models)
+        self.take_keys: dict[str | None, str | None] = {}  # speaker -> the speaker whose take it shares (`prepare`)
+        self.fish_voices: dict[str | None, Path] = {}  # take key -> the folder of its named Fish voice (fish models)
         self.fish = m.kind == fish.KIND
 
     def lines(self, sentences: list[str]) -> list[Line]:
@@ -99,13 +103,22 @@ class Narrator:
         not take."""
         return [Line.of(s, styles=self.instructions, tags=self.tags, model=self.model) for s in sentences]
 
-    def _reference(self, voice: str, speaker: str | None) -> str:
-        """`voice` of `speaker` as sent: a cloning model's recording path, a fish model's default voice (a named Fish
-        voice goes to `fish_voices`), else `voice`; `ValueError` when the recording is missing, for a recording given
-        to a fish model, or for a voice other than the default of a model that has only that one."""
+    def _take_key(self, voice: str, speaker: str | None) -> str | None:
+        """The speaker whose take `speaker` shares: for a fish model and a named Fish voice, the first speaker given
+        that name (which gets the name's folder in `fish_voices`), else `speaker`; `ValueError` for a recording given
+        to a fish model."""
+        folder = voices.fish_folder(voice) if self.fish else None
+        if folder is None:
+            return speaker
+        key = next((k for k, f in self.fish_voices.items() if f == folder), speaker)
+        self.fish_voices.setdefault(key, folder)
+        return key
+
+    def _reference(self, voice: str) -> str:
+        """`voice` as sent: a cloning model's recording path, a fish model's default voice (a named Fish voice is a
+        take, `_take_key`), else `voice`; `ValueError` when the recording is missing, or for a voice other than the
+        default of a model that has only that one."""
         if self.fish:
-            if (folder := voices.fish_folder(voice)) is not None:
-                self.fish_voices[speaker] = folder
             return self.default_voice
         if self.one_voice and voice != self.default_voice:
             raise ValueError(f"{self.model} has only the voice {self.default_voice!r}; a model of kind chatterbox "
@@ -116,43 +129,52 @@ class Narrator:
 
     def prepare(self, lines: list[Line], voice: str) -> None:
         """Resolve every voice before the first request: the narrator's `voice` and each speaker's (`--speaker`, else
-        a made-up voice, `default`). `ValueError` for a `--speaker` no line uses, or a recording that is missing. The made-up speakers are named on stderr."""
+        a made-up voice, `default`), and each speaker's take key (`take_keys`). `ValueError` for a `--speaker` no line
+        uses, or a recording that is missing. The made-up speakers are named on stderr."""
         used = list(dict.fromkeys(line.speaker for line in lines if line.speaker))
         if unused := [n for n in self.speakers if n not in used]:
             raise ValueError(f"--speaker {', '.join(unused)}: no `@name` line of the script has that speaker "
                              f"(speakers in the script: {', '.join(used) or 'none'})")
-        self.fish_voices = {}
-        self.resolved = {None: self._reference(voice, None)}
-        for name in used:
-            self.resolved[name] = self._reference(self.speakers.get(name, voices.DEFAULT_VOICE), name)
-        self._seed_fish_voices()
+        self.fish_voices, self.take_keys, self.resolved = {}, {}, {}
+        for name in (None, *used):
+            given = voice if name is None else self.speakers.get(name, voices.DEFAULT_VOICE)
+            self.take_keys[name] = self._take_key(given, name)
+            self.resolved[name] = self._reference(given)
+        self._link_fish_voices()
         self.made_up = [n for n in used if n not in self.speakers]
         if self.made_up:
             print(f"voiceover: made-up voices (the first line of each is the reference of the rest): "
                   f"{', '.join(self.made_up)}", file=sys.stderr)
 
-    def _seed_fish_voices(self) -> None:
-        """Seed `fish.takes` with the saved take of each speaker whose Fish voice exists, so every request of that
-        speaker has it as reference; `ValueError` for a folder that holds no saved take."""
+    def _link_fish_voices(self) -> None:
+        """Link each named Fish voice's take key to its folder (`fish.takes.link`), so a saved take, existing now or
+        saved by another command before this one's first request of the voice, is the reference of every request
+        of the voice; `ValueError` for a folder that holds no saved take."""
         from ai_models import AIModelsError, fish
-        from ai_models.fish_take import Take
 
-        for speaker, folder in self.fish_voices.items():
-            if folder.is_dir():
-                try:
-                    fish.takes.keep(self.model, speaker, Take.load(folder))
-                except AIModelsError as e:
-                    raise ValueError(str(e)) from None
+        for key, folder in self.fish_voices.items():
+            try:
+                fish.takes.link(self.model, key, folder)
+            except AIModelsError as e:
+                raise ValueError(str(e)) from None
 
     def save_voices(self) -> list[Path]:
-        """Save the first take of each speaker whose named Fish voice did not exist (`Take.save`); the folders
-        written. A name two speakers share is saved from the first speaker that has a take."""
+        """Save the first take of each named Fish voice that this command made (not loaded from its folder) with
+        `Take.save`; the folders written. A folder another command saved after this command's first request of the
+        voice is kept, with a line on stderr that this command's voice of that name differs."""
         from ai_models import fish
+        from ai_models.fish_take import Take
 
         saved = []
-        for speaker, folder in self.fish_voices.items():
-            if not folder.exists() and (take := fish.takes.get(self.model, speaker)) is not None:
-                saved.append(take.save(folder))
+        for key, folder in self.fish_voices.items():
+            take = fish.takes.get(self.model, key)
+            if take is None or fish.takes.loaded(self.model, key):
+                continue
+            if take.save(folder) is not None:
+                saved.append(folder)
+            elif Take.load(folder).wav != take.wav:
+                print(f"voiceover: Fish voice {folder.stem!r} was saved by another command during this one and is "
+                      f"kept ({folder}); this command's voice of that name differs from it", file=sys.stderr)
         return saved
 
     def voices(self) -> list[str]:
@@ -165,13 +187,14 @@ class Narrator:
         return own + [v for v in extra if v not in own]
 
     def first_takes(self) -> dict[str | None, tuple[bytes, str]]:
-        """Per speaker (None: the narrator), (WAV, text) of its first take of a fish model in this process; empty for
+        """Per speaker (None: the narrator, then the script's speakers), (WAV, text) of the first take of its
+        untagged spans by a fish model in this process (shared by the speakers of one Fish voice name); empty for
         other kinds."""
         from ai_models import fish
 
         if not self.fish:
             return {}
-        return {s: (t.wav, t.text) for s in (None, *self.made_up) if (t := fish.takes.get(self.model, s))}
+        return {s: (t.wav, t.text) for s, k in self.take_keys.items() if (t := fish.takes.get(self.model, k))}
 
     def synthesize(self, line: Line) -> np.ndarray:
         """Mono float32 samples of `line` at `sample_rate`, in its speaker's resolved voice (`prepare`), with its own
@@ -180,7 +203,8 @@ class Narrator:
 
         try:
             data = speech.speak(line.said, voice=self.resolved[line.speaker], model=self.model,
-                                instructions=line.style or self.style, speed=self.speed, speaker=line.speaker,
+                                instructions=line.style or self.style, speed=self.speed,
+                                speaker=self.take_keys[line.speaker],
                                 params=self.params or None, weights_dir=config.weights_dir())
         except AIModelsError as e:
             msg = str(e)

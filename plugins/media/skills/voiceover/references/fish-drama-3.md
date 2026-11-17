@@ -33,6 +33,10 @@ when `config.yaml` has such a provider.
   as `NAME.fish/` and prints `saved Fish voice` on stderr; every later command with that name starts from the saved
   take, so all its sentences have that voice. `voices --model <fish model>` lists the saved names. To get a
   different voice for a name, delete its `NAME.fish/` folder; the next command saves a new one.
+- One name is one voice: speakers given the same name (`--voice anna --speaker host=anna`) share it, in the first
+  command too. Two commands started at once with the same new name run one after the other (the model is loaded
+  by one process at a time), and the second uses the voice the first saved.
+- A saved voice holds codec codes, so it works only with checkpoints that share the codec: Drama 3 today.
 - The saved voice is the first sentence spoken with that name, with its tags and style. A plain sentence in the
   delivery the voice should keep makes a better first take than a whispered or laughing one.
 

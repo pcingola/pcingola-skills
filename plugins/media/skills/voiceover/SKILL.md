@@ -49,7 +49,8 @@ to the output directory as `voice.wav` and `voice.txt`. With the voice
 the same across commands (the scenes of a film) gets a name:
 `--voice narrator` saves the first take as the Fish voice `narrator` in
 the voices directory, and every later command with `--voice narrator`
-reuses it. The model takes no recording; a specific person's voice needs a
+reuses it with a model of the same codec (Drama 3). Speakers given one
+name share one voice. The model takes no recording; a specific person's voice needs a
 `chatterbox` model. Tags in square
 brackets anywhere in a line (`Fine. [laughs] Well.`; `whisper`, `excited`,
 `sighs`, `laughs`) direct the delivery at that point; `--style whisper`

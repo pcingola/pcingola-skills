@@ -108,8 +108,39 @@ def test_inline_speaker_tags_get_their_own_take():
     assert takes.get("f:drama-3", None, 1) is None and takes.get("f:drama-3", "host") is seeded
 
 
+def test_take_save_keeps_an_existing_folder(tmp_path):
+    """`Take.save` writes through a temporary sibling folder and a rename: to a folder that exists already it writes
+    nothing, returns None and keeps the existing take, and no temporary folder is left. Guards two commands that
+    save one new Fish voice name (docs/ai_models.md, Fish)."""
+    codes = torch.zeros(10, 2, dtype=torch.long)
+    first = Take(b"A", "Hi.", codes).save(tmp_path / "anna.fish")
+    assert first == tmp_path / "anna.fish"
+    assert Take(b"B", "Hey.", codes).save(tmp_path / "anna.fish") is None
+    assert Take.load(first).wav == b"A"
+    assert [p.name for p in tmp_path.iterdir()] == ["anna.fish"]
+
+
+def test_linked_folder_seeds_when_it_appears(tmp_path):
+    """`Takes.link` seeds a voice from its folder at once when the folder exists, else at the first `get` that finds
+    it; `loaded` tells such a take from one the process kept; a voice that already has a take keeps it. Guards the
+    seed of a Fish voice that another process saved while this one waited for the local-model lock."""
+    codes = torch.zeros(10, 2, dtype=torch.long)
+    takes = Takes()
+    assert takes.link("f:drama-3", "host", tmp_path / "anna.fish") is None
+    assert takes.get("f:drama-3", "host") is None
+    Take(b"A", "Hi.", codes).save(tmp_path / "anna.fish")
+    assert takes.get("f:drama-3", "host").wav == b"A" and takes.loaded("f:drama-3", "host")
+    assert takes.get("f:drama-3", "host", 1) is None
+    mine = takes.keep("f:drama-3", "guest", Take(b"G", "Hello.", codes))
+    takes.link("f:drama-3", "guest", tmp_path / "anna.fish")
+    assert takes.get("f:drama-3", "guest") is mine and not takes.loaded("f:drama-3", "guest")
+    assert takes.link("f:drama-3", None, tmp_path / "anna.fish").wav == b"A"
+    takes.clear()
+    assert takes.get("f:drama-3", "host") is None and not takes.loaded("f:drama-3", "host")
+
+
 def test_take_save_and_load_round_trip(tmp_path):
-    """`Take.save` writes `voice.wav`, `voice.txt` and `codes.pt` to a folder it creates, and `Take.load` reads the
+    """`Take.save` writes `voice.wav`, `voice.txt` and `codes.pt` to a new folder, and `Take.load` reads the
     same WAV bytes, styled text and codes tensor back; a folder without one of the files is refused with its name.
     Guards the Fish voice that a later voiceover command reuses (docs/ai_models.md, Fish)."""
     codes = torch.arange(30, dtype=torch.long).reshape(10, 3)

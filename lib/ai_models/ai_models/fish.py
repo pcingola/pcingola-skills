@@ -13,7 +13,9 @@ waiting for the previous holder's memory and for local Ollama models that unload
 request, with fish-speech's sampling defaults (temperature 0.7, top-p 0.7, top-k 30) and at most `max_frames`
 audio frames per request when the entry sets it. The voice is always `default`. The first span of a voice in the
 process is kept as its `Take` (`fish_takes.Takes`, keyed by the caller's `speaker` and the span's speaker tag
-number), and its text and codes are the reference of every later span of that voice. The reference transcript goes
+number), and its text and codes are the reference of every later span of that voice. The take is looked up after the
+model load, so with the local-model lock held: a saved take linked to the voice (`Takes.link`) that another process
+wrote while this one waited for the lock is found there. The reference transcript goes
 to the model behind the span's speaker tag, so the reference and the request name the same speaker (fish-speech
 reads an untagged transcript or text as speaker 0). The answer is one WAV file at the codec's rate (44.1 kHz), the
 spans joined in order. `style` (optional) is a format string with `{instructions}` and `{text}`
