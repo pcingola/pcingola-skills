@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 from .cmd_extract_shapes import ExtractedShapesData, extract_text
-from .exceptions import OverflowError, TextAdditionError, ValidationError
+from .exceptions import TextAdditionError, TextOverflowError, ValidationError
 from .text_fitting import FittingResult, TextFitter, MIN_FONT_SIZE, paragraph_base_sizes
 from .text_formatters import ParagraphProcessor
 from .text_validators import TextAdditionValidator, WarningCollector
@@ -41,7 +41,7 @@ class PresentationTextAdder:
         failed_fittings = [r for r in fitting_results.values() if not r.fits]
         if failed_fittings:
             self._report_overflow_failures(failed_fittings, extracted_shapes_data)
-            raise OverflowError(f"Text overflow cannot be resolved for {len(failed_fittings)} shape(s)")
+            raise TextOverflowError(f"Text overflow cannot be resolved for {len(failed_fittings)} shape(s)")
 
         # Apply text with adjusted font sizes
         stats = self._process_shapes(prs, extracted_shapes_data, text_data, fitting_results)

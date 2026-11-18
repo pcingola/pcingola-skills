@@ -1,33 +1,66 @@
 #!/usr/bin/env python3
-"""Unified CLI for PowerPoint operations on presentations and templates."""
+"""Unified CLI for PowerPoint operations on presentations and templates.
+
+`main(argv)` parses the arguments, imports only the module of the command that
+runs, calls its `run_<command>(args)` and returns the exit code.
+
+Error output of `PptxError`: `main` prints `Error: <message>` followed by a newline
+and returns 1. The stream is stderr, except for the commands in
+`STDOUT_ERROR_COMMANDS`, which print their errors to stdout. A `run_*` function
+that prints an error in another format catches the exception itself.
+"""
 import argparse
+import importlib
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
-from .cmd_add_chart import run_add_chart
-from .cmd_add_images import run_add_images
-from .cmd_add_notes import run_add_notes
-from .cmd_add_shapes import run_add_shapes
-from .cmd_add_slide import run_add_slide
-from .cmd_add_table import run_add_table
-from .cmd_add_text import run_add_text
-from .cmd_new_deck import run_new_deck
-from .cmd_copy_slide import run_copy_slide
-from .cmd_delete_slide import run_delete_slide
-from .cmd_edit import run_edit
-from .cmd_extract_media import run_extract_images, run_list_images
-from .cmd_check_text import run_extract_text
-from .cmd_extract_shapes import run_extract_shapes
-from .cmd_get import run_get
-from .cmd_inspect_template import run_inspect_template
-from .cmd_inspect_master import run_inspect_master
-from .cmd_select_slides import run_select_slides
-from .cmd_show_shapes import run_show_shapes
-from .cmd_validate import run_validate
-from .cmd_visual_preview import run_visual_preview
-from .cmd_export_slides import run_export_slides
+from .exceptions import PptxError
+
+@dataclass(frozen=True)
+class CommandRef:
+    """Where a command's `run_*` function lives: module in pptx_tool and function name."""
+    module: str
+    function: str
 
 
-def main() -> None:
+# Command name -> its run function.
+COMMANDS: dict[str, CommandRef] = {
+    'select-slides': CommandRef('cmd_select_slides', 'run_select_slides'),
+    'inspect-template': CommandRef('cmd_inspect_template', 'run_inspect_template'),
+    'inspect-master': CommandRef('cmd_inspect_master', 'run_inspect_master'),
+    'extract-text': CommandRef('cmd_check_text', 'run_extract_text'),
+    'extract-shapes': CommandRef('cmd_extract_shapes', 'run_extract_shapes'),
+    'add-text': CommandRef('cmd_add_text', 'run_add_text'),
+    'add-table': CommandRef('cmd_add_table', 'run_add_table'),
+    'add-shapes': CommandRef('cmd_add_shapes', 'run_add_shapes'),
+    'add-chart': CommandRef('cmd_add_chart', 'run_add_chart'),
+    'add-images': CommandRef('cmd_add_images', 'run_add_images'),
+    'add-notes': CommandRef('cmd_add_notes', 'run_add_notes'),
+    'new-deck': CommandRef('cmd_new_deck', 'run_new_deck'),
+    'edit': CommandRef('cmd_edit', 'run_edit'),
+    'export-slides': CommandRef('cmd_export_slides', 'run_export_slides'),
+    'visual-preview': CommandRef('cmd_visual_preview', 'run_visual_preview'),
+    'get': CommandRef('cmd_get', 'run_get'),
+    'delete-slide': CommandRef('cmd_delete_slide', 'run_delete_slide'),
+    'copy-slide': CommandRef('cmd_copy_slide', 'run_copy_slide'),
+    'add-slide': CommandRef('cmd_add_slide', 'run_add_slide'),
+    'show-shapes': CommandRef('cmd_show_shapes', 'run_show_shapes'),
+    'validate': CommandRef('cmd_validate', 'run_validate'),
+    'list-images': CommandRef('cmd_extract_media', 'run_list_images'),
+    'extract-images': CommandRef('cmd_extract_media', 'run_extract_images'),
+}
+
+# Commands that print their error messages to stdout; all others print them to stderr.
+STDOUT_ERROR_COMMANDS = frozenset({
+    'add-notes', 'add-shapes', 'add-slide', 'add-table', 'add-text', 'copy-slide',
+    'delete-slide', 'extract-shapes', 'get', 'new-deck',
+})
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the argument parser of every command."""
     parser = argparse.ArgumentParser(prog='pptx', description="PowerPoint CLI for presentations and templates")
     subs = parser.add_subparsers(dest='command', required=True)
 
@@ -182,32 +215,43 @@ def main() -> None:
     p.add_argument('input', help='Input PPTX file')
     p.add_argument('output', nargs='?', help='Output JSON path (default: stdout)')
 
-    args = parser.parse_args()
+    return parser
 
-    commands = {
-        'select-slides': run_select_slides,
-        'inspect-template': run_inspect_template,
-        'inspect-master': run_inspect_master,
-        'extract-text': run_extract_text,
-        'extract-shapes': run_extract_shapes,
-        'add-text': run_add_text,
-        'add-table': run_add_table,
-        'add-shapes': run_add_shapes,
-        'add-chart': run_add_chart,
-        'add-images': run_add_images,
-        'add-notes': run_add_notes,
-        'new-deck': run_new_deck,
-        'edit': run_edit,
-        'export-slides': run_export_slides,
-        'visual-preview': run_visual_preview,
-        'get': run_get,
-        'delete-slide': run_delete_slide,
-        'copy-slide': run_copy_slide,
-        'add-slide': run_add_slide,
-        'show-shapes': run_show_shapes,
-        'validate': run_validate,
-        'list-images': run_list_images,
-        'extract-images': run_extract_images,
-    }
 
-    commands[args.command](args)
+def _command(name: str) -> Callable[[argparse.Namespace], int | None]:
+    """Import the module of one command and return its `run_*` function."""
+    ref = COMMANDS[name]
+    module = importlib.import_module(f'.{ref.module}', __package__)
+    return getattr(module, ref.function)
+
+
+def _exit_code(exc: SystemExit) -> int:
+    """Exit code of a SystemExit, printing a string code to stderr as the interpreter does."""
+    if exc.code is None:
+        return 0
+    if isinstance(exc.code, int):
+        return exc.code
+    print(exc.code, file=sys.stderr)
+    return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the CLI on `argv` (default: `sys.argv[1:]`) and return the exit code.
+
+    argparse exits with 0 for `--help` and 2 for an argument error; `main` returns
+    that code. A `run_*` function returns its exit code (None means 0). `PptxError`
+    is printed as `Error: <message>` (stream: see the module docstring) and gives 1.
+    """
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return _exit_code(exc)
+    try:
+        return _command(args.command)(args) or 0
+    except PptxError as exc:
+        stream = sys.stdout if args.command in STDOUT_ERROR_COMMANDS else sys.stderr
+        print(f'Error: {exc}', file=stream)
+        return 1
+    except SystemExit as exc:
+        return _exit_code(exc)

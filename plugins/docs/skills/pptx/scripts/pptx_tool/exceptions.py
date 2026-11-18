@@ -1,16 +1,17 @@
-"""Custom exceptions for text addition operations."""
+"""Exceptions of the pptx tool."""
 
 
-class TextAdditionError(Exception):
+class PptxError(Exception):
+    """Base exception of the pptx tool. The CLI prints its message and exits with 1."""
+
+
+class TextAdditionError(PptxError):
     """Base exception for text addition operations."""
-    pass
 
 
 class ValidationError(TextAdditionError):
-    """Raised when text addition data validation fails."""
-    pass
+    """Raised when input data validation fails."""
 
 
-class OverflowError(TextAdditionError):
+class TextOverflowError(TextAdditionError):
     """Raised when text overflow is detected after adding text."""
-    pass

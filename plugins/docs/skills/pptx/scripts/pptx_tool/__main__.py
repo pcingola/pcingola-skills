@@ -1,3 +1,5 @@
+import sys
+
 from .pptx import main
 
-main()
+sys.exit(main())
