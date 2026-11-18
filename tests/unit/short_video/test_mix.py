@@ -122,6 +122,27 @@ class TestCaption(unittest.TestCase):
         self.assertIsNone(cli.authors([" "]))
         self.assertIn('"byline": "by Jane"', scenes.card_js({"template": "title", "author": "Jane", "beats": ["T"]}))
 
+    def test_corner_luma_command(self) -> None:
+        """credit.corner_luma_command seeks the video once per time in one FFmpeg process, takes one frame per time,
+        averages the region (default `credit.corner`) to one grey pixel and stacks the pixels in time order into
+        one raw frame; one time needs no stack. Guards corner_luma reading one byte per sampled time, in order."""
+        settings.use_project(None)
+        cmd = [str(c) for c in credit.corner_luma_command(Path("v.mp4"), [0.5, 1.25, 2.0])]
+        self.assertEqual([cmd[i + 1] for i, c in enumerate(cmd) if c == "-ss"], ["0.500", "1.250", "2.000"])
+        self.assertEqual(cmd.count("-i"), 3)
+        graph = cmd[cmd.index("-filter_complex") + 1]
+        x, y, w, h = settings.get()["credit"]["corner"]
+        self.assertEqual(graph.split(";")[1],
+                         f"[1:v:0]trim=end_frame=1,setpts=0,crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},"
+                         "scale=1:1:flags=area,format=gray[p1]")
+        self.assertTrue(graph.endswith(";[p0][p1][p2]hstack=inputs=3[out]"))
+        self.assertEqual(cmd[cmd.index("-filter_complex") + 2:],
+                         ["-map", "[out]", "-frames:v", "1", "-f", "rawvideo", "-"])
+        one = [str(c) for c in credit.corner_luma_command(Path("v.mp4"), [1.0], [0.0, 0.0, 0.5, 0.5])]
+        self.assertEqual(one[one.index("-filter_complex") + 1],
+                         "[0:v:0]trim=end_frame=1,setpts=0,crop=iw*0.5:ih*0.5:iw*0.0:ih*0.0,"
+                         "scale=1:1:flags=area,format=gray[out]")
+
 
 class TestLogoOnlyCaption(unittest.TestCase):
     """`credit.text: null` and `credit.byline: null`: the logo alone, on every scene."""

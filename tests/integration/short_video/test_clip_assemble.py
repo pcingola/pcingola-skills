@@ -13,7 +13,7 @@ from pathlib import Path
 from short_video_tool import clip, media, mix, settings, state, storyboard, versions
 from tests.prereq import requires
 
-W, H, FPS = 320, 180, 30
+W, H, FPS = 160, 90, 30  # small test inputs; FPS sets the duration tolerance
 IMAGE_SCENES = {"drawing": 3.0, "photo": 2.5}
 CLIP_SECONDS = 2.0
 
@@ -70,12 +70,13 @@ class TestClipFilm(unittest.TestCase):
             sdir = versions.next_version(state.scene_root(p, sid))
             _ffmpeg("-f", "lavfi", "-i", f"color=c=blue:s={W}x{H}:r={FPS}:d={dur}",
                     "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=24000:duration={dur}",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(sdir / "scene.mp4"))
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+                    str(sdir / "scene.mp4"))
             state.write_meta(sdir, {"voice_version": vdir.name, "duration": dur})
 
         src = Path(cls._tmp.name) / "morph.mp4"
         _ffmpeg("-f", "lavfi", "-i", f"testsrc=size={W}x{H}:rate={FPS}:duration={CLIP_SECONDS}",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", str(src))
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(src))
         cls.clip_mp4 = clip.import_clip(p, storyboard.scene_by_id(cls.data, "morph"), src)
         cls.film = mix.assemble(p, cls.data)
 

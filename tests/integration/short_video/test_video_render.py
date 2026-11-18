@@ -51,21 +51,24 @@ def _video(path: Path) -> dict:
 
 @requires(HAS_FFMPEG, "ffmpeg and ffprobe not installed")
 class TestFill(unittest.TestCase):
-    """video_scene.fill on test clips at another size and fps than `video:`."""
+    """video_scene.fill on test clips at another size, aspect ratio and fps than `video:`. The project sets a small
+    `video:` frame (16:9, the default fps) so the scene videos fill writes stay cheap."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self._tmp.name)
-        settings.use_project(None)
+        (self.dir / settings.PROJECT_FILE).write_text("video: {width: 160, height: 90}\n", encoding="utf-8")
+        settings.use_project(self.dir)
         self.v = settings.get()["video"]
 
     def tearDown(self) -> None:
+        settings.use_project(None)
         self._tmp.cleanup()
 
     def _clip(self, seconds: float) -> Path:
         src = self.dir / f"clip{seconds}.mp4"
-        _ffmpeg("-f", "lavfi", "-i", f"testsrc2=size=640x480:rate=24:duration={seconds}", "-pix_fmt", "yuv420p",
-                str(src))
+        _ffmpeg("-f", "lavfi", "-i", f"testsrc2=size=64x48:rate=24:duration={seconds}", "-pix_fmt", "yuv420p",
+                "-preset", "ultrafast", str(src))
         return src
 
     def _check(self, out: Path, seconds: float) -> None:

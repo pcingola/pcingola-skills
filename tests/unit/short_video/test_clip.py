@@ -50,7 +50,7 @@ Image: a.png
 | Then it changes. | the morph |
 """
 
-W, H, FPS = 320, 180, 30
+W, H, FPS = 160, 90, 30  # small test inputs; FPS sets the duration tolerance
 SETTINGS = f"author: [Jane Doe]\nvideo: {{width: {W}, height: {H}, fps: {FPS}}}\n"
 
 
@@ -246,7 +246,7 @@ def _ffmpeg(*args: str) -> None:
 
 def _testsrc(path: Path, seconds: float, size: str = f"{W}x{H}", fps: int = FPS) -> Path:
     _ffmpeg("-f", "lavfi", "-i", f"testsrc=size={size}:rate={fps}:duration={seconds}",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path))
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(path))
     return path
 
 
@@ -365,7 +365,7 @@ class TestImport(unittest.TestCase):
         src = self.src / "with_audio.mp4"
         _ffmpeg("-f", "lavfi", "-i", f"testsrc=size={W}x{H}:rate={FPS}:duration=1",
                 "-f", "lavfi", "-i", "sine=frequency=880:duration=1",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(src))
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(src))
         err = io.StringIO()
         with redirect_stderr(err):
             out = clip.import_clip(self.project, self.morph, src)
@@ -379,7 +379,7 @@ class TestImport(unittest.TestCase):
         settings.use_project(self.project)
         src = self.src / "ntsc.mp4"
         _ffmpeg("-f", "lavfi", "-i", f"testsrc=size={W}x{H}:rate=30000/1001:duration=1",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", str(src))
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(src))
         out = clip.import_clip(self.project, self.morph, src)
         self.assertAlmostEqual(media.video_duration(out), 1.0, delta=0.05)
         self.assertTrue(clip.same_rate(Fraction(30000, 1001), 29.97))

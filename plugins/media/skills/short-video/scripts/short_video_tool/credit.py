@@ -77,16 +77,27 @@ def caption_color(luma: float) -> str:
 def corner_luma(video: Path, times: list[float], region: list[float] | None = None) -> float:
     """Mean luma of `region` (x, y, w, h as fractions of the frame; default
     `credit.corner`, see `measured_region`) over the frames at `times`."""
-    x, y, w, h = region or _c()["corner"]
-    values = []
-    for t in times:
-        raw = media.run([
-            media.which("ffmpeg"), "-v", "error", "-ss", f"{t:.3f}", "-i", video, "-frames:v", "1",
-            "-vf", f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},scale=1:1:flags=area,format=gray",
-            "-f", "rawvideo", "-",
-        ], text=False).stdout
-        values.append(raw[0])
+    values = media.run(corner_luma_command(video, times, region), text=False).stdout
     return sum(values) / len(values)
+
+
+def corner_luma_command(video: Path, times: list[float], region: list[float] | None = None) -> list:
+    """The FFmpeg command behind `corner_luma`: one process that seeks `video`
+    once per time (`-ss` before `-i`, as many inputs), takes the first frame
+    at or after each time, averages `region` into one grey pixel, and writes
+    the pixels side by side as one raw frame: one byte per time, in order."""
+    x, y, w, h = region or _c()["corner"]
+    args: list = [media.which("ffmpeg"), "-v", "error"]
+    for t in times:
+        args += ["-ss", f"{t:.3f}", "-i", video]
+    pixel = f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},scale=1:1:flags=area,format=gray"
+    chains = [f"[{i}:v:0]trim=end_frame=1,setpts=0,{pixel}[p{i}]" for i in range(len(times))]
+    if len(times) == 1:
+        graph = chains[0].removesuffix("[p0]") + "[out]"
+    else:
+        graph = ";".join(chains) + ";" + "".join(f"[p{i}]" for i in range(len(times))) \
+            + f"hstack=inputs={len(times)}[out]"
+    return args + ["-filter_complex", graph, "-map", "[out]", "-frames:v", "1", "-f", "rawvideo", "-"]
 
 
 def sample_times(duration: float, n: int | None = None) -> list[float]:

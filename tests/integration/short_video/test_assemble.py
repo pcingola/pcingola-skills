@@ -6,6 +6,7 @@ shorter than the film, so it has to loop. The project around them is built
 the way `voice` and `render` leave it (with meta.json), so `assemble` finds
 the rendered versions as it does in a real project.
 """
+import functools
 import hashlib
 import json
 import math
@@ -29,6 +30,28 @@ MUSIC_HZ = 220
 
 def _ffmpeg(*args: str) -> None:
     subprocess.run(["ffmpeg", "-y", "-v", "error", *args], check=True, timeout=25)
+
+
+# Test inputs of the caption and logo tests, made once per module and only read. 1920x1080 is the default `video:`
+# frame, at which the logo box and the caption corner are checked; 5 fps and the ultrafast preset keep the inputs,
+# and the films our code encodes from them, cheap.
+_CLIPS = tempfile.TemporaryDirectory()
+DARK, LIGHT = "0x14234a", "white"
+CLIP_FPS = 5
+
+
+def tearDownModule() -> None:
+    _CLIPS.cleanup()
+
+
+@functools.cache
+def _clip(color: str) -> Path:
+    """A 2 s 1920x1080 clip of one `color` with a 440 Hz tone (test data, shared)."""
+    out = Path(_CLIPS.name) / f"{color}.mp4"
+    _ffmpeg("-f", "lavfi", "-i", f"color=c={color}:s=1920x1080:r={CLIP_FPS}:d=2",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(out))
+    return out
 
 
 def _goertzel(samples: list[float], freq: float) -> float:
@@ -76,7 +99,7 @@ class TestAssemble(unittest.TestCase):
             _ffmpeg(
                 "-f", "lavfi", "-i", f"color=c=blue:s=320x180:r={FPS}:d={dur}",
                 "-f", "lavfi", "-i", f"aevalsrc={tone}:s=24000:d={dur}",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
                 "-shortest", str(sdir / "scene.mp4"),
             )
             state.write_meta(sdir, {"voice_version": vdir.name})
@@ -246,9 +269,7 @@ class TestCreditFile(unittest.TestCase):
         drawtext from a textfile with expansion=none and the `credit` command."""
         with tempfile.TemporaryDirectory() as d:
             src = Path(d) / "old film.mp4"
-            _ffmpeg("-f", "lavfi", "-i", f"color=c=blue:s=1920x1080:r={FPS}:d=2",
-                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(src))
+            shutil.copyfile(_clip(DARK), src)
             out = credit.credit_file(src, Path(d) / "out.mp4", "Jane O'Doe: 100%")
             self.assertEqual(_bright_pixels(src, 1.0), 0)
             self.assertGreater(_bright_pixels(out, 1.0), 300)  # light text on the dark blue corner
@@ -264,9 +285,7 @@ class TestCreditFile(unittest.TestCase):
         """credit.credit_file draws a dark caption on a light video, chosen from credit.corner_luma. Guards the
         caption colour per corner brightness."""
         with tempfile.TemporaryDirectory() as d:
-            src = Path(d) / "light.mp4"
-            _ffmpeg("-f", "lavfi", "-i", f"color=c=white:s=1920x1080:r={FPS}:d=2",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(src))
+            src = _clip(LIGHT)
             self.assertGreater(credit.corner_luma(src, [1.0]), 200)
             out = credit.credit_file(src, Path(d) / "out.mp4", "Jane Doe")
             raw = subprocess.run(
@@ -310,18 +329,11 @@ class TestBrandLogo(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _clip(self, name: str, color: str, dur: float) -> Path:
-        out = self.d / name
-        _ffmpeg("-f", "lavfi", "-i", f"color=c={color}:s=1920x1080:r={FPS}:d={dur}",
-                "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=48000:duration={dur}",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(out))
-        return out
-
     def test_credit_file_logo_in_place_and_gold(self) -> None:
         """credit.credit_file with the acme test brand overlays the logo inside credit.logo_box in its colour and
         nowhere else in the corner, and draws no logo without a brand. Guards the logo position computed by
         logo_box matching what FFmpeg draws."""
-        src = self._clip("in.mp4", "0x14234a", 2)
+        src = _clip(DARK)
         w, h = self.box[2:]
         out = credit.credit_file(src, self.d / "brand.mp4", "Jane Doe", self.b)
         inside = _gold(out, 1.0, self.box)
@@ -338,7 +350,7 @@ class TestBrandLogo(unittest.TestCase):
     def test_logo_only_on_captioned_scenes(self) -> None:
         """mix.mix with a brand draws the logo only on captioned scenes. Guards title and end scenes having no
         caption logo."""
-        files = [self._clip("a.mp4", "0x14234a", 2), self._clip("b.mp4", "white", 2)]
+        files = [_clip(DARK), _clip(LIGHT)]
         out = self.d / "film.mp4"
         mix.mix(files, None, out, -14.0, author="Jane Doe", captioned=[True, False], b=self.b)
         self.assertGreater(len(_gold(out, 1.0, self.box)), 0)
@@ -369,17 +381,10 @@ class TestLogoOnDark(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _clip(self, name: str, color: str) -> Path:
-        out = self.d / name
-        _ffmpeg("-f", "lavfi", "-i", f"color=c={color}:s=1920x1080:r={FPS}:d=2",
-                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(out))
-        return out
-
     def test_logo_per_scene_brightness(self) -> None:
         """mix.mix draws raster_on_dark on a dark scene and raster on a light one, filling the logo box. Guards
         the per-scene logo PNG in one film."""
-        files = [self._clip("dark.mp4", "0x0f172a"), self._clip("light.mp4", "white")]
+        files = [_clip(DARK), _clip(LIGHT)]
         out = self.d / "film.mp4"
         mix.mix(files, None, out, -14.0, author="Jane Doe", b=self.b)
         n = self.box[2] * self.box[3]
@@ -392,9 +397,9 @@ class TestLogoOnDark(unittest.TestCase):
         """credit.credit_file picks raster_on_dark for a dark video and raster for a light one. Guards the logo
         choice in the `credit` command."""
         n = self.box[2] * self.box[3]
-        dark = credit.credit_file(self._clip("dark.mp4", "0x0f172a"), self.d / "d.mp4", "Jane Doe", self.b)
+        dark = credit.credit_file(_clip(DARK), self.d / "d.mp4", "Jane Doe", self.b)
         self.assertEqual(len(_gold(dark, 1.0, self.box, GREEN)), n)
-        light = credit.credit_file(self._clip("light.mp4", "white"), self.d / "l.mp4", "Jane Doe", self.b)
+        light = credit.credit_file(_clip(LIGHT), self.d / "l.mp4", "Jane Doe", self.b)
         self.assertEqual(len(_gold(light, 1.0, self.box, RED)), n)
 
 
