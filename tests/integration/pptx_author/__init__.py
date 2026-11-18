@@ -1,12 +1,10 @@
 """Helpers for pptx-author integration tests.
 
-`pptx-author` carries no code: it is SKILL.md and references/. Its template path
-fills the `neutral` brand's template of the brand plugin
-(`brands/neutral/pptx/presentation.pptx`). These tests drive that template through
-another skill's CLI, `pptx`, the way the template path does. Hence PPTX_TOOL below points at `pptx`, not
-at a wrapper of this skill's own — there isn't one.
-
-The suite runs in the `pptx` skill's project (`uv run --project plugins/docs/skills/pptx/scripts`).
+`pptx-author` has no code: it is SKILL.md and references/. Its template path drives
+the `pptx` skill's code with the `neutral` brand's template of the brand plugin
+(`brands/neutral/pptx/presentation.pptx`). These tests do the same: they call the
+core functions of `pptx_tool` in process on that template, as the template path
+runs the `pptx` commands on it.
 """
 
 import shutil

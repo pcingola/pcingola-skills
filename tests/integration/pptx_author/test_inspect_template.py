@@ -2,8 +2,11 @@
 import json
 import unittest
 
+from pptx_tool.cmd_inspect_master import inspect_master_to_file
+from pptx_tool.cmd_inspect_template import inspect_template
+
 from tests.integration.pptx_author import (
-    PRESENTATION_TEMPLATE, cleanup_dir, fresh_dir, run_cli, write_readme,
+    PRESENTATION_TEMPLATE, cleanup_dir, fresh_dir, write_readme,
 )
 
 DIR = fresh_dir("test_inspect_template")
@@ -24,21 +27,22 @@ class TestInspectTemplate(unittest.TestCase):
         cleanup_dir(DIR)
 
     def test_inspect_presentation_template(self) -> None:
-        """pptx inspect-template on the neutral template writes 13.33 in wide slide_dimensions and
-        no slides. Guards the sidecar JSON pptx-author reads to find example slides to drop."""
+        """inspect_template on the neutral template writes 13.33 in wide slide_dimensions and
+        no slides, and counts no slides. Guards the sidecar JSON pptx-author reads to find
+        example slides to drop."""
         out = DIR / "presentation.json"
-        r = run_cli("inspect-template", str(PRESENTATION_TEMPLATE), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        result = inspect_template(PRESENTATION_TEMPLATE, out)
+        self.assertEqual(result.slide_count, 0)
         data = json.loads(out.read_text())
         self.assertEqual(data["slides"], {})
         self.assertAlmostEqual(data["slide_dimensions"]["width_inches"], 13.33, places=1)
 
     def test_inspect_master_lists_layouts(self) -> None:
-        """pptx inspect-master on the neutral template lists the five layouts by name. Guards the
-        layout list pptx-author's phase 3 reads."""
+        """inspect_master_to_file on the neutral template writes the five layouts by name and
+        counts them. Guards the layout list pptx-author's phase 3 reads."""
         out = DIR / "layouts.json"
-        r = run_cli("inspect-master", str(PRESENTATION_TEMPLATE), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        result = inspect_master_to_file(PRESENTATION_TEMPLATE, out)
+        self.assertEqual(result.layout_count, len(LAYOUTS))
         names = [l["layout_name"] for l in json.loads(out.read_text())["slide_layouts"]]
         self.assertEqual(names, LAYOUTS)
 

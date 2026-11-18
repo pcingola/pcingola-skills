@@ -1,12 +1,13 @@
 """Smoke test of the template path's pptx commands against the neutral brand's presentation.pptx."""
-import json
 import unittest
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx_tool.cmd_edit import EditAction, apply_operations
+from pptx_tool.cmd_validate import validate_deck
 
 from tests.integration.pptx_author import (
-    PRESENTATION_TEMPLATE, cleanup_dir, fresh_dir, run_cli, write_readme,
+    PRESENTATION_TEMPLATE, cleanup_dir, fresh_dir, write_readme,
 )
 
 DIR = fresh_dir("test_shipped_template")
@@ -24,9 +25,10 @@ class TestShippedTemplate(unittest.TestCase):
         cleanup_dir(DIR)
 
     def test_edit_spec_builds_a_clean_deck(self) -> None:
-        """pptx edit on the neutral template adds slides from layouts, fills them by the slot map's
-        shape keys, adds a chart, a table and notes, and validate finds nothing. Guards the
-        native build of 04-native-build.md on the shipped template."""
+        """apply_operations (pptx edit) on the neutral template runs all five operations, adds
+        slides from layouts, fills them by the slot map's shape keys, adds a chart, a table and
+        notes, and validate_deck finds no problem. Guards the native build of 04-native-build.md
+        on the shipped template."""
         spec = {"operations": [
             {"action": "add-slide", "layouts": ["Title Slide", "Two Content", "Title and Content"]},
             {"action": "add-text", "data": {
@@ -42,14 +44,13 @@ class TestShippedTemplate(unittest.TestCase):
                 "placeholder_index": 1}}},
             {"action": "add-notes", "data": {"slide-0": "Talk track"}},
         ]}
-        spec_path = DIR / "spec.json"
-        spec_path.write_text(json.dumps(spec))
         out = DIR / "deck.pptx"
-        r = run_cli("edit", str(PRESENTATION_TEMPLATE), str(out), str(spec_path))
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        edited = apply_operations(PRESENTATION_TEMPLATE, out, spec["operations"])
+        self.assertEqual([s.action for s in edited.steps],
+                         [EditAction(op["action"]) for op in spec["operations"]])
 
-        r = run_cli("validate", str(out))
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        report = validate_deck(out)
+        self.assertFalse(report.has_problems, report.to_json())
 
         slides = Presentation(str(out)).slides
         self.assertEqual([s.slide_layout.name for s in slides],
