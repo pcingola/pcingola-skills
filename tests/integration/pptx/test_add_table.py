@@ -1,23 +1,21 @@
-"""Integration tests for the add-table command."""
-import json
+"""Integration tests for the add-table command.
+
+The tests call the core function `PresentationTableAdder.add_tables`. The test of the table
+data file check calls the CLI in process, because the CLI layer loads that file.
+"""
 import unittest
+from pathlib import Path
 
 from pptx import Presentation
-from pptx.util import Inches
+from pptx.util import Inches, Pt
 
+from pptx_tool.cmd_add_table import PresentationTableAdder
+from pptx_tool.exceptions import PptxError, ValidationError
 from tests.integration.pptx import (
-    cleanup_dir, create_test_pptx, fresh_dir, run_cli, stamp_description,
+    cleanup_dir, cli, create_test_pptx, fresh_dir, stamp_description,
 )
 
 DIR = fresh_dir("test_add_table")
-
-
-def write_table_data_json(d, data, name="table_data.json"):
-    """Write a table data JSON file."""
-    path = d / name
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-    return path
 
 
 class TestAddTable(unittest.TestCase):
@@ -42,10 +40,8 @@ class TestAddTable(unittest.TestCase):
                 ]
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "basic.json")
         out = DIR / "basic.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTableAdder().add_tables(self.source, table_data, out)
         self.assertTrue(out.exists())
 
         prs = Presentation(str(out))
@@ -76,10 +72,8 @@ class TestAddTable(unittest.TestCase):
                 ]
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "header.json")
         out = DIR / "header.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTableAdder().add_tables(self.source, table_data, out)
 
         prs = Presentation(str(out))
         tbl = [s for s in prs.slides[0].shapes if s.has_table][0].table
@@ -113,10 +107,8 @@ class TestAddTable(unittest.TestCase):
                 ]
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "cell_fmt.json")
         out = DIR / "cell_fmt.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTableAdder().add_tables(self.source, table_data, out)
 
         prs = Presentation(str(out))
         tbl = [s for s in prs.slides[0].shapes if s.has_table][0].table
@@ -153,10 +145,8 @@ class TestAddTable(unittest.TestCase):
                 "column_widths": [1.0, 4.0, 2.5],
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "col_widths.json")
         out = DIR / "col_widths.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTableAdder().add_tables(self.source, table_data, out)
 
         prs = Presentation(str(out))
         tbl = [s for s in prs.slides[0].shapes if s.has_table][0].table
@@ -184,14 +174,12 @@ class TestAddTable(unittest.TestCase):
                 ]
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "merge.json")
         out = DIR / "merge.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTableAdder().add_tables(self.source, table_data, out)
 
         prs = Presentation(str(out))
         tbl = [s for s in prs.slides[0].shapes if s.has_table][0].table
-        # Merged cells should span — the merge makes cell(0,1) span to cell(0,2)
+        # The merge makes cell(0,1) span to cell(0,2).
         self.assertTrue(tbl.cell(0, 1).is_merge_origin)
 
         stamp_description(out,
@@ -213,10 +201,8 @@ class TestAddTable(unittest.TestCase):
                 "position": {"left": 2.0, "top": 3.0, "width": 6.0, "height": 2.0},
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "position.json")
         out = DIR / "position.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTableAdder().add_tables(self.source, table_data, out)
 
         prs = Presentation(str(out))
         table_shape = [s for s in prs.slides[0].shapes if s.has_table][0]
@@ -250,10 +236,8 @@ class TestAddTable(unittest.TestCase):
                 },
             ]
         }
-        table_json = write_table_data_json(DIR, table_data, "multi.json")
         out = DIR / "multi.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTableAdder().add_tables(self.source, table_data, out)
 
         prs = Presentation(str(out))
         tables = [s for s in prs.slides[0].shapes if s.has_table]
@@ -280,15 +264,12 @@ class TestAddTable(unittest.TestCase):
                 "style": {"font_size": 14, "alignment": "CENTER"},
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "style.json")
         out = DIR / "style.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTableAdder().add_tables(self.source, table_data, out)
 
         prs = Presentation(str(out))
         tbl = [s for s in prs.slides[0].shapes if s.has_table][0].table
         self.assertEqual(len(tbl.rows), 4)
-        from pptx.util import Pt
         # Check style applies to data cells
         run = tbl.cell(1, 0).text_frame.paragraphs[0].runs[0]
         self.assertEqual(run.font.size, Pt(14))
@@ -300,8 +281,8 @@ class TestAddTable(unittest.TestCase):
             "Expected: all cells 14pt, center-aligned")
 
     def test_invalid_slide_index(self) -> None:
-        """add-table exits non-zero for slide-99 on a three-slide deck. Guards the slide range
-        check."""
+        """add_tables raises ValidationError for slide-99 on a three-slide deck, with a detail line
+        giving the valid range, and writes no output. Guards the slide range check."""
         table_data = {
             "slide-99": {
                 "rows": [
@@ -310,37 +291,39 @@ class TestAddTable(unittest.TestCase):
                 ]
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "bad_slide.json")
         out = DIR / "bad_slide.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(ValidationError, r"Found 1 validation error\(s\)") as ctx:
+            PresentationTableAdder().add_tables(self.source, table_data, out)
+        self.assertIn("  - Slide index 99 out of range (0-2)", ctx.exception.details)
+        self.assertFalse(out.exists())
 
     def test_missing_rows(self) -> None:
-        """add-table exits non-zero for a table spec without rows. Guards the required rows key."""
+        """add_tables raises ValidationError for a table spec without rows, with a detail line naming
+        the missing key, and writes no output. Guards the required rows key."""
         table_data = {
             "slide-0": {
                 "column_widths": [2.0, 3.0]
             }
         }
-        table_json = write_table_data_json(DIR, table_data, "no_rows.json")
         out = DIR / "no_rows.pptx"
-        r = run_cli("add-table", str(self.source), str(table_json), str(out))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(ValidationError, r"Found 1 validation error\(s\)") as ctx:
+            PresentationTableAdder().add_tables(self.source, table_data, out)
+        self.assertIn("  - slide-0 table 0: missing 'rows'", ctx.exception.details)
+        self.assertFalse(out.exists())
 
     def test_missing_input_file(self) -> None:
-        """add-table exits non-zero when the input deck does not exist. Guards the input check of
-        the command."""
-        table_json = write_table_data_json(DIR, {}, "empty.json")
+        """add_tables raises PptxError naming the input deck when it does not exist. Guards the input
+        check of the command."""
         out = DIR / "missing_input.pptx"
-        r = run_cli("add-table", "/nonexistent.pptx", str(table_json), str(out))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(PptxError, "Input file '/nonexistent.pptx' not found"):
+            PresentationTableAdder().add_tables(Path("/nonexistent.pptx"), {}, out)
+        self.assertFalse(out.exists())
 
     def test_missing_json_file(self) -> None:
-        """add-table exits non-zero when the table JSON does not exist. Guards the data file check."""
+        """The add-table CLI exits with 1 and prints the not-found error when the table data JSON
+        does not exist. Guards the data file check of the CLI layer, which loads the file."""
         out = DIR / "missing_json.pptx"
-        r = run_cli("add-table", str(self.source), "/nonexistent.json", str(out))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        r = cli("add-table", str(self.source), "/nonexistent.json", str(out))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Error: Table data JSON file '/nonexistent.json' not found", r.stdout)
+        self.assertFalse(out.exists())

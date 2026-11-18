@@ -1,17 +1,20 @@
 """Integration tests for the new-deck and add-shapes commands.
 
-These tests run both end to end through the CLI. They are the blank-canvas path that
-references/blank-canvas.md documents, so the pair has to work together:
-`new-deck` produces the canvas `add-shapes` draws on.
+The new-deck tests check the CLI defaults and options, so they call the CLI in process.
+The add-shapes tests call the core function. Together they are the blank-canvas path that
+references/blank-canvas.md documents: `new-deck` produces the canvas `add-shapes` draws on.
 """
-import json
 import unittest
+from pathlib import Path
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
+from pptx_tool.cmd_add_shapes import PresentationShapesAdder
+from pptx_tool.cmd_new_deck import create_deck
+from pptx_tool.exceptions import PptxError
 from tests.integration.pptx import (
-    cleanup_dir, create_test_image, fresh_dir, run_cli, stamp_description, write_readme,
+    cleanup_dir, cli, create_test_image, fresh_dir, stamp_description, write_readme,
 )
 
 DIR = fresh_dir("test_new_deck_and_shapes")
@@ -34,7 +37,7 @@ class TestNewDeck(unittest.TestCase):
         """new-deck without options writes one empty 13.333 x 7.5 in slide. Guards the CLI defaults
         (16:9, one slide) and the blank canvas without placeholders."""
         out = DIR / "wide.pptx"
-        r = run_cli("new-deck", str(out))
+        r = cli("new-deck", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
         prs = Presentation(str(out))
         self.assertEqual(len(prs.slides), 1)
@@ -47,7 +50,7 @@ class TestNewDeck(unittest.TestCase):
         """new-deck --slides 3 --size 4:3 writes three 10 in wide slides. Guards that both options
         reach create_deck."""
         out = DIR / "four_3.pptx"
-        r = run_cli("new-deck", str(out), "--slides", "3", "--size", "4:3")
+        r = cli("new-deck", str(out), "--slides", "3", "--size", "4:3")
         self.assertEqual(r.returncode, 0, r.stderr)
         prs = Presentation(str(out))
         self.assertEqual(len(prs.slides), 3)
@@ -59,16 +62,14 @@ class TestAddShapes(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.canvas = DIR / "canvas.pptx"
-        r = run_cli("new-deck", str(cls.canvas))
-        assert r.returncode == 0, r.stderr
+        create_deck(cls.canvas, 1, "16:9")
         cls.image = create_test_image(DIR, "logo.png", 120, 120, "orange")
 
     def test_draws_native_shapes_and_a_picture(self) -> None:
-        """add-shapes on a new-deck canvas draws rect, oval, textbox, line and image as five native
-        shapes with readable text at the given inch coordinates. Guards the blank-canvas path of
+        """add_shapes on a new-deck canvas draws rect, oval, textbox, line and image as five native
+        shapes with readable text at the given inch coordinates, and reports five shapes on slide-0. Guards the blank-canvas path of
         references/blank-canvas.md end to end."""
-        spec = DIR / "shapes.json"
-        spec.write_text(json.dumps({
+        spec = {
             "slide-0": [
                 {"type": "rect", "left": 0.5, "top": 0.5, "width": 3, "height": 1.2,
                  "fill": "#EFEFEF", "line": {"color": "#333333", "weight": 1},
@@ -81,10 +82,10 @@ class TestAddShapes(unittest.TestCase):
                  "line": {"color": "#1B1B4B", "weight": 2}, "arrow": "end"},
                 {"type": "image", "path": str(self.image), "left": 7.5, "top": 0.5, "width": 1.5},
             ]
-        }))
+        }
         out = DIR / "drawn.pptx"
-        r = run_cli("add-shapes", str(self.canvas), str(spec), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        result = PresentationShapesAdder().add_shapes(self.canvas, spec, out)
+        self.assertEqual(result.per_slide, {"slide-0": 5})
 
         slide = Presentation(str(out)).slides[0]
         kinds = [s.shape_type for s in slide.shapes]
@@ -105,10 +106,9 @@ class TestAddShapes(unittest.TestCase):
             "a navy arrow, and an orange square picture top-right.")
 
     def test_missing_input_errors(self) -> None:
-        """add-shapes exits non-zero when the input deck does not exist. Guards the input check of
-        the command."""
-        spec = DIR / "ok.json"
-        spec.write_text(json.dumps({"slide-0": []}))
-        r = run_cli("add-shapes", "/nonexistent.pptx", str(spec), str(DIR / "nope3.pptx"))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        """add_shapes raises PptxError naming the input deck when it does not exist, and writes
+        no output. Guards the input check of the command."""
+        out = DIR / "nope3.pptx"
+        with self.assertRaisesRegex(PptxError, "Input file '/nonexistent.pptx' not found"):
+            PresentationShapesAdder().add_shapes(Path("/nonexistent.pptx"), {"slide-0": []}, out)
+        self.assertFalse(out.exists())

@@ -1,12 +1,19 @@
-"""Integration tests for the add-images command."""
+"""Integration tests for the add-images command.
+
+The tests call the core function `add_images`. One test calls the CLI in process to check the
+stream and exit code of an error.
+"""
 import unittest
+from pathlib import Path
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
+from pptx_tool.cmd_add_images import add_images, parse_image_paths
+from pptx_tool.exceptions import PptxError
 from tests.integration.pptx import (
-    cleanup_dir, create_multilayout_pptx, create_test_image, create_test_pptx, fresh_dir,
-    run_cli, stamp_description,
+    cleanup_dir, cli, create_multilayout_pptx, create_test_image, create_test_pptx, fresh_dir,
+    stamp_description,
 )
 
 DIR = fresh_dir("test_add_images")
@@ -31,19 +38,13 @@ class TestAddImages(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cleanup_dir(DIR)
 
-    def assert_error_on_stderr(self, r) -> None:
-        """Exit 1 with one `Error:` line on stderr, none on stdout, no traceback."""
-        self.assertEqual(r.returncode, 1)
-        self.assertIn("Error:", r.stderr)
-        self.assertNotIn("Error:", r.stdout)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
-
     def test_add_single_image(self) -> None:
-        """add-images with one image fills one PICTURE placeholder of the slide (the single-image
-        branch, placeholder index 0). Guards that the image becomes a picture in the placeholder."""
+        """add_images with one image fills one PICTURE placeholder of the slide (the single-image
+        branch, placeholder index 0) and reports one image inserted. Guards that the image becomes
+        a picture in the placeholder."""
         out = DIR / "img_one.pptx"
-        r = run_cli("add-images", str(self.with_placeholders), str(out), "1", str(self.test_image))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        result = add_images(self.with_placeholders, out, 1, [self.test_image])
+        self.assertEqual(result.inserted, 1)
         slide = Presentation(str(out)).slides[1]
         pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
         self.assertEqual(len(pictures), 1)
@@ -53,14 +54,17 @@ class TestAddImages(unittest.TestCase):
             "  Slide 2 ('Picture Slide'): the RED image fills the left picture placeholder")
 
     def test_add_multiple_images(self) -> None:
-        """add-images with two comma-separated images fills both PICTURE placeholders of the slide.
-        Guards the multi-image branch; an exit code of 0 alone passed when only one image landed."""
+        """add_images with two images, parsed from the comma-separated CLI argument, fills both
+        PICTURE placeholders of the slide. Guards the multi-image branch; a run without an error
+        passed when only one image landed."""
         out = DIR / "img_two.pptx"
-        images = f"{self.test_image},{self.test_image2}"
-        r = run_cli("add-images", str(self.with_placeholders), str(out), "1", images)
-        self.assertEqual(r.returncode, 0, r.stderr)
+        images = parse_image_paths(f"{self.test_image},{self.test_image2}")
+        self.assertEqual(images, [self.test_image, self.test_image2])
+        result = add_images(self.with_placeholders, out, 1, images)
         self.assertTrue(out.exists())
-        # Both placeholders must be filled: the exit code alone passes when only one
+        self.assertEqual(result.inserted, 2)
+        self.assertEqual(result.warnings, [])
+        # Both placeholders must be filled: a run without an error passes when only one
         # image lands.
         slide = Presentation(str(out)).slides[1]
         pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
@@ -71,48 +75,57 @@ class TestAddImages(unittest.TestCase):
             "  Slide 2 ('Picture Slide'): RED in placeholder 0, BLUE in placeholder 1")
 
     def test_add_image_to_simple(self) -> None:
-        """add-images exits non-zero on a slide without PICTURE placeholders. Guards the error for a
-        missing placeholder instead of a silent no-op."""
+        """add_images raises PptxError on a slide without PICTURE placeholders and writes no output.
+        Guards the error for a missing placeholder instead of a silent no-op."""
         out = DIR / "img_simple.pptx"
-        r = run_cli("add-images", str(self.simple), str(out), "0", str(self.test_image))
-        # Simple PPTX has no PICTURE placeholders, so this should fail
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(PptxError, "No PICTURE placeholder found on slide 0"):
+            add_images(self.simple, out, 0, [self.test_image])
+        self.assertFalse(out.exists())
 
     def test_add_image_missing_file(self) -> None:
-        """add-images exits 1 with the error on stderr when an image path does not exist. Guards the
-        file check before the deck is opened."""
+        """add_images raises PptxError naming the image when an image path does not exist. Guards
+        the file check before the deck is opened."""
         out = DIR / "img_missing.pptx"
-        r = run_cli("add-images", str(self.simple), str(out), "0", "/nonexistent.png")
-        self.assert_error_on_stderr(r)
+        with self.assertRaisesRegex(PptxError, "Image file not found: /nonexistent.png"):
+            add_images(self.simple, out, 0, [Path("/nonexistent.png")])
 
     def test_add_image_bad_slide_index(self) -> None:
-        """add-images exits 1 with the error on stderr for a slide index past the last slide or
-        negative. Guards the slide range check."""
-        for slide in ("99", "-1"):
-            r = run_cli("add-images", str(self.simple), str(DIR / "img_bad_slide.pptx"), slide,
-                        str(self.test_image))
-            self.assert_error_on_stderr(r)
+        """add_images raises PptxError for a slide index past the last slide or negative. Guards the
+        slide range check."""
+        for slide in (99, -1):
+            with self.assertRaisesRegex(PptxError, rf"Slide index {slide} out of range \(0-1\)"):
+                add_images(self.simple, DIR / "img_bad_slide.pptx", slide, [self.test_image])
 
     def test_add_image_bad_placeholder_index(self) -> None:
-        """add-images exits 1 with one error line on stderr, no traceback, for --index past the
-        PICTURE placeholders of the slide. Guards the error path of insert_image_in_placeholder."""
-        r = run_cli("add-images", str(self.with_placeholders), str(DIR / "img_bad_index.pptx"), "1",
-                    str(self.test_image), "--index", "9")
-        self.assert_error_on_stderr(r)
-        self.assertIn("out of range", r.stderr)
+        """add_images raises PptxError with "out of range" for index 9, past the PICTURE
+        placeholders of the slide. Guards the error path of insert_image_in_placeholder, which
+        turns its IndexError into a PptxError."""
+        with self.assertRaisesRegex(PptxError, "Placeholder index 9 out of range"):
+            add_images(self.with_placeholders, DIR / "img_bad_index.pptx", 1,
+                       [self.test_image], index=9)
 
     def test_add_image_invalid_type(self) -> None:
-        """add-images exits 1 with the error on stderr for --type INVALID. Guards the PlaceholderType
-        lookup that lists PICTURE, OBJECT and MEDIA."""
+        """add_images raises PptxError listing the valid types for placeholder type INVALID. Guards
+        the PlaceholderType lookup that lists PICTURE, OBJECT and MEDIA."""
         out = DIR / "img_bad_type.pptx"
-        r = run_cli("add-images", str(self.simple), str(out), "0", str(self.test_image), "--type", "INVALID")
-        self.assert_error_on_stderr(r)
-        self.assertIn("PICTURE, OBJECT, MEDIA", r.stderr)
+        with self.assertRaisesRegex(PptxError, "PICTURE, OBJECT, MEDIA"):
+            add_images(self.simple, out, 0, [self.test_image], placeholder_type="INVALID")
 
     def test_add_image_missing_input(self) -> None:
-        """add-images exits 1 with the error on stderr when the input deck does not exist. Guards
-        the input check of the command."""
+        """add_images raises PptxError naming the input deck when it does not exist. Guards the
+        input check of the command."""
         out = DIR / "img_no_input.pptx"
-        r = run_cli("add-images", "/nonexistent.pptx", str(out), "0", str(self.test_image))
-        self.assert_error_on_stderr(r)
+        with self.assertRaisesRegex(PptxError, "Input file not found: /nonexistent.pptx"):
+            add_images(Path("/nonexistent.pptx"), out, 0, [self.test_image])
+
+    def test_cli_error_on_stderr(self) -> None:
+        """The add-images CLI exits 1 with one `Error:` line on stderr, none on stdout and no
+        traceback, for a negative slide index given as `-1`. Guards the error stream of add-images
+        (stderr, unlike the commands in STDOUT_ERROR_COMMANDS) and that argparse takes `-1` as the
+        slide argument."""
+        r = cli("add-images", str(self.simple), str(DIR / "img_cli_error.pptx"), "-1",
+                str(self.test_image))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Error: Slide index -1 out of range (0-1)", r.stderr)
+        self.assertNotIn("Error:", r.stdout)
+        self.assertNotIn("Traceback", r.stdout + r.stderr)

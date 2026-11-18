@@ -1,13 +1,21 @@
-"""Integration tests for the add-text command."""
+"""Integration tests for the add-text command.
+
+The tests call the core function `PresentationTextAdder.add_text`. The test of the text data
+file check calls the CLI in process, because the CLI layer loads that file.
+"""
 import json
 import unittest
+from pathlib import Path
 
 from pptx import Presentation
 from pptx.util import Pt
 
+from pptx_tool.cmd_add_text import PresentationTextAdder
+from pptx_tool.cmd_extract_shapes import extract_shapes
+from pptx_tool.exceptions import PptxError, ValidationError
 from tests.integration.pptx import (
-    cleanup_dir, create_multilayout_pptx, create_test_pptx, fresh_dir, run_cli,
-    stamp_description, write_text_data_json,
+    cleanup_dir, cli, create_multilayout_pptx, create_test_pptx, fresh_dir,
+    stamp_description,
 )
 
 DIR = fresh_dir("test_add_text")
@@ -20,8 +28,7 @@ class TestAddText(unittest.TestCase):
         cls.source = create_test_pptx(DIR, num_slides=2)
         # Extract shapes to know valid shape keys
         cls.inventory = DIR / "inventory.json"
-        r = run_cli("extract-shapes", str(cls.source), str(cls.inventory))
-        assert r.returncode == 0, f"extract-shapes failed: {r.stderr}"
+        extract_shapes(cls.source, cls.inventory)
         cls.inventory_data = json.loads(cls.inventory.read_text())
 
     @classmethod
@@ -37,7 +44,7 @@ class TestAddText(unittest.TestCase):
         return None
 
     def test_add_text_with_formatting(self) -> None:
-        """add-text replaces a shape's text with the JSON paragraphs and applies their bold and font
+        """add_text replaces a shape's text with the JSON paragraphs and applies their bold and font
         sizes. Guards the paragraph formatting mapping of add-text."""
         shape_key = self._first_text_shape()
         self.assertIsNotNone(shape_key)
@@ -52,10 +59,8 @@ class TestAddText(unittest.TestCase):
                 }
             }
         }
-        text_json = write_text_data_json(DIR, text_data, "formatted.json")
         out = DIR / "add_formatted.pptx"
-        r = run_cli("add-text", str(self.source), str(text_json), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTextAdder().add_text(self.source, text_data, out)
         shape = next(s for s in Presentation(str(out)).slides[0].shapes
                      if s.has_text_frame and "Bold Heading" in s.text_frame.text)
         heading, body = shape.text_frame.paragraphs[:2]
@@ -71,8 +76,9 @@ class TestAddText(unittest.TestCase):
             f"  Slide 2: original content unchanged")
 
     def test_add_text_invalid_shape(self) -> None:
-        """add-text exits non-zero for a shape key that is not on the slide. Guards the shape key
-        validation against the inventory."""
+        """add_text raises ValidationError for a shape key that is not on the slide, with a detail
+        line naming the shape, and writes no output. Guards the shape key validation against the
+        inventory."""
         text_data = {
             "slide-0": {
                 "shape-999": {
@@ -80,41 +86,38 @@ class TestAddText(unittest.TestCase):
                 }
             }
         }
-        text_json = write_text_data_json(DIR, text_data, "bad_shape.json")
         out = DIR / "add_bad_shape.pptx"
-        r = run_cli("add-text", str(self.source), str(text_json), str(out))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(ValidationError, r"Found 1 validation error\(s\)") as ctx:
+            PresentationTextAdder().add_text(self.source, text_data, out)
+        self.assertTrue(any("Shape 'shape-999' not found on 'slide-0'" in line
+                            for line in ctx.exception.details))
+        self.assertFalse(out.exists())
 
     def test_add_text_missing_input(self) -> None:
-        """add-text exits non-zero when the input deck does not exist. Guards the input check of the
-        command."""
-        text_json = write_text_data_json(DIR, {}, "empty.json")
+        """add_text raises PptxError naming the input deck when it does not exist. Guards the input
+        check of the command."""
         out = DIR / "add_missing.pptx"
-        r = run_cli("add-text", "/nonexistent.pptx", str(text_json), str(out))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(PptxError, "Input file '/nonexistent.pptx' not found"):
+            PresentationTextAdder().add_text(Path("/nonexistent.pptx"), {}, out)
+        self.assertFalse(out.exists())
 
     def test_add_text_missing_json(self) -> None:
-        """add-text exits non-zero when the text JSON does not exist. Guards the data file check."""
+        """The add-text CLI exits with 1 and prints the not-found error when the text data JSON does
+        not exist. Guards the data file check of the CLI layer, which loads the file."""
         out = DIR / "add_no_json.pptx"
-        r = run_cli("add-text", str(self.source), "/nonexistent.json", str(out))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        r = cli("add-text", str(self.source), "/nonexistent.json", str(out))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Error: Text data JSON file '/nonexistent.json' not found", r.stdout)
+        self.assertFalse(out.exists())
 
     def test_deck_containing_a_table_does_not_crash(self) -> None:
-        """add-text on a deck with a table replaces the title text and leaves the table cells
+        """add_text on a deck with a table replaces the title text and leaves the table cells
         unchanged. Guards the past bug where reading text_frame of a GraphicFrame table crashed
         the command."""
         source = create_multilayout_pptx(DIR, "with_table.pptx")
-        data = write_text_data_json(
-            DIR,
-            {"slide-0": {"shape-0": {"paragraphs": [{"text": "Replaced title"}]}}},
-            name="table_deck_text.json",
-        )
+        data = {"slide-0": {"shape-0": {"paragraphs": [{"text": "Replaced title"}]}}}
         out = DIR / "table_deck.pptx"
-        r = run_cli("add-text", str(source), str(data), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        PresentationTextAdder().add_text(source, data, out)
 
         prs = Presentation(str(out))
         self.assertTrue(any("Replaced title" in s.text_frame.text
