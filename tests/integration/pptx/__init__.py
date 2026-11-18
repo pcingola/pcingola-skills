@@ -17,7 +17,6 @@ from tests.options import keep_tmp
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = PROJECT_DIR / "tests" / "data"
 TMP_DIR = DATA_DIR / "tmp_pptx"
-PPTX_TOOL = str(PROJECT_DIR / "plugins" / "docs" / "skills" / "pptx" / "scripts" / "pptx.sh")
 
 
 @dataclass(frozen=True)

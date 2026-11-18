@@ -9,7 +9,9 @@ import json
 import subprocess
 import unittest
 
-from tests.integration.pptx import PPTX_TOOL, PROJECT_DIR, cleanup_dir, fresh_dir
+from tests.integration.pptx import PROJECT_DIR, cleanup_dir, fresh_dir
+
+PPTX_TOOL = str(PROJECT_DIR / "plugins" / "docs" / "skills" / "pptx" / "scripts" / "pptx.sh")
 
 DIR = fresh_dir("test_wrapper")
 TIMEOUT_S = 25
