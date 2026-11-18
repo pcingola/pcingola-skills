@@ -62,8 +62,11 @@ def _load(spec: ChatterboxProvider, entry: ChatterboxModel, model: str) -> Loade
     if d not in _models:
         import numpy as np
         from chatterbox.tts_turbo import ChatterboxTurboTTS
+        from transformers.initialization import no_init_weights
 
-        tts = ChatterboxTurboTTS.from_local(str(d), DEVICE)
+        # No random initialization: the strict `load_state_dict` of the checkpoint overwrites every weight.
+        with no_init_weights():
+            tts = ChatterboxTurboTTS.from_local(str(d), DEVICE)
         # Under numpy 2 the loudness gain (a float64 scalar) promotes the float32 reference to float64, which the
         # mel filter matmul rejects.
         norm = tts.norm_loudness

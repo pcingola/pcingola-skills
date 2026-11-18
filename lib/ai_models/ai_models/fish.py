@@ -103,6 +103,7 @@ def _load(entry: FishModel, name: str, model: str) -> Loaded:
     try:
         import torch
         from fish_speech.models.text2semantic.inference import init_model, load_codec_model, resolve_codec_path
+        from transformers.initialization import no_init_weights
     except ImportError as e:
         raise AIModelsError(f"{model_id}: fish-speech is not installed ({e}); media:voiceover installs it on Linux "
                             "when config.yaml has a provider of kind fish") from None
@@ -116,7 +117,9 @@ def _load(entry: FishModel, name: str, model: str) -> Loaded:
         with local.out_of_memory(entry.repo):
             tts, decode_one_token = init_model(str(folder), DEVICE, torch.bfloat16, compile=False,
                                                reference_sampling=None)
-            codec = load_codec_model(resolve_codec_path(folder, None), str(tts.device), tts.dtype)
+            # No random initialization: the strict `load_state_dict` of the checkpoint overwrites every weight.
+            with no_init_weights():
+                codec = load_codec_model(resolve_codec_path(folder, None), str(tts.device), tts.dtype)
         _models[model_id] = Loaded(tts, decode_one_token, codec)
     except BaseException:
         if not _models:
