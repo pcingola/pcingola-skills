@@ -1,7 +1,5 @@
 """CLI options to Pydantic-AI image settings per provider kind, and the checks made before any model call."""
 
-import contextlib
-import io
 import os
 import subprocess
 from pathlib import Path
@@ -9,11 +7,11 @@ from pathlib import Path
 import pytest
 
 from image_gen_tool import cli
-from image_gen_tool.generate import ImageError, media_type, needs_size, settings
+from image_gen_tool.generate import ImageError, media_type, needs_size, request_limits, settings
 from image_gen_tool.models import task_for
 from plugin_settings import DiffusersImageLimits, OpenAIImageLimits
-from tests.settings_env import write_config
-from tests.subproc import child_env, run_python
+from tests.inproc import run_main
+from tests.settings_env import use_settings, write_config
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 24
 # Image limits of an OpenAI-kind and a local model as config.example.yaml gives them, and of a sized model.
@@ -24,6 +22,7 @@ SIZED_LIMITS = OpenAIImageLimits(max_edge=3840, min_pixels=655_360, max_pixels=8
 
 
 def opts(kind, **kw):
+    """`settings` for a model of provider `kind` with the default options, overridden by `kw`."""
     args = dict(aspect_ratio=None, image_size=None, n=1, quality=None, background=None, output_format="png",
                 edit=False, limits=LOCAL_LIMITS if kind == "diffusers" else OPENAI_LIMITS)
     args.update(kw)
@@ -31,6 +30,8 @@ def opts(kind, **kw):
 
 
 def test_openai_kinds_one_request_with_n():
+    """OpenAI kinds make one request with `openai_n`; --size gives `dimensions`, else --aspect goes as
+    `aspect_ratio`; quality, background and a non-PNG format go as their OpenAI settings."""
     assert opts("azure", n=3) == ({"openai_n": 3}, 1)
     s, calls = opts("openrouter", aspect_ratio="16:9", image_size="4K", n=2, quality="low",
                     background="transparent", output_format="webp")
@@ -61,24 +62,19 @@ def test_openai_kind_without_limits_sends_no_size():
 
 def test_size_without_limits_names_config_entry(tmp_path):
     """--size for a model without image limits fails with the config entry to add and its required fields, for an
-    OpenAI kind and a diffusers model; without a size, an OpenAI-kind model needs none. Runs in a child with its
-    own config.yaml (ai_models.config.image_limits)."""
+    OpenAI kind and a diffusers model; without a size, an OpenAI-kind model needs none. Reads its own config.yaml
+    (ai_models.config.image_limits)."""
     cfg = write_config(tmp_path / "config.yaml", providers={"o": {"kind": "ollama"},
                                                             "local": {"kind": "diffusers",
                                                                       "models": {"m": {"repo": "x/m"}}}})
-    code = ("from image_gen_tool.generate import request_limits, ImageError\n"
-            "print(request_limits('ollama', 'o:img', aspect_ratio='3:2', image_size=None, edit=False))\n"
-            "for kind, mid in (('ollama', 'o:img'), ('diffusers', 'local:m')):\n"
-            "    try:\n"
-            "        request_limits(kind, mid, aspect_ratio=None, image_size='2K', edit=False)\n"
-            "    except ImageError as e:\n"
-            "        print(e.message)\n")
-    done = run_python(code, child_env(SKILLS_CONFIG=str(cfg)))
-    assert done.returncode == 0, done.stderr
-    lines = done.stdout.splitlines()
-    assert lines[0] == "None", lines
-    assert "add providers.o.models.img.image with max_edge, min_pixels, max_pixels" in lines[1], lines
-    assert "add providers.local.models.m.image with max_edge, min_edge" in lines[2], lines
+    with use_settings(cfg):
+        assert request_limits("ollama", "o:img", aspect_ratio="3:2", image_size=None, edit=False) is None
+        with pytest.raises(ImageError) as openai:
+            request_limits("ollama", "o:img", aspect_ratio=None, image_size="2K", edit=False)
+        with pytest.raises(ImageError) as local:
+            request_limits("diffusers", "local:m", aspect_ratio=None, image_size="2K", edit=False)
+    assert "add providers.o.models.img.image with max_edge, min_pixels, max_pixels" in openai.value.message
+    assert "add providers.local.models.m.image with max_edge, min_edge" in local.value.message
 
 
 def test_needs_size_per_kind():
@@ -94,6 +90,7 @@ def test_needs_size_per_kind():
 
 
 def test_google_one_request_per_image():
+    """A Google model gets one request per image, with --size in `google_image_config`."""
     assert opts("google", n=3, image_size="2K") == ({"google_image_config": {"image_size": "2K"}}, 3)
 
 
@@ -106,6 +103,8 @@ def test_google_leaves_missing_aspect_and_size_to_the_model():
 
 
 def test_diffusers_dimensions_and_edit_keeps_reference_size():
+    """A diffusers model gets `dimensions` (1:1 1K by default) and one request per image; an edit without --aspect
+    and --size gets none, so the pipeline keeps the reference's size; an edit with --aspect gets them."""
     assert opts("diffusers", n=2) == ({"dimensions": (1024, 1024)}, 2)
     assert opts("diffusers", edit=True) == ({}, 1)
     assert opts("diffusers", edit=True, aspect_ratio="16:9")[0]["dimensions"][0] > 1024
@@ -113,6 +112,7 @@ def test_diffusers_dimensions_and_edit_keeps_reference_size():
 
 @pytest.mark.parametrize("kind", ["google", "diffusers"])
 def test_png_only_kinds_refuse_other_formats(kind):
+    """Google and diffusers models refuse a non-PNG output and a transparent background with an `ImageError`."""
     with pytest.raises(ImageError, match="PNG only"):
         opts(kind, output_format="jpeg")
     with pytest.raises(ImageError, match="transparent"):
@@ -120,6 +120,8 @@ def test_png_only_kinds_refuse_other_formats(kind):
 
 
 def test_media_type():
+    """A reference image's media type comes from its leading bytes (PNG, JPEG, WebP); other bytes are an
+    `ImageError`."""
     assert media_type(PNG) == "image/png"
     assert media_type(b"\xff\xd8\xff\0") == "image/jpeg"
     assert media_type(b"RIFF\0\0\0\0WEBPVP8 ") == "image/webp"
@@ -127,18 +129,10 @@ def test_media_type():
         media_type(b"not an image")
 
 
-def run(*argv: str) -> tuple[int, str]:
-    err = io.StringIO()
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
-        try:
-            cli.main(["generate", *argv])
-            code = 0
-        except SystemExit as e:
-            code = int(e.code or 0)
-    return code, err.getvalue()
-
-
 def test_cli_refusals_before_any_model_call(tmp_path):
+    """`generate` refuses, before any model call, an unsupported output extension, a mask without a reference,
+    --n 0, an empty prompt, a reference that is not an image and a missing reference: exit 1, `Error: <reason>` on
+    stderr, nothing on stdout."""
     ref = tmp_path / "ref.png"
     ref.write_bytes(PNG)
     bad = tmp_path / "ref.txt"
@@ -153,8 +147,9 @@ def test_cli_refusals_before_any_model_call(tmp_path):
         (["--prompt", "a cat", "--out", out, "--ref", str(tmp_path / "missing.png")], "not found"),
     ]
     for argv, message in cases:
-        code, err = run(*argv)
-        assert code != 0 and message in err, (argv, err)
+        done = run_main(cli.main, "generate", *argv)
+        assert done.returncode == 1 and done.stderr.startswith("Error: ") and message in done.stderr, (argv, done)
+        assert done.stdout == "", (argv, done)
 
 
 def test_tier_tasks():
@@ -172,11 +167,10 @@ def test_cli_tier_without_task_names_config_key(tmp_path):
     ref = tmp_path / "ref.png"
     ref.write_bytes(PNG)
     out = str(tmp_path / "o.png")
-    env = child_env(SKILLS_CONFIG=str(cfg))
     for tier, extra, key in (("best", [], "tasks.image_best"), ("multi-ref", ["--ref", str(ref)],
                                                                 "tasks.image_multi_ref")):
-        argv = ["generate", "--prompt", "a cat", "--out", out, "--tier", tier, *extra]
-        done = run_python(f"from image_gen_tool import cli\ncli.main({argv!r})", env)
+        done = run_main(cli.main, "generate", "--prompt", "a cat", "--out", out, "--tier", tier, *extra,
+                        settings=cfg)
         assert done.returncode != 0 and key in done.stderr and f"--tier {tier}" in done.stderr, done.stderr
 
 

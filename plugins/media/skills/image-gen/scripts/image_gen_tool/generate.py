@@ -30,7 +30,8 @@ request needs a size, so a missing entry fails before any model call with the ke
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 from ai_models import config as ai_config
@@ -52,6 +53,8 @@ RATE_LIMIT_MESSAGE = (
 HTTP_TOO_MANY_REQUESTS = 429
 # Leading bytes of the reference image formats.
 _MAGIC = ((b"\x89PNG", "image/png"), (b"\xff\xd8\xff", "image/jpeg"), (b"GIF8", "image/gif"))
+# The output path extensions and their image formats.
+OUTPUT_FORMATS = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp"}
 
 
 class ImageError(Exception):
@@ -198,3 +201,71 @@ def generate(
         raise ImageError(f"Image generation failed: {e}") from e
     logger.info("Image generation completed (%d images)", len(out))
     return out
+
+
+def output_format(out: Path) -> str:
+    """The image format of the output path's extension; `ImageError` for an extension without one."""
+    ext = out.suffix.lower()
+    fmt = OUTPUT_FORMATS.get(ext)
+    if fmt is None:
+        raise ImageError(f"Unsupported output extension {ext!r}; use one of {', '.join(OUTPUT_FORMATS)}")
+    return fmt
+
+
+def read_image(path: str | Path) -> bytes:
+    """The bytes of the reference or mask image at `path` (`~` expanded); `ImageError` when it is not a file."""
+    p = Path(path).expanduser()
+    if not p.is_file():
+        raise ImageError(f"Reference image not found: {p}")
+    return p.read_bytes()
+
+
+def output_path(out: str | Path, index: int, total: int) -> Path:
+    """The path of image `index` of `total` for the output path `out` (`~` expanded), its parent directory created.
+    With several images an index suffix goes before the extension: out.png -> out_1.png, out_2.png."""
+    p = Path(out).expanduser()
+    if total > 1:
+        p = p.with_stem(f"{p.stem}_{index + 1}")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def write_images(
+    prompt: str,
+    out: str | Path,
+    *,
+    negative: str = "",
+    refs: Sequence[str | Path] = (),
+    mask: str | Path | None = None,
+    aspect_ratio: str | None = None,
+    image_size: str | None = None,
+    num_images: int = 1,
+    model: str | None = None,
+    tier: str = models.DEFAULT_TIER,
+    quality: str | None = None,
+    background: str | None = None,
+    on_written: Callable[[Path], object] | None = None,
+) -> list[Path]:
+    """The work of `image-gen generate`: `num_images` images for `prompt` (`generate`), edited from the reference
+    image files `refs` within the transparent area of the `mask` file, written to `out` (`output_path`) in the
+    format of its extension; return the written paths. `on_written` is called with each path as soon as it is
+    written. Every refusal before the model call (extension, `num_images`, a missing file, a mask without a
+    reference) and every failure of the call is an `ImageError`."""
+    fmt = output_format(Path(out))
+    if num_images < 1:
+        raise ImageError("--n must be at least 1")
+    ref_bytes = [read_image(r) for r in refs]
+    if mask and not ref_bytes:
+        raise ImageError("--mask needs a --ref: the mask applies to the first reference image")
+    mask_bytes = read_image(mask) if mask else None
+    images = generate(prompt, negative=negative, reference_images=ref_bytes, mask=mask_bytes,
+                      aspect_ratio=aspect_ratio, image_size=image_size, num_images=num_images, model=model,
+                      tier=tier, quality=quality, background=background, output_format=fmt)
+    written: list[Path] = []
+    for i, image in enumerate(images):
+        path = output_path(out, i, len(images))
+        path.write_bytes(image.data)
+        written.append(path)
+        if on_written is not None:
+            on_written(path)
+    return written

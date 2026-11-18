@@ -7,8 +7,19 @@ providers, their keys and each model's image limits are in the settings file `co
 
 from __future__ import annotations
 
-from plugin_settings import Plugin, error  # noqa: F401 - re-exported
+from plugin_settings import Plugin, config, error  # noqa: F401 - re-exported
 
 PLUGIN = Plugin.of(__file__)
 plugin_data_dir = PLUGIN.data_dir
-load_settings = PLUGIN.load
+
+
+def load_settings() -> None:
+    """Load the settings and export them to the process environment (`Plugin.load`); exit when the file is not
+    valid. The wrapper path (`__main__`) only: an in-process `cli.main(argv)` calls `check_settings` and leaves
+    `os.environ` unchanged."""
+    PLUGIN.load()
+
+
+def check_settings() -> None:
+    """Exit when the settings file is not valid (`config()`). Leaves the process environment unchanged."""
+    config()

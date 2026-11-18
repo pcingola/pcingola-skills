@@ -114,7 +114,6 @@ CLI_PROCESS_ALLOWLIST = {
     "tests/unit/classify/test_run.py": "not converted yet",
     "tests/unit/image_gen/test_generate.py":
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
-    "tests/unit/image_gen/test_routes.py": "not converted yet",
     "tests/unit/music/test_cli.py":
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
     "tests/unit/second_opinion/conftest.py": "not converted yet",

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 from ai_models import routes
 
@@ -25,65 +24,20 @@ from .models import ASPECT_RATIOS, BACKGROUNDS, DEFAULT_TIER, IMAGE_SIZES, QUALI
 
 # The config tasks of the tiers; `routes` prints their rows.
 ROUTE_TASKS = ("image", "image_edit", "image_best", "image_multi_ref")
-_EXT_FORMATS = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp"}
-
-
-def _read_reference_image(path: str) -> bytes:
-    p = Path(path).expanduser()
-    if not p.is_file():
-        config.error(f"Reference image not found: {p}")
-    return p.read_bytes()
-
-
-def _resolve_output_path(output: str, index: int, total: int) -> Path:
-    """Resolve the output path for one image.
-
-    When generating multiple images from a single --out path, an index suffix is
-    inserted before the extension: out.png -> out_1.png, out_2.png.
-    """
-    p = Path(output).expanduser()
-    if total > 1:
-        p = p.with_stem(f"{p.stem}_{index + 1}")
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
-    from .generate import ImageError, generate
+    """`generate`: write the images (`generate.write_images`) and print each path as soon as it is written; an
+    `ImageError` exits 1 with `Error: <message>` on stderr."""
+    from .generate import ImageError, write_images
 
-    ext = Path(args.out).suffix.lower()
-    output_format = _EXT_FORMATS.get(ext)
-    if output_format is None:
-        config.error(f"Unsupported output extension {ext!r}; use one of {', '.join(_EXT_FORMATS)}")
-    if args.n < 1:
-        config.error("--n must be at least 1")
-
-    refs = [_read_reference_image(r) for r in (args.ref or [])]
-    if args.mask and not refs:
-        config.error("--mask needs a --ref: the mask applies to the first reference image")
-    mask = _read_reference_image(args.mask) if args.mask else None
     try:
-        images = generate(
-            args.prompt,
-            negative=args.negative or "",
-            reference_images=refs,
-            mask=mask,
-            aspect_ratio=args.aspect,
-            image_size=args.size,
-            num_images=args.n,
-            model=args.model,
-            tier=args.tier,
-            quality=args.quality,
-            background=args.background,
-            output_format=output_format,
-        )
+        write_images(args.prompt, args.out, negative=args.negative or "", refs=args.ref or [], mask=args.mask,
+                     aspect_ratio=args.aspect, image_size=args.size, num_images=args.n, model=args.model,
+                     tier=args.tier, quality=args.quality, background=args.background,
+                     on_written=lambda path: print(str(path)))
     except ImageError as e:
         config.error(e.message)
-
-    for i, image in enumerate(images):
-        out_path = _resolve_output_path(args.out, i, len(images))
-        out_path.write_bytes(image.data)
-        print(str(out_path))
     return 0
 
 
@@ -140,8 +94,17 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> None:
-    config.load_settings()
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-    sys.exit(args.func(args))
+def main(argv: list[str] | None = None) -> int:
+    """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help`, argument errors and
+    command errors (`config.error`: `Error: <msg>` on stderr, exit 1) return their code. Checks the settings
+    (`config.check_settings`) and leaves `os.environ` unchanged: the wrapper path (`__main__`) exports the settings
+    to the environment before it calls `main`."""
+    try:
+        config.check_settings()
+        args = _build_parser().parse_args(argv)
+        return args.func(args)
+    except SystemExit as e:
+        if e.code is None or isinstance(e.code, int):
+            return e.code or 0
+        print(e.code, file=sys.stderr)
+        return 1
