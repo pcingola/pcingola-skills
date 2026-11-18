@@ -21,7 +21,11 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+
+from plugin_settings import paths
 
 # The marketplace name in this repository's manifest; plugin data directories
 # are <config dir>/plugins/data/<plugin>-<MARKETPLACE>.
@@ -117,6 +121,17 @@ def write_config(path: Path, **sections: object) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(sections), encoding="utf-8")
     return path
+
+
+@contextmanager
+def use_settings(file: Path) -> Iterator[Path]:
+    """Read settings from `file` in this process inside the `with` block (`plugin_settings.paths.use`), then restore
+    the file set before it, or none; nested blocks restore in order. Yields `file`."""
+    previous = paths.use(file)
+    try:
+        yield file
+    finally:
+        paths.use(previous)
 
 
 def overrides(env: dict[str, str] | None = None) -> dict[str, str]:

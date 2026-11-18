@@ -74,3 +74,14 @@ def test_config_exits_with_the_message(tmp_path):
     assert done.stderr == (f"Error: {cfg} is not valid:\n"
                            "  tasks.chat: provider 'o' is not in providers\n"
                            "The setup:settings skill describes every key and creates the file.\n")
+
+
+def test_use_returns_the_file_set_before(tmp_path):
+    """`use` returns the file it replaces, so a caller (tests.settings_env.use_settings) restores the previous
+    settings file, including none; `config_file` follows each call."""
+    a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
+    before = plugin_settings.use(a)
+    assert plugin_settings.use(b) == a
+    assert plugin_settings.paths.config_file() == b
+    assert plugin_settings.use(None) == b
+    assert plugin_settings.use(before) is None

@@ -18,14 +18,17 @@ def config_dir() -> Path:
     return Path(v or "~/.claude").expanduser()
 
 
-def use(file: str | Path | None) -> None:
+def use(file: str | Path | None) -> Path | None:
     """Read the config from `file` from now on in this process (None: back to the default). Clears the cache of
-    loaded files, so a file rewritten within one timestamp tick is read again."""
+    loaded files, so a file rewritten within one timestamp tick is read again. Returns the file set before, or None,
+    so a caller can restore it."""
     global _used
     from .loader import clear_cache
 
+    previous = _used
     _used = Path(file).expanduser() if file else None
     clear_cache()
+    return previous
 
 
 def config_file() -> Path:
