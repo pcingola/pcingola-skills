@@ -41,8 +41,9 @@ class TestDeterminism(unittest.TestCase):
         return determinism.check(self.dir, html, set(LIBS), KIT)
 
     def test_script_rules(self) -> None:
-        """Timers, clocks, Math.random, library random functions, d3 transitions, endless repeats, self playing
-        timelines, audio and run-time loading fail at their line."""
+        """determinism.check fails timers, clocks, Math.random, library random functions, d3 transitions, endless
+        repeats, self playing timelines, audio and run-time loading at their line. Guards render refusing a page
+        whose frames depend on wall time."""
         bad = [
             "setTimeout(function () {}, 10);",
             "setInterval(function () {}, 10);",
@@ -73,12 +74,14 @@ class TestDeterminism(unittest.TestCase):
                 self.assertTrue(all(e.startswith("index.html:11: ") for e in errors), errors)
 
     def test_comments_and_strings_pass(self) -> None:
+        """determinism.check passes forbidden words inside JS comments and strings, a finite GSAP repeat and a
+        helper call whose word is "random". Guards false refusals of a page that only names a rule."""
         ok = page('// setTimeout and Math.random() in a comment\n/* new Date() */\nconst s = "setInterval(";\n'
                   'tl.to("#box", { opacity: 1, yoyo: true, repeat: 3 }, W(1, "random"));')
         self.assertEqual(self.check(ok), [])
 
     def test_literal_dates_pass(self) -> None:
-        """new Date with arguments (literal dates for d3.scaleTime) passes; new Date without arguments, Date.now
+        """determinism.check passes new Date with arguments (literal dates for d3.scaleTime) passes; new Date without arguments, Date.now
         and performance.now fail. Guards the wall-clock rule against refusing fixed dates."""
         ok = page('const x = d3.scaleTime().domain([new Date(2020, 0, 1), new Date("2024-06-30")]);\n'
                   "const t = new Date(ms);")
@@ -103,8 +106,8 @@ class TestDeterminism(unittest.TestCase):
         self.assertEqual(self.check(ok), [])
 
     def test_css_and_tags(self) -> None:
-        """CSS motion in a style block or attribute, remote URLs, <audio> and a <video> without data-start fail;
-        a CSS comment and a seekable clip pass."""
+        """determinism.check fails CSS motion in a style block or attribute, remote URLs, <audio> and a <video>
+        without data-start at their line, and passes a CSS comment and a seekable clip."""
         html = page("").replace("</head>", "<style>\n#a { transition: opacity 1s; }\n@keyframes spin { }\n"
                                 "/* animation: none; */\n#b { background: url(https://example.com/a.png); }\n"
                                 "</style>\n</head>")
@@ -119,8 +122,8 @@ class TestDeterminism(unittest.TestCase):
         self.assertEqual(self.check(svg), [])
 
     def test_script_files(self) -> None:
-        """The author's own script is scanned; library, kit, timing.js and card.js files and remote scripts are
-        handled by name."""
+        """determinism.check scans the author's own script file; it skips library, kit, timing.js and card.js
+        files by name and reports a remote script."""
         for rel in ("gsap.min.js", "timing.js", "card.js", "kit/camera.js", "mine.js"):
             (self.dir / rel).parent.mkdir(parents=True, exist_ok=True)
             (self.dir / rel).write_text("var r = Math.random();\n")
@@ -132,7 +135,8 @@ class TestDeterminism(unittest.TestCase):
         self.assertTrue(any("remote script" in e for e in self.check(remote)))
 
     def test_asset_pages_pass(self) -> None:
-        """The suggested pages, the world page and every technique page pass."""
+        """determinism.check passes the suggested pages, the world page and every technique page in assets/.
+        Guards render refusing a page the skill ships."""
         assets = settings.ASSETS_DIR
         pages = sorted(p for p in assets.glob("*.html") if p.name != "film-player.html")  # the film player owns a clock
         pages += sorted(assets.glob("techniques/*/index.html"))

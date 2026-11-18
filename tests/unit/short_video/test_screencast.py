@@ -79,14 +79,16 @@ class ProjectCase(unittest.TestCase):
 class TestShotList(ProjectCase):
 
     def test_unknown_key_names_its_place(self) -> None:
-        """An unknown key in a shot fails with the shot's index and the key, so a typo never passes silently."""
+        """screencast.load refuses an unknown key in a shot, naming the shot's index and the key. Guards a typo
+        passing silently."""
         page(self.dir / "p.png")
         with self.assertRaises(ScreencastError) as cm:
             load(self.shots("shots:\n  - image: p.png\n    length: 1\n    zoom: 2\n"))
         self.assertIn("shots[0]: unknown key 'zoom'", str(cm.exception))
 
     def test_missing_file_and_kind_keys(self) -> None:
-        """A missing source file and a key the shot's kind does not take are both refused with their place."""
+        """screencast.load refuses a missing source file and a key the shot's kind does not take, each with its
+        place."""
         with self.assertRaises(ScreencastError) as cm:
             load(self.shots("shots:\n  - image: nope.png\n    length: 1\n"))
         self.assertIn("shots[0].image:", str(cm.exception))
@@ -96,14 +98,16 @@ class TestShotList(ProjectCase):
         self.assertIn("a picture shot takes no `typing`", str(cm.exception))
 
     def test_typing_needs_a_screenshot(self) -> None:
-        """Typing is rebuilt from a screenshot of the finished text; on a recording it is refused."""
+        """screencast.load refuses `typing` on a recording shot and asks for an `image`. Guards typing, which is
+        rebuilt from a screenshot of the finished text."""
         (self.dir / "r.mp4").write_bytes(b"")   # the parser checks only that the file exists
         with self.assertRaises(ScreencastError) as cm:
             load(self.shots("shots:\n  - video: r.mp4\n    length: 1\n    typing: [{rect: [0, 0, 10, 10]}]\n"))
         self.assertIn("give the shot an `image`", str(cm.exception))
 
     def test_colours_from_palette_and_style_override(self) -> None:
-        """Colours resolve from the palette (a list's `style:` overrides it) and default to `accent`."""
+        """screencast.load resolves highlight colours from the palette (a list's `style:` overrides it), with
+        `accent` as the default."""
         page(self.dir / "p.png")
         shots, style = load(self.shots(
             "style:\n  palette: {accent: '#FF0000', brand: '#00FF00'}\n"
@@ -117,7 +121,7 @@ class TestShotList(ProjectCase):
 class TestCamera(unittest.TestCase):
 
     def test_zoom_interpolates_in_log_scale(self) -> None:
-        """Half way between two keys at zoom 1 and 4 the zoom is 2 (log scale), and the centre is half way."""
+        """Camera.at half way between two keys at zoom 1 and 4 gives zoom 2 (log scale) and the centre half way."""
         cam = Camera.resolve([CameraSpec(t=0, center=(0, 0), zoom=1), CameraSpec(t=2, center=(100, 50), zoom=4)],
                              (0, 0, 200, 100), (W, H))
         k = cam.at(1.0)
@@ -125,8 +129,8 @@ class TestCamera(unittest.TestCase):
         self.assertEqual(k.center, (50.0, 25.0))
 
     def test_rect_fits_and_fields_carry_over(self) -> None:
-        """A `rect` key centres the rect and fits it in 0.92 of the frame (a picture shot covers the frame);
-        a later key without a field keeps it."""
+        """Camera.resolve centres a `rect` key's rect and fits it in 0.92 of the frame (with fill, a picture shot
+        covers the frame); a later key without a field keeps it."""
         cam = Camera.resolve([CameraSpec(t=0, rect=(100, 100, 160, 45), yaw=5), CameraSpec(t=1, zoom=3)],
                              (0, 0, 640, 360), (W, H))
         self.assertEqual(cam.keys[0].center, (180.0, 122.5))
@@ -136,7 +140,8 @@ class TestCamera(unittest.TestCase):
         self.assertAlmostEqual(cover.keys[0].zoom, max(W / 160, H / 45))
 
     def test_camera_moves_through_inner_keys(self) -> None:
-        """A move through three keys keeps going at the middle key (no stop), and starts and ends at rest."""
+        """Camera.at on a move through three keys keeps moving at the middle key (no stop), and starts and ends
+        at rest."""
         cam = Camera.resolve([CameraSpec(t=0, center=(0, 0), zoom=1), CameraSpec(t=1, center=(100, 0)),
                               CameraSpec(t=2, center=(300, 0))], (0, 0, 400, 100), (W, H))
 
@@ -151,7 +156,8 @@ class TestCamera(unittest.TestCase):
 class TestGrade(unittest.TestCase):
 
     def test_grade_darkens_and_tints(self) -> None:
-        """`grade` maps white through gain and tint and leaves black black (the dark-film tone change)."""
+        """page_edits.apply_grade maps white through gain and tint and leaves black black (the `grade` tone
+        change of a dark film)."""
         from short_video_tool.screencast.model import Grade
         from short_video_tool.screencast.page_edits import apply_grade
         img = np.zeros((2, 2, 3), np.uint8)
@@ -167,8 +173,8 @@ class TestGrade(unittest.TestCase):
 class TestTyping(unittest.TestCase):
 
     def test_reveal_blanks_untyped_glyphs(self) -> None:
-        """Half way through the typing the right part of the text line is the field background, and once
-        typed the line is as in the screenshot."""
+        """TypingReveal finds the 10 glyphs; half way through the typing its frame shows the right part of the
+        text line as the field background, and once typed the line as in the screenshot."""
         img = np.full((60, 400, 3), 250, np.uint8)
         for i in range(10):
             cv2.rectangle(img, (20 + 30 * i, 20), (36 + 30 * i, 40), (20, 20, 20), -1)
@@ -183,8 +189,8 @@ class TestTyping(unittest.TestCase):
 class TestAlign(unittest.TestCase):
 
     def test_ecc_aligns_a_shifted_copy(self) -> None:
-        """A copy shifted by (14, 6) px is warped back onto the original: the aligned difference is a small
-        fraction of the unaligned one."""
+        """pictures.align warps a copy shifted by (14, 6) px back onto the original and reports success: the
+        aligned difference is under 0.2 of the unaligned one. Guards the ECC scale and inverse warp of a wipe."""
         rng = np.random.default_rng(3)
         base = cv2.GaussianBlur((rng.random((240, 320, 3)) * 255).astype(np.uint8), (0, 0), 4)
         base = cv2.normalize(base, None, 0, 255, cv2.NORM_MINMAX)
@@ -200,7 +206,8 @@ class TestAlign(unittest.TestCase):
 class TestFrames(ProjectCase):
 
     def test_camera_zoom_moves_content(self) -> None:
-        """Zooming the camera onto the red dot moves it to the frame centre and enlarges it."""
+        """Timeline.frames of a camera zooming onto the red dot moves it to the frame centre and enlarges it, and
+        a zoom past the source warns to capture the page at 2x."""
         page(self.dir / "p.png")
         tl = self.timeline("shots:\n  - image: p.png\n    length: 1\n    camera:\n"
                            "      - {t: 0, rect: [0, 0, 640, 360]}\n      - {t: 1, center: [480, 120], zoom: 2}\n")
@@ -212,8 +219,8 @@ class TestFrames(ProjectCase):
         self.assertTrue(any("past the source" in w and "capture the page at 2x" in w for w in self.warnings))
 
     def test_upscale_keeps_page_coordinates(self) -> None:
-        """With `upscale`, page coordinates stay the given picture's px over `scale`: centring on the red dot
-        puts it in the frame centre whatever the upscale."""
+        """Timeline.frames with `upscale` keeps page coordinates in the given picture's px over `scale`: centring
+        on the red dot puts it in the frame centre whatever the upscale."""
         page(self.dir / "p.png")
         for up in ("", "    upscale: 1600\n"):
             tl = self.timeline("shots:\n  - image: p.png\n    scale: 1\n" + up + "    length: 1\n"
@@ -222,7 +229,7 @@ class TestFrames(ProjectCase):
             self.assertLess(math.hypot(x - W / 2, y - H / 2), 2, up)
 
     def test_legibility_warning(self) -> None:
-        """A shot with a highlight whose camera never reaches 1.4 screen px per page px is warned about; at
+        """Timeline warns about a shot with a highlight whose camera never reaches 1.4 screen px per page px; at
         2x capture a zoom past the source asks for a larger rect, not a 2x capture."""
         page(self.dir / "p.png")
         self.timeline("shots:\n  - image: p.png\n    length: 1\n    highlights: [{rect: [40, 200, 160, 60]}]\n")
@@ -232,14 +239,15 @@ class TestFrames(ProjectCase):
         self.assertTrue(any("frame a larger rect" in w for w in self.warnings), self.warnings)
 
     def test_vignette_spares_the_panel(self) -> None:
-        """The vignette darkens the backdrop only: a white page held flat stays white at its corners."""
+        """Timeline.frames applies the `vignette` to the backdrop only: a white page held flat stays white at its
+        corners."""
         cv2.imwrite(str(self.dir / "w.png"), np.full((360, 640, 3), 255, np.uint8))
         tl = self.timeline("style: {vignette: 0.5}\nshots:\n  - image: w.png\n    length: 1\n"
                            "    camera: [{t: 0, center: [320, 180], zoom: 1}]\n")
         self.assertGreater(int(self.frame(tl, 0.5)[30, 30].min()), 245)
 
     def test_crossfade_blends_two_shots(self) -> None:
-        """Half way through a 0.4 s crossfade from a red picture to a blue one the frame holds both; before
+        """Timeline.frames half way through a 0.4 s `fade` from a red picture to a blue one holds both; before
         and after it, only one."""
         solid(self.dir / "r.png", (0, 0, 255))
         solid(self.dir / "b.png", (255, 0, 0))
@@ -252,8 +260,8 @@ class TestFrames(ProjectCase):
         self.assertLess(int(self.frame(tl, 1.6)[H // 2, W // 2][2]), 10)
 
     def test_wipe_shows_aligned_halves(self) -> None:
-        """A wipe of a picture and its shifted copy aligns the copy: right of the divider the after picture
-        shows the dot where the before picture has it."""
+        """Timeline.frames of a `wipe` between a picture and its shifted copy aligns the copy: right of the
+        divider the after picture shows the dot where the before picture has it."""
         before = np.full((180, 320, 3), 200, np.uint8)
         cv2.circle(before, (240, 90), 20, (0, 0, 255), -1)
         cv2.rectangle(before, (20, 20), (120, 160), (40, 120, 40), -1)

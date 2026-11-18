@@ -41,7 +41,7 @@ class RefsRunTest(unittest.TestCase):
         shutil.rmtree(cls.tmp)
 
     def test_video_entry(self):
-        """A video gives its size, fps, duration, the scene change at 2 s, 4 frames per second
+        """refs.run of a video records its size, fps, duration, the scene change at 2 s, 4 frames per second
         with times in their names, sheets of 12, sampled colours and a motion peak at the cut."""
         v = next(e for e in self.index["sources"] if e["kind"] == "video")
         self.assertEqual((v["width"], v["height"], v["fps"]), (320, 180, 24.0))
@@ -62,7 +62,7 @@ class RefsRunTest(unittest.TestCase):
         self.assertGreater(motion[:, 1].max(), 0.1)
 
     def test_images_and_index(self):
-        """Images are copied and sheeted, and a second source is added to refs.json beside the first."""
+        """refs.run of an image copies and sheets it, and adds a second source to refs.json beside the first."""
         saved = json.loads((self.out / refs.INDEX).read_text())
         self.assertEqual([e["dir"] for e in saved["sources"]], ["clip", "images"])
         img = saved["sources"][1]
@@ -74,7 +74,7 @@ class RefsRunTest(unittest.TestCase):
         self.assertTrue(r < 10 and b < 10 and 120 < g < 135, img["palette"][0]["hex"])  # lavfi green, #008000
 
     def test_rerun_replaces_entry(self):
-        """A second run on the same video replaces its entry and its frames."""
+        """A second refs.run on the same video replaces its entry and its frames in refs.json."""
         out = self.tmp / "again"
         refs.run(self.video, out, fps=1)
         idx = refs.run(self.video, out, fps=2)
@@ -83,7 +83,7 @@ class RefsRunTest(unittest.TestCase):
         self.assertTrue((out / "clip" / "t000.500.png").is_file())
 
     def test_missing_source(self):
-        """A missing source raises RefsError."""
+        """refs.run of a missing source raises RefsError."""
         with self.assertRaises(refs.RefsError):
             refs.run(self.tmp / "nothing.mp4", self.tmp / "x")
 
