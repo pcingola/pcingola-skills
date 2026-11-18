@@ -1,6 +1,7 @@
-"""Integration test of `short-video.sh screencast` (references/screencast.md of short-video): a shot list of
-a 2x recording made with FFmpeg (testsrc, then black frames) and a screenshot written with OpenCV, rendered
-into a clip scene's sources/ through the wrapper, checked with ffprobe and imported with `clip`."""
+"""Integration test of `screencast` (references/screencast.md of short-video): a shot list of a 2x recording made
+with FFmpeg (testsrc, then black frames) and a screenshot written with OpenCV, rendered into a clip scene's sources/
+by the CLI in process (`cli`), checked with ffprobe and imported with `clip.import_clip`. Stills come from
+`screencast.stills`. Settings are TEST_CONFIG (`use_settings`)."""
 import json
 import shutil
 import subprocess
@@ -12,8 +13,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from tests.integration.short_video.wrapper_env import run
+from short_video_tool import clip, screencast, settings, storyboard
+from tests.integration.short_video import cli
 from tests.prereq import requires
+from tests.settings_env import TEST_CONFIG, use_settings
 
 W, H, FPS = 320, 180, 30
 SHOTS = 1.2 + 1.0 + 0.8
@@ -95,7 +98,8 @@ class TestScreencast(unittest.TestCase):
         cv2.putText(img, "open the settings", (48, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (30, 30, 30), 2, cv2.LINE_AA)
         cv2.imwrite(str(s / "page.png"), img)
         (s / "shots.yaml").write_text(SHOT_LIST)
-        cls.done = run("screencast", "-p", p, "--shots", s / "shots.yaml", "--scene", "demo")
+        with use_settings(TEST_CONFIG):
+            cls.done = cli("screencast", "-p", str(p), "--shots", str(s / "shots.yaml"), "--scene", "demo")
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -119,24 +123,40 @@ class TestScreencast(unittest.TestCase):
         self.assertIn("is black at", self.done.stderr)
 
     def test_clip_imports_the_result(self) -> None:
-        """`clip --scene` accepts the screencast as the clip scene's next version."""
-        done = run("clip", "-p", self.project, "--scene", "demo", self.project / "sources" / "demo-screencast.mp4")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertTrue((self.project / "scenes" / "demo" / "v1" / "scene.mp4").is_file())
+        """`clip.import_clip` accepts the screencast as the clip scene's next version and returns its scene.mp4."""
+        self.assertEqual(self.done.returncode, 0, self.done.stderr)
+        with use_settings(TEST_CONFIG):
+            settings.use_project(self.project)
+            try:
+                scene = storyboard.scene_by_id(storyboard.load(self.project), "demo")
+                out = clip.import_clip(self.project, scene, self.project / "sources" / "demo-screencast.mp4")
+            finally:
+                settings.use_project(None)
+        self.assertEqual(out, self.project / "scenes" / "demo" / "v1" / "scene.mp4")
+        self.assertTrue(out.is_file())
 
-    def test_stills_and_bad_shot_list(self) -> None:
-        """`--at` writes PNG frames at the frame size instead of the MP4; an invalid shot list exits 1 with
-        the place of the error."""
-        out = Path(self._tmp.name) / "stills" / "s.mp4"
-        done = run("screencast", "-p", self.project, "--shots", self.src / "shots.yaml", "-o", out, "--at", "0.5,1.35")
-        self.assertEqual(done.returncode, 0, done.stderr)
-        pngs = sorted(out.parent.glob("s_*.png"))
+    def test_stills(self) -> None:
+        """`screencast.stills` writes PNG frames at the frame size, named by their times, and no MP4 (the work
+        of `screencast --at`)."""
+        stem = Path(self._tmp.name) / "stills" / "s"
+        with use_settings(TEST_CONFIG):
+            settings.use_project(self.project)
+            try:
+                pngs = screencast.stills(self.src / "shots.yaml", [0.5, 1.35], stem)
+            finally:
+                settings.use_project(None)
         self.assertEqual([p.name for p in pngs], ["s_00.500.png", "s_01.350.png"])
+        self.assertEqual(sorted(stem.parent.glob("s_*.png")), pngs)
         self.assertEqual(cv2.imread(str(pngs[0])).shape, (H, W, 3))
-        self.assertFalse(out.exists())
+        self.assertFalse(stem.with_suffix(".mp4").exists())
+
+    def test_bad_shot_list(self) -> None:
+        """`screencast` with an invalid shot list exits 1 and prints the place of the error on stderr."""
         bad = self.src / "bad.yaml"
         bad.write_text("shots:\n  - image: page.png\n    length: 1\n    camra: []\n")
-        done = run("screencast", "-p", self.project, "--shots", bad, "-o", out)
+        out = Path(self._tmp.name) / "bad" / "s.mp4"
+        with use_settings(TEST_CONFIG):
+            done = cli("screencast", "-p", str(self.project), "--shots", str(bad), "-o", str(out))
         self.assertEqual(done.returncode, 1)
         self.assertIn("shots[0]: unknown key 'camra'", done.stderr)
 

@@ -107,7 +107,6 @@ CLI_PROCESS_ALLOWLIST = {
         "subject is pptx.sh: the wrapper, uv_env.sh and the skill's locked environment",
     "tests/integration/second_opinion/test_review.py": "not converted yet",
     "tests/integration/short_video/test_manim_render.py": "not converted yet",
-    "tests/integration/short_video/test_screencast.py": "not converted yet",
     "tests/integration/short_video/wrapper_env.py": "not converted yet",
     "tests/integration/video_effects/test_morph_live.py": "not converted yet",
     "tests/integration/voiceover/test_fish_voice.py": "not converted yet",
