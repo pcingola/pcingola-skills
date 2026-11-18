@@ -2,6 +2,8 @@
 
 A Claude Code marketplace, `pcingola-skills`, of Agent Skills grouped into the plugins below, most with CLI tools. Installed, a skill loads as `<plugin>:<skill>`. Installing a plugin also installs the plugins it depends on.
 
+Demo video: [Studio in Claude Code](https://www.youtube.com/watch?v=VIDEO_ID)
+
 | Plugin | Skills | Depends on |
 | --- | --- | --- |
 | docs | pptx, revealjs-slideshow | brand, setup |
@@ -13,6 +15,16 @@ A Claude Code marketplace, `pcingola-skills`, of Agent Skills grouped into the p
 | setup | settings | |
 
 ## Install and update
+
+Install every plugin (`studio` brings `docs`, `media`, `brand`, `ai` and `setup` as dependencies):
+
+```
+claude plugin marketplace add pcingola/pcingola-skills && \
+claude plugin install studio@pcingola-skills --scope user && \
+claude plugin install dev@pcingola-skills --scope user
+```
+
+Then start `claude` and ask it to set up the skills (see [First use](#first-use)). One plugin at a time:
 
 ```
 claude plugin marketplace add pcingola/pcingola-skills
@@ -125,7 +137,16 @@ With no key:
 
 ## Studio
 
-`/studio` in a Claude Code session with the `studio` plugin starts a local server on `127.0.0.1` (a free port) and opens its page in the default browser (`open` on macOS, `xdg-open` on Linux). Projects are kept in `studio.dir` of `config.yaml`, default `~/Documents/Studio`. The session carries out the page's requests with the media skills, so Studio needs the models of the work it is asked for.
+Studio is a local web page for making images, infographics, slide decks and short videos. The Claude Code session carries out every request from the page with the media skills.
+
+To run it:
+
+1. Install the `studio` plugin (see [Install and update](#install-and-update)) and write `config.yaml` (see [First use](#first-use)).
+2. Start `claude` in any directory.
+3. Type `/studio`. The session starts a local server on `127.0.0.1` (a free port) and opens its page in the default browser (`open` on macOS, `xdg-open` on Linux).
+4. In the page, create a project, write a brief and send it. The session's progress notes and answers show in the page.
+
+The server stops when the session ends. Projects are kept in `studio.dir` of `config.yaml`, default `~/Documents/Studio`. Studio needs the models of the work it is asked for.
 
 ## Settings and documentation
 
