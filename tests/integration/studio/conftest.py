@@ -13,9 +13,11 @@ from tests.prereq import require
 VIEWPORT = {"width": 1500, "height": 1000}
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="package")
 def browser() -> Iterator[Browser]:
-    """Chromium launched once for the session, closed with its Playwright at the end."""
+    """Chromium launched once for the studio tests, closed with its Playwright after the last of them. Package
+    scope, not session: the sync Playwright keeps an asyncio event loop running in the main thread while it is
+    open, and a later test that calls `asyncio.run` fails under it."""
     require(HYPERFRAMES.is_file(), f"hyperframes in {HYPERFRAMES.parent} (run short-video's setup)")
     with sync_playwright() as pw:
         b = pw.chromium.launch(executable_path=chrome())
