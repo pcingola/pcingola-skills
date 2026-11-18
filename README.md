@@ -1,8 +1,36 @@
 # Agent Skills marketplace
 
-A Claude Code marketplace, `pcingola-skills`, of Agent Skills grouped into the plugins below, most with CLI tools. Installed, a skill loads as `<plugin>:<skill>`. Installing a plugin also installs the plugins it depends on.
+A Claude Code marketplace, `pcingola-skills`, of Agent Skills for images, infographics, slide decks, short videos, music and voiceovers, with Studio, a local web page that drives them.
 
 Demo video: [Studio in Claude Code](https://www.youtube.com/watch?v=VIDEO_ID)
+
+## Quick start
+
+Install every plugin (needs `uv` and `git`, see [Requirements](#requirements)):
+
+```
+claude plugin marketplace add pcingola/pcingola-skills
+claude plugin install studio@pcingola-skills --scope user
+claude plugin install dev@pcingola-skills --scope user
+```
+
+Start `claude` and ask it to "set up the skills". The `setup:settings` skill asks for your API keys and writes the settings file (see [Settings](#settings)).
+
+Run Studio: type `/studio` in the Claude Code session. The page opens in your browser.
+
+## Studio
+
+Studio is a local web page for making images, infographics, slide decks and short videos. The Claude Code session carries out every request from the page with the media skills.
+
+1. Start `claude` in any directory.
+2. Type `/studio`. The session starts a local server on `127.0.0.1` (a free port) and opens its page in the default browser (`open` on macOS, `xdg-open` on Linux).
+3. In the page, create a project, write a brief and send it. The session's progress notes and answers show in the page.
+
+The server stops when the session ends. Projects are kept in `studio.dir` of the settings file, default `~/Documents/Studio`. Studio needs the models of the work it is asked for.
+
+## Plugins
+
+Installed, a skill loads as `<plugin>:<skill>`. Installing a plugin also installs the plugins it depends on.
 
 | Plugin | Skills | Depends on |
 | --- | --- | --- |
@@ -14,64 +42,23 @@ Demo video: [Studio in Claude Code](https://www.youtube.com/watch?v=VIDEO_ID)
 | studio | images, videos | brand, media, setup |
 | setup | settings | |
 
-## Install and update
+## Requirements
 
-Install every plugin (`studio` brings `docs`, `media`, `brand`, `ai` and `setup` as dependencies):
+- Linux, or macOS on Apple Silicon (PyTorch, which voiceover always installs, has no wheels for Intel Macs).
+- `uv` and `git` on `PATH`. uv builds each skill's environment on first use (a few seconds for most skills; minutes and several GB for the skills that install PyTorch) and fetches the shared packages in `lib/` from this repository, which needs network access to GitHub, no credentials. uv downloads Python 3.11 or later when the system has none.
+- FFmpeg for the audio and video skills (music, short-video, video-effects, voiceover recordings, and large video input of second-opinion).
+- LibreOffice and Poppler (`pdftoppm`) for the pptx previews and PDF export. macOS: `brew install libreoffice poppler`. Linux: `apt-get install libreoffice poppler-utils`.
+- Node.js 22 or later with `npm` for short-video HTML scenes. Its first render runs `npm ci` and downloads a headless Chrome through HyperFrames.
+- For short-video Manim scenes, Manim's system libraries (on Linux the Cairo and Pango development packages, `pkg-config` and a C compiler), and LaTeX with `dvisvgm` for formulas.
+- Ollama for local chat, vision and System-1 models.
+- On Linux, voiceover installs the CPU build of PyTorch (about 200 MB), or the CUDA 13.0 build (about 2.7 GB) and fish-speech when the settings file has a `fish` provider. Kokoro, Chatterbox and the word aligner run on the CPU.
+- An NVIDIA GPU or Apple Silicon only for the local `diffusers` models (level 3 below); an NVIDIA GPU under Linux for `fish`.
 
-```
-claude plugin marketplace add pcingola/pcingola-skills && \
-claude plugin install studio@pcingola-skills --scope user && \
-claude plugin install dev@pcingola-skills --scope user
-```
+## Settings
 
-Then start `claude` and ask it to set up the skills (see [First use](#first-use)). One plugin at a time:
+The skills that call a model (classify, second-opinion, image-gen, music, voiceover, short-video) go through the shared package `lib/ai_models`, built on Pydantic-AI. One YAML file holds every setting: `~/.claude/plugins/data/config.yaml` (`SKILLS_CONFIG` names another file). Its sections are `providers` (each provider's key in `api_key`, and the attributes of its models in `models`, including the local `diffusers` models), `tasks` (the model of each task), `network` (proxies, CA files), `huggingface`, `local_models`, `brand`, `studio` and `voiceover`. The file is validated at load; an error names the YAML path of each wrong key. The `setup:settings` skill creates it from `plugins/setup/skills/settings/assets/config.example.yaml`, which lists every setting with placeholder values, and documents every setting and error. A model id is `<provider name>:<model>`, for example `ollama:d3:4b`.
 
-```
-claude plugin marketplace add pcingola/pcingola-skills
-claude plugin install docs@pcingola-skills --scope user
-claude plugin install media@pcingola-skills --scope user
-claude plugin install dev@pcingola-skills --scope user
-claude plugin install brand@pcingola-skills --scope user
-claude plugin install ai@pcingola-skills --scope user
-claude plugin install studio@pcingola-skills --scope user
-claude plugin install setup@pcingola-skills --scope user
-```
-
-Inside a Claude Code session the same commands are `/plugin marketplace add pcingola/pcingola-skills` and `/plugin install <plugin>@pcingola-skills`. Installing `studio` alone also installs every other plugin except `dev`.
-
-Added from GitHub, each installed plugin loads from a copy in `~/.claude/plugins/cache/pcingola-skills/<plugin>/<commit>/`. Added from a local clone (`claude plugin marketplace add /path/to/pcingola-skills`), the marketplace is a directory source: Claude Code reads each installed plugin in place from `plugins/<plugin>/`, and working-tree edits, uncommitted ones included, take effect at the next session start or `/reload-plugins`; the cache copy is then written but not loaded. The version label is the commit. These commands fetch the latest commit and refresh the installed plugins:
-
-```
-claude plugin marketplace update pcingola-skills
-claude plugin update docs@pcingola-skills
-claude plugin update media@pcingola-skills
-claude plugin update dev@pcingola-skills
-claude plugin update brand@pcingola-skills
-claude plugin update ai@pcingola-skills
-claude plugin update studio@pcingola-skills
-claude plugin update setup@pcingola-skills
-```
-
-The CLI tools need `uv` on `PATH`. uv builds each skill's environment on first use (a few seconds for most skills; minutes and several GB for the skills that install PyTorch) and fetches the shared packages in `lib/` from `https://github.com/pcingola/pcingola-skills` (branch `main`), which needs `git` and network access to GitHub, no credentials. uv downloads Python 3.11 or later when the system has none.
-
-## Uninstall
-
-`claude plugin uninstall` deletes the plugin's data directory unless `--keep-data` is passed. That directory holds the plugin's environments. The media data directory also holds the voiceover weights, the cloned voices, and the image-gen and music environments (with torch and diffusers when `config.yaml` has a `diffusers` provider).
-
-The settings file `config.yaml` and the weights of local `diffusers` models (Hugging Face cache, `huggingface.home` of `config.yaml`, default `~/.cache/huggingface`) are outside every plugin data directory, so an uninstall keeps them.
-
-Reinstall a plugin without losing them:
-
-```
-claude plugin uninstall <plugin>@pcingola-skills --keep-data
-claude plugin install <plugin>@pcingola-skills --scope user
-```
-
-## Models
-
-The skills that call a model (classify, second-opinion, image-gen, music, voiceover, short-video) go through the shared package `lib/ai_models`, built on Pydantic-AI. One YAML file holds every setting: `~/.claude/plugins/data/config.yaml` (`SKILLS_CONFIG` names another file). Its sections are `providers` (each provider's key in `api_key`, and the attributes of its models in `models`, including the local `diffusers` models), `tasks` (the model of each task), `network` (proxies, CA files), `huggingface`, `local_models`, `brand`, `studio` and `voiceover`. The file is validated at load; an error names the YAML path of each wrong key. The `setup:settings` skill creates it from `plugins/setup/skills/settings/assets/config.example.yaml`. A model id is `<provider name>:<model>`, for example `ollama:d3:4b`.
-
-Provider kinds: `ollama`, `openrouter`, `openai` (any OpenAI-compatible server), `azure`, `google` (Gemini API or Vertex), `diffusers` (local models in process), `kokoro` and `chatterbox` (local speech on the CPU), `torchaudio` (word alignment on the CPU) and `fish` (local speech on an NVIDIA GPU, Linux). Tasks: `chat`, `vision`, `system1`, `embed`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`, `film_critic`. The `setup:settings` skill documents the file, every kind and every task.
+Provider kinds: `ollama`, `openrouter`, `openai` (any OpenAI-compatible server), `azure`, `google` (Gemini API or Vertex), `diffusers` (local models in process), `kokoro` and `chatterbox` (local speech on the CPU), `torchaudio` (word alignment on the CPU) and `fish` (local speech on an NVIDIA GPU, Linux). Tasks: `chat`, `vision`, `system1`, `embed`, `image`, `image_edit`, `image_best`, `image_multi_ref`, `speech`, `align`, `music`, `audio`, `video`, `presenter`, `film_critic`.
 
 Three levels of setup, each adding to the one before:
 
@@ -79,24 +66,7 @@ Three levels of setup, each adding to the one before:
 2. Ollama: System-1 models, small chat models and speech (macOS) on a local Ollama server. No key.
 3. GPU: a `diffusers` provider for local images, music and video. The image-gen, music and short-video wrappers then install torch and diffusers. It needs an NVIDIA GPU with driver 580 or later (CUDA 13.0 wheels of PyTorch) or Apple Silicon. A `fish` provider adds Fish Audio Drama 3 speech on an NVIDIA GPU under Linux (about 44 GB of GPU memory).
 
-## Requirements
-
-- Linux, or macOS on Apple Silicon (PyTorch, which voiceover always installs, has no wheels for Intel Macs).
-- `uv` and `git` on `PATH`.
-- FFmpeg for the audio and video skills (music, short-video, video-effects, voiceover recordings, and large video input of second-opinion).
-- LibreOffice and Poppler (`pdftoppm`) for the pptx previews and PDF export. macOS: `brew install libreoffice poppler`. Linux: `apt-get install libreoffice poppler-utils`.
-- Node.js 22 or later with `npm` for short-video HTML scenes. Its first render runs `npm ci` and downloads a headless Chrome through HyperFrames.
-- For short-video Manim scenes, Manim's system libraries (on Linux the Cairo and Pango development packages, `pkg-config` and a C compiler), and LaTeX with `dvisvgm` for formulas.
-- Ollama for local chat, vision and System-1 models.
-- On Linux, voiceover installs the CPU build of PyTorch (about 200 MB), or the CUDA 13.0 build (about 2.7 GB) and fish-speech when `config.yaml` has a `fish` provider. Kokoro, Chatterbox and the word aligner run on the CPU.
-- An NVIDIA GPU or Apple Silicon only for the local `diffusers` models (level 3 above); an NVIDIA GPU under Linux for `fish`.
-
-## First use
-
-With an OpenRouter key only:
-
-1. Ask Claude to set up the skills; the `setup:settings` skill asks for the level and the keys and writes `~/.claude/plugins/data/config.yaml`.
-2. By hand, a minimal file for this level (`chmod 600` it):
+A minimal file for an OpenRouter key only (`chmod 600` it):
 
 <!-- minimal-config -->
 ```yaml
@@ -130,24 +100,36 @@ tasks:
 
 The `image` entry gives image-gen the size limits of the model for `--size`. Kokoro speech and the torchaudio aligner run on the CPU with no key; their first use downloads about 1.6 GB. OpenRouter serves no image edits (`POST /images/edits` returns 404), so `image_edit`, `image_multi_ref` and every image-gen call with `--ref` need a provider of kind `azure`, `google` or `openai` (a server with image edits), or level 3. Music needs a provider of kind `google` (Lyria) or level 3. Copied unchanged, `config.example.yaml` is a level 3 file: its `local` provider of kind `diffusers` makes the image-gen, music and short-video wrappers install PyTorch and diffusers, and several of its tasks name local GPU models.
 
-With no key:
+With no key, Ollama serves the chat models: `ollama pull <tag>` fetches each model the file names, and a skill that finds a model not pulled names the command. Images and music then need a provider of kind `diffusers` with its `models` (see the example file); the first run downloads the weights.
 
-1. Install Ollama and pull the models the config names with `ollama pull <tag>`. A skill that finds a model not pulled names the command.
-2. For images and music, add a provider of kind `diffusers` with its `models` to the config (see the example). The first run downloads the weights.
+## Install, update and uninstall each plugin
 
-## Studio
+Install one plugin at a time:
 
-Studio is a local web page for making images, infographics, slide decks and short videos. The Claude Code session carries out every request from the page with the media skills.
+```
+claude plugin marketplace add pcingola/pcingola-skills
+claude plugin install <plugin>@pcingola-skills --scope user
+```
 
-To run it:
+`<plugin>` is a name from [Plugins](#plugins). Inside a Claude Code session the same commands are `/plugin marketplace add pcingola/pcingola-skills` and `/plugin install <plugin>@pcingola-skills`. Installing `studio` alone also installs every other plugin except `dev`.
 
-1. Install the `studio` plugin (see [Install and update](#install-and-update)) and write `config.yaml` (see [First use](#first-use)).
-2. Start `claude` in any directory.
-3. Type `/studio`. The session starts a local server on `127.0.0.1` (a free port) and opens its page in the default browser (`open` on macOS, `xdg-open` on Linux).
-4. In the page, create a project, write a brief and send it. The session's progress notes and answers show in the page.
+Update to the latest commit:
 
-The server stops when the session ends. Projects are kept in `studio.dir` of `config.yaml`, default `~/Documents/Studio`. Studio needs the models of the work it is asked for.
+```
+claude plugin marketplace update pcingola-skills
+claude plugin update <plugin>@pcingola-skills
+```
 
-## Settings and documentation
+Added from GitHub, each installed plugin loads from a copy in `~/.claude/plugins/cache/pcingola-skills/<plugin>/<commit>/`. Added from a local clone (`claude plugin marketplace add /path/to/pcingola-skills`), the marketplace is a directory source: Claude Code reads each installed plugin in place from `plugins/<plugin>/`, and working-tree edits, uncommitted ones included, take effect at the next session start or `/reload-plugins`. The version label is the commit.
 
-The settings file, every setting and the settings errors are documented in the `setup:settings` skill; `plugins/setup/skills/settings/assets/config.example.yaml` lists every setting with placeholder values. Maintainer documentation is in `docs/`, with the repository rules in `docs/architecture.md`.
+Uninstall:
+
+```
+claude plugin uninstall <plugin>@pcingola-skills
+```
+
+An uninstall deletes the plugin's data directory unless `--keep-data` is passed. That directory holds the plugin's environments. The media data directory also holds the voiceover weights, the cloned voices, and the image-gen and music environments (with torch and diffusers when the settings file has a `diffusers` provider). The settings file and the weights of local `diffusers` models (Hugging Face cache, `huggingface.home` of the settings file, default `~/.cache/huggingface`) are outside every plugin data directory, so an uninstall keeps them. A reinstall after `uninstall --keep-data` reuses the environments and weights.
+
+## Documentation
+
+Maintainer documentation is in `docs/`, with the repository rules in `docs/architecture.md`.
