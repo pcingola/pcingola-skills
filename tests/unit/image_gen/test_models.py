@@ -32,13 +32,15 @@ def test_local_size_within_limits(aspect, size):
 
 
 def test_reference_sizes():
-    """1K square, 4K 16:9 and a 4K local square land on the documented sizes."""
+    """openai_size gives 1024x1024 for 1:1 1K and 3840x2160 for 16:9 4K; local_size gives 2048x2048 for 1:1 4K.
+    Guards the --size table of image-gen's SKILL.md (3840 px long edge for gpt-image-2, 2048 px for local models)."""
     assert models.openai_size("1:1", "1K", OPENAI) == (1024, 1024)
     assert models.openai_size("16:9", "4K", OPENAI) == (3840, 2160)
     assert models.local_size("1:1", "4K", LOCAL) == (2048, 2048)
 
 
 def test_openai_size_long_edge_bound():
-    """`max_edge` bounds the long edge when `max_pixels` allows more pixels."""
+    """openai_size keeps the long edge at `max_edge` (3840 for 16:9 4K) when `max_pixels` allows more pixels.
+    Guards max_edge as a separate limit from the pixel count."""
     limits = OpenAIImageLimits(max_edge=3840, min_pixels=0, max_pixels=10**9)
     assert models.openai_size("16:9", "4K", limits) == (3840, 2160)
