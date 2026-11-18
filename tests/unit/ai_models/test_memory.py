@@ -152,7 +152,8 @@ def test_lock_wait_limits_the_wait(tmp_path):
 
 
 def test_holder_text_has_size_and_release():
-    """A holder reads as what it is, its GB and how it frees them."""
+    """`str(local.Holder)` is the holder's name, its size in GB to one decimal and, when given, how it frees the
+    memory in parentheses. Guards the holder text of a refused load."""
     assert str(local.Holder("process 7 python", int(2.5e9), "until it exits")) == "process 7 python (2.5 GB, until it exits)"
     assert str(local.Holder("process 7 python", int(2.5e9))) == "process 7 python (2.5 GB)"
 
