@@ -1,8 +1,10 @@
 # Agent Skills marketplace
 
-A Claude Code marketplace, `pcingola-skills`, of Agent Skills for images, infographics, slide decks, short videos, music and voiceovers, with Studio, a local web page that drives them.
+A Claude Code marketplace, `pcingola-skills`, of Agent Skills for images, infographics, slide decks, short videos, music and voiceovers, with Studio, a Claude Code mod that drives them from a web page.
 
-Demo video: [Studio in Claude Code](https://www.youtube.com/watch?v=VIDEO_ID)
+https://github.com/user-attachments/assets/711239a6-bca4-4202-b2b4-bc7f1aea4dfc
+
+Full tutorial (6 min): [Studio for Claude Code](https://youtu.be/uZZ1xvNixfE)
 
 ## Quick start
 
