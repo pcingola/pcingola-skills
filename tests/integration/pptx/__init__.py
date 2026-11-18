@@ -1,9 +1,6 @@
 """Helpers for pptx integration tests."""
 
-import contextlib
-import io
 import shutil
-from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
@@ -12,6 +9,7 @@ from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 
+from tests.inproc import CliResult, run_main
 from tests.options import keep_tmp
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
@@ -19,17 +17,8 @@ DATA_DIR = PROJECT_DIR / "tests" / "data"
 TMP_DIR = DATA_DIR / "tmp_pptx"
 
 
-@dataclass(frozen=True)
-class CliResult:
-    """Exit code and captured output of one in-process CLI call."""
-
-    returncode: int
-    stdout: str
-    stderr: str
-
-
 def cli(*argv: str) -> CliResult:
-    """Run the pptx CLI's `main(argv)` in process, capturing stdout and stderr.
+    """Run the pptx CLI's `main(argv)` in process, capturing stdout and stderr (`tests.inproc.run_main`).
 
     For tests whose subject is CLI behaviour: argument parsing, defaults, the
     output format and the exit code. Tests of a command's logic call its core
@@ -37,10 +26,7 @@ def cli(*argv: str) -> CliResult:
     """
     from pptx_tool.pptx import main
 
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = main(list(argv))
-    return CliResult(code, out.getvalue(), err.getvalue())
+    return run_main(main, *argv)
 
 
 def has_libreoffice() -> bool:
