@@ -1,8 +1,7 @@
 """`music generate` with the `music` model of tests/config.yaml (the tiny ACE-Step pipeline, random weights; a real
-model call on the GPU)."""
+model call on the GPU), through `music_tool.cli.main(argv)` in process, so one call checks the printed path an agent
+reads and the files the command writes."""
 
-import contextlib
-import io
 import json
 import subprocess
 from pathlib import Path
@@ -10,16 +9,10 @@ from pathlib import Path
 import pytest
 from music_tool import cli
 
-from ai_models import config
+from tests.inproc import run_main
 from tests.settings_env import TEST_CONFIG, task_model
 
-
-@pytest.fixture(autouse=True)
-def _config(tiny_ace_step_folder):
-    """TEST_CONFIG in use for the test, with the tiny ACE-Step folder written."""
-    config.use(TEST_CONFIG)
-    yield
-    config.use(None)
+pytestmark = pytest.mark.usefixtures("tiny_ace_step_folder")
 
 
 def probe(path: Path) -> tuple[float, str]:
@@ -34,14 +27,10 @@ def probe(path: Path) -> tuple[float, str]:
 def test_instrumental_with_tempo(tmp_path):
     """`music generate --instrumental --bpm 90 --seconds 6` writes an audio file of the format the model returns,
     with a sidecar recording the model, the prompt sent and the options."""
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        try:
-            cli.main(["generate", "calm piano", "--instrumental", "--bpm", "90", "--seconds", "6",
-                      "-o", str(tmp_path / "a.mp3")])
-        except SystemExit as e:
-            assert e.code == 0, err.getvalue()
-    path = Path(out.getvalue().strip())
+    done = run_main(cli.main, "generate", "calm piano", "--instrumental", "--bpm", "90", "--seconds", "6",
+                    "-o", str(tmp_path / "a.mp3"), settings=TEST_CONFIG)
+    assert done.returncode == 0, done.stderr
+    path = Path(done.stdout.strip())
     dur, codec = probe(path)
     assert codec in ("mp3", "pcm_s16le")
     assert dur > 5

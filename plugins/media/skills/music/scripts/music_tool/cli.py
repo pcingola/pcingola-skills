@@ -37,11 +37,16 @@ def sample_paths(out: Path, n: int) -> list[Path]:
     return [out.with_name(f"{out.stem}_{i}{out.suffix}") for i in range(1, n + 1)]
 
 
+class GenerateError(Exception):
+    """A refused output path, input file or option, or a failed request of `generate`; the CLI prints it as
+    `Error: <msg>` and exits 1."""
+
+
 def image_mime(path: str) -> str:
-    """The MIME type of a PNG, JPEG or WebP path; exits for another suffix."""
+    """The MIME type of a PNG, JPEG or WebP path; `GenerateError` for another suffix."""
     mime = IMAGE_MIME.get(Path(path).suffix.lower())
     if mime is None:
-        config.error(f"--image {path}: use PNG, JPEG or WebP")
+        raise GenerateError(f"--image {path}: use PNG, JPEG or WebP")
     return mime
 
 
@@ -99,53 +104,74 @@ def existing_outputs(paths: list[Path]) -> list[Path]:
 def _refuse_overwrite(paths: list[Path], force: bool) -> None:
     existing = existing_outputs(paths)
     if existing and not force:
-        config.error(f"{existing[0]} exists; pass --force to overwrite")
+        raise GenerateError(f"{existing[0]} exists; pass --force to overwrite")
 
 
-def _cmd_generate(args: argparse.Namespace) -> int:
+def generate(
+    text: str,
+    out: Path,
+    *,
+    model: str | None = None,
+    image: list[str] | None = None,
+    lyrics_file: str | None = None,
+    instrumental: bool = False,
+    bpm: int | None = None,
+    seconds: int | None = None,
+    negative: str | None = None,
+    seed: int | None = None,
+    samples: int | None = None,
+    min_crest_db: float | None = None,
+    crest_attempts: int = crest.DEFAULT_ATTEMPTS,
+    force: bool = False,
+) -> list[Path]:
+    """The work of `music generate`: compose the prompt `text` with the music model `model` (None: `tasks.music`)
+    into `out` (`<stem>_1` ... `<stem>_N` for several samples), each file with its `.json` sidecar and, when the
+    model returns text, its `.txt`; return the written audio paths.
+
+    `image` and `lyrics_file` are paths as given on the command line, recorded in the sidecar's `options`. With a
+    crest factor threshold (`min_crest_db`, else the model entry's), requests are sent again up to `crest_attempts`
+    times (`crest.regenerate`). Warnings go to stderr. Raises `GenerateError` on a refused path, input or option,
+    or a failed request; nothing is written before the request succeeds."""
     from ai_models import config as ai_config
     from ai_models import music
     from ai_models.errors import AIModelsError
     from ai_models.models import kind
 
-    _check(args)
-    text = _read_prompt(args)
-    out = Path(args.out).expanduser()
     if out.suffix.lower() not in EXTENSIONS:
-        config.error(f"--out must end in {' or '.join(EXTENSIONS)}, got {out.name}")
-    _refuse_overwrite(sample_paths(out, args.samples or 1), args.force)
+        raise GenerateError(f"--out must end in {' or '.join(EXTENSIONS)}, got {out.name}")
+    _refuse_overwrite(sample_paths(out, samples or 1), force)
     try:
-        images = [(Path(p).read_bytes(), image_mime(p)) for p in args.image or []]
+        images = [(Path(p).read_bytes(), image_mime(p)) for p in image or []]
     except OSError as e:
-        config.error(f"--image: {e}")
+        raise GenerateError(f"--image: {e}") from e
     lyrics = None
-    if args.lyrics:
+    if lyrics_file:
         try:
-            lyrics = Path(args.lyrics).read_text(encoding="utf-8")
+            lyrics = Path(lyrics_file).read_text(encoding="utf-8")
         except OSError as e:
-            config.error(f"--lyrics: {e}")
+            raise GenerateError(f"--lyrics: {e}") from e
     try:
-        model_id = ai_config.resolve(args.model, "music")
+        model_id = ai_config.resolve(model, "music")
         local = kind(model_id) == "diffusers"
     except AIModelsError as e:
-        config.error(str(e))
-    sent, sent_lyrics = prompt.request(text, lyrics, args.instrumental, args.bpm, local)
+        raise GenerateError(str(e)) from e
+    sent, sent_lyrics = prompt.request(text, lyrics, instrumental, bpm, local)
 
     def compose(seed: int | None) -> list:
-        return music.compose(sent, seconds=args.seconds, lyrics=sent_lyrics, seed=seed, negative=args.negative,
-                             images=images, samples=args.samples, model=model_id)
+        return music.compose(sent, seconds=seconds, lyrics=sent_lyrics, seed=seed, negative=negative,
+                             images=images, samples=samples, model=model_id)
 
-    records, kept, threshold = [], {}, args.min_crest_db
+    records, kept, threshold = [], {}, min_crest_db
+    asked_seed = seed
     try:
         if threshold is None:
             threshold = music.min_crest_db(model_id)
-        seed = args.seed
-        if seed is None and not args.samples and "seed" in music.takes(model_id):
-            seed = random.randrange(MAX_SEED - args.crest_attempts)
+        if seed is None and not samples and "seed" in music.takes(model_id):
+            seed = random.randrange(MAX_SEED - crest_attempts)
         if threshold is None or threshold <= 0:
             tracks = compose(seed)
         else:
-            tracks, records, failure = crest.regenerate(compose, threshold, args.crest_attempts, seed)
+            tracks, records, failure = crest.regenerate(compose, threshold, crest_attempts, seed)
             kept = next(r for r in records if r["kept"])
             seed = kept.get("seed")
             if failure:
@@ -155,13 +181,14 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                 config.warn(f"all {len(records)} requests gave a track with a crest factor below {threshold:g} dB "
                             f"(loud, compressed); kept the request at {min(kept['crest_db']):g} dB")
     except AIModelsError as e:
-        config.error(str(e) if model_id in str(e) else f"{model_id}: {e}")
+        raise GenerateError(str(e) if model_id in str(e) else f"{model_id}: {e}") from e
 
-    options = {"image": args.image, "lyrics": args.lyrics, "instrumental": args.instrumental, "bpm": args.bpm,
-               "seconds": args.seconds, "negative": args.negative, "seed": args.seed, "samples": args.samples}
+    options = {"image": image, "lyrics": lyrics_file, "instrumental": instrumental, "bpm": bpm,
+               "seconds": seconds, "negative": negative, "seed": asked_seed, "samples": samples}
     created = datetime.now(timezone.utc).isoformat(timespec="seconds")
     targets = sample_paths(out, len(tracks))
-    _refuse_overwrite([output_path(t, track.audio, local) for t, track in zip(targets, tracks)], args.force)
+    _refuse_overwrite([output_path(t, track.audio, local) for t, track in zip(targets, tracks)], force)
+    written = []
     for i, (target, track) in enumerate(zip(targets, tracks), 1):
         path = target.with_suffix(audio_ext(track.audio))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,7 +196,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
             try:
                 fit.encode(track.audio, target)
             except fit.FitError as e:
-                config.error(str(e))
+                raise GenerateError(str(e)) from e
             path = target
         else:
             if path != target:
@@ -193,6 +220,21 @@ def _cmd_generate(args: argparse.Namespace) -> int:
                if records else {}),
         }
         sidecar(path, ".json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        written.append(path)
+    return written
+
+
+def _cmd_generate(args: argparse.Namespace) -> int:
+    _check(args)
+    text = _read_prompt(args)
+    try:
+        paths = generate(text, Path(args.out).expanduser(), model=args.model, image=args.image,
+                         lyrics_file=args.lyrics, instrumental=args.instrumental, bpm=args.bpm, seconds=args.seconds,
+                         negative=args.negative, seed=args.seed, samples=args.samples,
+                         min_crest_db=args.min_crest_db, crest_attempts=args.crest_attempts, force=args.force)
+    except GenerateError as e:
+        config.error(str(e))
+    for path in paths:
         print(path)
     return 0
 
@@ -277,7 +319,17 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> None:
-    config.load_settings()
-    args = _build_parser().parse_args(argv)
-    sys.exit(args.func(args))
+def main(argv: list[str] | None = None) -> int:
+    """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help`, argument errors and
+    command errors (`config.error`: `Error: <msg>` on stderr, exit 1) return their code. Checks the settings
+    (`config.check_settings`) and leaves `os.environ` unchanged: the wrapper path (`__main__`) exports the settings
+    to the environment before it calls `main`."""
+    try:
+        config.check_settings()
+        args = _build_parser().parse_args(argv)
+        return args.func(args)
+    except SystemExit as e:
+        if e.code is None or isinstance(e.code, int):
+            return e.code or 0
+        print(e.code, file=sys.stderr)
+        return 1

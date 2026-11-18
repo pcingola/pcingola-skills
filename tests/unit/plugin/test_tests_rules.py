@@ -101,8 +101,6 @@ PLUGINS = ROOT / "plugins"
 # The files that start a skill's wrapper or CLI as a process, with the reason. docs/architecture.md, Tests.
 CLI_PROCESS_ALLOWLIST = {
     "tests/integration/classify/test_run.py": "not converted yet",
-    "tests/integration/music/test_analyze.py": "not converted yet",
-    "tests/integration/music/test_crest.py": "not converted yet",
     "tests/integration/pptx/test_wrapper.py":
         "subject is pptx.sh: the wrapper, uv_env.sh and the skill's locked environment",
     "tests/integration/second_opinion/test_review.py": "not converted yet",
@@ -119,8 +117,7 @@ CLI_PROCESS_ALLOWLIST = {
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
     "tests/unit/image_gen/test_routes.py": "not converted yet",
     "tests/unit/music/test_cli.py":
-        "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash); the `python -m music_tool` tests: not converted yet",
-    "tests/unit/music/test_routes.py": "not converted yet",
+        "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
     "tests/unit/second_opinion/conftest.py": "not converted yet",
     "tests/unit/second_opinion/test_review.py": "not converted yet",
     "tests/unit/second_opinion/test_routes.py": "not converted yet",

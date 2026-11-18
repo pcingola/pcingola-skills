@@ -1,33 +1,37 @@
-"""`music generate` checks, run as a subprocess with a config file in a temp dir; no model is called."""
+"""`music generate` checks through `music_tool.cli.main(argv)` in process with a config file in a temp dir; no
+model is called. `test_wrapper_local_extra` runs the wrapper's own lines in bash: its subject is the wrapper's
+`--extra local` choice."""
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 from music_tool import cli
+from tests.inproc import run_main
 
 SCRIPTS = Path(__file__).resolve().parents[3] / "plugins/media/skills/music/scripts"
 
 
 @pytest.fixture
 def music(tmp_path):
+    """`run(*argv)`: the exit code and stderr of `music generate *argv`, in process with the config.yaml of
+    `tmp_path` (an OpenAI provider on a closed port, no tasks); a test may rewrite that file."""
     config = tmp_path / "config.yaml"
     config.write_text("providers:\n  oai: {kind: openai, base_url: http://127.0.0.1:1/v1}\ntasks: {}\n")
-    env = {**os.environ, "SKILLS_CONFIG": str(config),
-           "PYTHONPATH": os.pathsep.join([str(SCRIPTS), os.environ.get("PYTHONPATH", "")])}
 
     def run(*argv: str) -> tuple[int, str]:
-        p = subprocess.run([sys.executable, "-m", "music_tool", "generate", *argv], env=env, capture_output=True,
-                           text=True, timeout=25)
-        return p.returncode, p.stderr
+        done = run_main(cli.main, "generate", *argv, settings=config)
+        return done.returncode, done.stderr
 
     return run
 
 
 def test_refusals_before_any_model_call(music, tmp_path):
+    """`generate` exits 1 with the reason on stderr for a missing prompt, a bad `--out` suffix, an existing output
+    or sidecar without `--force`, conflicting options, a bad `--bpm` and a config without a music model, and leaves
+    an existing output unchanged."""
     lyrics = tmp_path / "l.txt"
     lyrics.write_text("la")
     existing = tmp_path / "e.mp3"
