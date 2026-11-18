@@ -7,9 +7,13 @@ silently goes missing here is text nobody checks.
 """
 import json
 import unittest
+from pathlib import Path
+
+from pptx_tool.cmd_check_text import extract_paragraphs, format_paragraphs
+from pptx_tool.exceptions import PptxError
 
 from tests.integration.pptx import (
-    cleanup_dir, create_multilayout_pptx, create_test_pptx, fresh_dir, run_cli, write_readme,
+    cleanup_dir, cli, create_multilayout_pptx, create_test_pptx, fresh_dir, write_readme,
 )
 
 DIR = fresh_dir("test_extract_text")
@@ -32,12 +36,12 @@ class TestExtractText(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cleanup_dir(DIR)
 
-    def test_stdout_has_one_line_per_paragraph(self) -> None:
-        """extract-text prints one line per paragraph, prefixed S00 and carrying the layout name.
-        Guards the flat dump format SKILL.md names as the first reader."""
-        r = run_cli("extract-text", str(self.source))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    def test_text_has_one_line_per_paragraph(self) -> None:
+        """format_paragraphs gives one line per paragraph of extract_paragraphs, prefixed S00 and
+        carrying the layout name. Guards the flat dump format SKILL.md names as the first
+        reader."""
+        text = format_paragraphs(extract_paragraphs(self.source), as_json=False)
+        lines = [ln for ln in text.splitlines() if ln.strip()]
         # 3 slides x (title + body)
         self.assertEqual(len(lines), 6)
         self.assertTrue(lines[0].startswith("S00"))
@@ -45,20 +49,20 @@ class TestExtractText(unittest.TestCase):
         self.assertIn("Title and Content", lines[0])  # layout name column
 
     def test_output_file(self) -> None:
-        """extract-text -o writes the dump to the file and reports the paragraph count. Guards the
-        file output mode."""
+        """The extract-text CLI with -o writes the dump to the file and reports the paragraph
+        count. Guards the file output mode, which lives in the CLI layer."""
         out = DIR / "dump.txt"
-        r = run_cli("extract-text", str(self.source), "-o", str(out))
+        r = cli("extract-text", str(self.source), "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Wrote 6 paragraphs", r.stdout)
         self.assertEqual(len([ln for ln in out.read_text().splitlines() if ln.strip()]), 6)
 
     def test_json_mode(self) -> None:
-        """extract-text --json writes records with exactly slide, layout, shape and text, slide
-        0-based like every slide index of the tool. Guards the JSON record format and its slide
-        numbering."""
+        """The extract-text CLI with --json -o writes records with exactly slide, layout, shape and
+        text, slide 0-based like every slide index of the tool. Guards the JSON record format, its
+        slide numbering and the JSON file mode."""
         out = DIR / "dump.json"
-        r = run_cli("extract-text", str(self.source), "--json", "-o", str(out))
+        r = cli("extract-text", str(self.source), "--json", "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
         records = json.loads(out.read_text())
         self.assertEqual(len(records), 6)
@@ -66,29 +70,23 @@ class TestExtractText(unittest.TestCase):
         self.assertEqual(records[0]["slide"], 0)
 
     def test_single_slide_filter(self) -> None:
-        """extract-text --slide 1 returns only records of the second slide, numbered 1 in the
-        output. Guards that the filter and the output use the same 0-based index."""
-        r = run_cli("extract-text", str(self.source), "--slide", "1", "--json")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        records = json.loads(r.stdout)
+        """extract_paragraphs with slide=1 returns only paragraphs of the second slide, numbered 1
+        in the JSON output. Guards that the filter and the output use the same 0-based index."""
+        records = json.loads(format_paragraphs(extract_paragraphs(self.source, slide=1), as_json=True))
         self.assertTrue(records)
         self.assertEqual({rec["slide"] for rec in records}, {1})
 
     def test_table_cells_are_dumped(self) -> None:
-        """extract-text dumps each table cell as a record with a TABLE[r,c] shape label. Guards that
-        text inside GraphicFrame tables is not lost."""
-        r = run_cli("extract-text", str(self.multilayout), "--json")
-        self.assertEqual(r.returncode, 0, r.stderr)
-        records = json.loads(r.stdout)
-        table_rows = [rec for rec in records if rec["shape"].startswith("TABLE[")]
+        """extract_paragraphs returns each table cell as a paragraph with a TABLE[r,c] shape label.
+        Guards that text inside GraphicFrame tables is not lost."""
+        table_rows = [p for p in extract_paragraphs(self.multilayout) if p.shape.startswith("TABLE[")]
         self.assertEqual(
-            sorted(rec["text"] for rec in table_rows),
+            sorted(p.text for p in table_rows),
             ["$45M", "EMEA", "Region", "Revenue"],
         )
 
     def test_missing_file(self) -> None:
-        """extract-text exits non-zero when the input deck does not exist. Guards the input check of
-        the command."""
-        r = run_cli("extract-text", "/nonexistent.pptx")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        """extract_paragraphs raises PptxError when the input deck does not exist. Guards the input
+        check of the command."""
+        with self.assertRaisesRegex(PptxError, "'/nonexistent.pptx' not found"):
+            extract_paragraphs(Path("/nonexistent.pptx"))

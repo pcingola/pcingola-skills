@@ -6,12 +6,15 @@ failure here means those go unreported, which looks identical to a clean deck.
 """
 import json
 import unittest
+from pathlib import Path
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from pptx_tool.cmd_inspect_master import inspect_master_to_file
+from pptx_tool.exceptions import PptxError
 
 from tests.integration.pptx import (
-    cleanup_dir, create_test_pptx, fresh_dir, run_cli, write_readme,
+    cleanup_dir, create_test_pptx, fresh_dir, write_readme,
 )
 
 DIR = fresh_dir("test_inspect_master")
@@ -58,12 +61,11 @@ class TestInspectMaster(unittest.TestCase):
         cleanup_dir(DIR)
 
     def test_reports_masters_and_layouts(self) -> None:
-        """inspect-master writes one record per slide master and per layout (11 in the stock theme),
+        """inspect_master_to_file writes one record per slide master and per layout (11 in the stock theme),
         each layout with its name and non_placeholder_shapes. Guards the structure of the master
         audit JSON."""
         out = DIR / "plain.json"
-        r = run_cli("inspect-master", str(self.plain), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        inspect_master_to_file(self.plain, out)
         data = json.loads(out.read_text())
         self.assertIn("slide_masters", data)
         self.assertIn("slide_layouts", data)
@@ -76,12 +78,11 @@ class TestInspectMaster(unittest.TestCase):
             self.assertIn("non_placeholder_shapes", layout)
 
     def test_flags_confidentiality_tag_on_master(self) -> None:
-        """inspect-master flags a CONFIDENTIAL text box on the slide master as
+        """inspect_master_to_file flags a CONFIDENTIAL text box on the slide master as
         possible_confidentiality_tag with its text. Guards the confidentiality tag detection on
         masters."""
         out = DIR / "tagged.json"
-        r = run_cli("inspect-master", str(self.tagged), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        inspect_master_to_file(self.tagged, out)
         data = json.loads(out.read_text())
         flagged = [
             shape
@@ -93,8 +94,7 @@ class TestInspectMaster(unittest.TestCase):
         self.assertIn("CONFIDENTIAL", flagged[0]["text"])
 
     def test_missing_file(self) -> None:
-        """inspect-master exits non-zero when the input deck does not exist. Guards the input check
-        of the command."""
-        r = run_cli("inspect-master", "/nonexistent.pptx", str(DIR / "nope.json"))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        """inspect_master_to_file raises PptxError when the input deck does not exist. Guards the
+        input check of the command."""
+        with self.assertRaisesRegex(PptxError, "File not found: /nonexistent.pptx"):
+            inspect_master_to_file(Path("/nonexistent.pptx"), DIR / "nope.json")

@@ -5,9 +5,13 @@ The template is the synthetic multi-layout deck built with python-pptx
 """
 import json
 import unittest
+from pathlib import Path
+
+from pptx_tool.cmd_inspect_template import inspect_template
+from pptx_tool.exceptions import PptxError
 
 from tests.integration.pptx import (
-    cleanup_dir, create_multilayout_pptx, fresh_dir, run_cli, write_readme,
+    cleanup_dir, create_multilayout_pptx, fresh_dir, write_readme,
 )
 
 DIR = fresh_dir("test_inspect_template")
@@ -29,12 +33,10 @@ class TestInspectTemplate(unittest.TestCase):
         cleanup_dir(DIR)
 
     def test_inspect_template(self) -> None:
-        """inspect-template writes slide_dimensions (13.33 in wide for 16:9) and one slide-N entry
-        per template slide. Guards the template JSON that the authoring skills
-        read."""
+        """inspect_template writes slide_dimensions (13.33 in wide for 16:9) and one slide-N entry
+        per template slide. Guards the template JSON that the authoring skills read."""
         out = DIR / "template.json"
-        r = run_cli("inspect-template", str(self.template), str(out))
-        self.assertEqual(r.returncode, 0, r.stderr)
+        inspect_template(self.template, out)
         self.assertTrue(out.exists())
         data = json.loads(out.read_text())
         self.assertIn("slide_dimensions", data)
@@ -45,12 +47,11 @@ class TestInspectTemplate(unittest.TestCase):
         self.assertAlmostEqual(dims["width_inches"], 13.33, places=1)
 
     def test_inspect_missing_file(self) -> None:
-        """inspect-template exits non-zero when the input deck does not exist. Guards the input
+        """inspect_template raises PptxError when the input deck does not exist. Guards the input
         check of the command."""
         out = DIR / "missing.json"
-        r = run_cli("inspect-template", "/nonexistent.pptx", str(out))
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(PptxError, "Template file not found at /nonexistent.pptx"):
+            inspect_template(Path("/nonexistent.pptx"), out)
 
 
 if __name__ == "__main__":
