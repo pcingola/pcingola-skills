@@ -3,8 +3,10 @@ import unittest
 
 from pptx import Presentation
 
+from pptx_tool.cmd_select_slides import select_slides
+from pptx_tool.exceptions import PptxError
 from tests.integration.pptx import (
-    cleanup_dir, create_multilayout_pptx, create_test_pptx, fresh_dir, run_cli, stamp_description,
+    cleanup_dir, cli, create_multilayout_pptx, create_test_pptx, fresh_dir, stamp_description,
 )
 
 DIR = fresh_dir("test_select_slides")
@@ -21,11 +23,10 @@ class TestSelectSlides(unittest.TestCase):
         cleanup_dir(DIR)
 
     def test_reorder_slides(self) -> None:
-        """select-slides "4,2,0" writes the slides in the given order. Guards that the sequence
-        order, not the source order, decides the output order."""
+        """select_slides with [4, 2, 0] writes the slides in the given order and returns the slide
+        count. Guards that the sequence order, not the source order, decides the output order."""
         out = DIR / "reordered.pptx"
-        r = run_cli("select-slides", str(self.source), str(out), "4,2,0")
-        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(select_slides(self.source, out, [4, 2, 0]), 3)
         prs = Presentation(str(out))
         self.assertEqual(len(prs.slides), 3)
         titles = [slide.shapes.title.text for slide in prs.slides if slide.shapes.title]
@@ -38,28 +39,27 @@ class TestSelectSlides(unittest.TestCase):
             "  Slide 3: 'Slide 0 Title'")
 
     def test_out_of_range(self) -> None:
-        """select-slides exits non-zero when the sequence names slide 99. Guards the index range
-        check before the deck is built."""
+        """select_slides raises PptxError when the sequence names slide 99, and writes no output.
+        Guards the index range check before the deck is built."""
         out = DIR / "bad_range.pptx"
-        r = run_cli("select-slides", str(self.source), str(out), "0,99")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(PptxError, r"Slide index 99 out of range \(0-4\)"):
+            select_slides(self.source, out, [0, 99])
+        self.assertFalse(out.exists())
 
     def test_invalid_sequence(self) -> None:
-        """select-slides exits non-zero for a non-integer sequence. Guards the parse_sequence error
-        reaching the exit code."""
+        """select-slides on the command line exits 1 with the sequence format error on stderr for a
+        non-integer sequence. Guards the parse_sequence error reaching the exit code."""
         out = DIR / "bad_seq.pptx"
-        r = run_cli("select-slides", str(self.source), str(out), "abc")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        r = cli("select-slides", str(self.source), str(out), "abc")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Error: Invalid sequence format", r.stderr)
 
     def test_with_multilayout_deck(self) -> None:
-        """select-slides keeps each selected slide's layout from a deck with different layouts.
+        """select_slides keeps each selected slide's layout from a deck with different layouts.
         Guards that slides are kept on their own layouts, not rebased on one."""
         source = create_multilayout_pptx(DIR)
         out = DIR / "from_multilayout.pptx"
-        r = run_cli("select-slides", str(source), str(out), "0,1,2")
-        self.assertEqual(r.returncode, 0, r.stderr)
+        select_slides(source, out, [0, 1, 2])
         prs = Presentation(str(out))
         self.assertEqual(len(prs.slides), 3)
         self.assertEqual(
@@ -71,9 +71,8 @@ class TestSelectSlides(unittest.TestCase):
             "Expected 3 slides with their original layouts and styling preserved.")
 
     def test_missing_template(self) -> None:
-        """select-slides exits non-zero when the template deck does not exist. Guards the input
+        """select_slides raises PptxError when the template deck does not exist. Guards the input
         check of the command."""
         out = DIR / "missing.pptx"
-        r = run_cli("select-slides", "/nonexistent.pptx", str(out), "0")
-        self.assertNotEqual(r.returncode, 0)
-        self.assertNotIn("Traceback", r.stdout + r.stderr)
+        with self.assertRaisesRegex(PptxError, "Template file not found"):
+            select_slides(DIR / "nonexistent.pptx", out, [0])
