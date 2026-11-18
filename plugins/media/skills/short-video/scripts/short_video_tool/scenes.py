@@ -34,6 +34,7 @@ import re
 import hashlib
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -457,6 +458,18 @@ def setup(node_dir: Path, src: Path | None = None) -> list[str]:
     if failures:
         raise SceneError("setup: required checks failed:\n" + "\n".join(lines + failures))
     return lines
+
+
+def ensure_node(node_dir: Path, src: Path | None = None) -> None:
+    """Run `setup` when HyperFrames is not installed in `node_dir` or the package files in `src` changed, with a
+    notice on stderr. Raises SceneError when setup fails, a failed tool's message included."""
+    if node_ready(node_dir, src):
+        return
+    print("HyperFrames not installed or package-lock.json changed; running setup", file=sys.stderr)
+    try:
+        setup(node_dir, src)
+    except media.ToolError as e:
+        raise SceneError(str(e)) from e
 
 
 # ---------------------------------------------------------------------------

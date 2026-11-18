@@ -65,6 +65,10 @@ and presenter tasks (`ai_models.routes`). A scene with
 `scaffold` and `render` of a scene with `World:` act on its whole world
 (`world`): `scaffold` writes the next `worlds/<name>/v<N>/`, `render` renders
 it once and writes the next version of every scene of the world.
+
+`dispatch` chooses the engine of `scaffold` and `render`. Each handler parses
+its arguments, calls the module function that does the work, prints its
+result and returns the exit code.
 """
 
 from __future__ import annotations
@@ -73,7 +77,6 @@ import argparse
 import json
 import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -81,12 +84,11 @@ from pathlib import Path
 from ai_models import routes
 from plugin_settings import config as plugin_config
 
-from . import audiocheck, brand, clip, config, credit, media, mix, music, narration, scenes, settings, speakers, state
-from . import film_html, manim_scene, pages, presenter_scene, refs, status, stills, storyboard, video_scene, world
+from . import audiocheck, brand, clip, config, credit, media, mix, music, narration, scenes, settings
+from . import dispatch, film_html, pages, projects, refs, status, stills, storyboard
 
 # The tasks of video and presenter scenes; `routes` prints their rows.
 ROUTE_TASKS = ("video", "presenter")
-LAYOUT = ("images", "sources", "voice", "scenes", "music", "film")
 
 
 def _project(args: argparse.Namespace) -> Path:
@@ -120,12 +122,10 @@ def _scene(data: dict, scene_id: str) -> dict:
 
 
 def _ensure_node(node_dir: Path) -> None:
-    if not scenes.node_ready(node_dir, config.NODE_SRC):
-        print("HyperFrames not installed or package-lock.json changed; running setup", file=sys.stderr)
-        try:
-            scenes.setup(node_dir, config.NODE_SRC)
-        except (scenes.SceneError, media.ToolError) as e:
-            config.error(str(e))
+    try:
+        scenes.ensure_node(node_dir, config.NODE_SRC)
+    except scenes.SceneError as e:
+        config.error(str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -150,42 +150,17 @@ def _audio_warnings(path: Path, name: str | None = None) -> None:
 
 def _cmd_init(args: argparse.Namespace) -> int:
     project = config.resolve_project(args.project)
-    if project.exists() and not project.is_dir():
-        config.error(f"{project} exists and is not a directory")
-    if project.exists() and any(project.iterdir()):
-        config.error(f"{project} already exists and is not empty")
-    pngs = []
-    if args.images:
-        images = Path(args.images).expanduser()
-        pngs = sorted(p for p in images.iterdir() if p.is_file() and p.suffix.lower() == ".png") if images.is_dir() else []
-        if not pngs:
-            config.error(f"no PNG files in {images}")
-    for d in LAYOUT:
-        (project / d).mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(settings.SETTINGS_FILE, project / settings.PROJECT_FILE)
-    settings.use_project(project)
-    for p in pngs:
-        shutil.copyfile(p, project / "images" / p.name)
-    if args.source:
-        src = Path(args.source).expanduser()
-        if not src.is_file():
-            config.error(f"source file {src} not found")
-        shutil.copyfile(src, project / "sources" / src.name)
-    lessons = project / "lessons.md"
-    if not lessons.exists():
-        lessons.write_text(settings.asset("lessons.md"), encoding="utf-8")
-    title = project.name.replace("-", " ").replace("_", " ").capitalize()
-    name, make = ((storyboard.JSON_FILE, storyboard.json_template) if args.json
-                  else (storyboard.MD_FILE, storyboard.template))
-    if args.length is not None:
-        settings.set_length(project / settings.PROJECT_FILE, args.length)
-    (project / name).write_text(make(title, [p.name for p in pngs], args.silent, args.length), encoding="utf-8")
-    _load(project)
-    print(project)
+    try:
+        made = projects.create(project, Path(args.images).expanduser() if args.images else None,
+                               Path(args.source).expanduser() if args.source else None,
+                               args.json, args.silent, args.length)
+    except (projects.ProjectError, storyboard.StoryboardError) as e:
+        config.error(str(e))
+    print(made.project)
     print(f"  {settings.PROJECT_FILE}")
-    print(f"  {name}")
-    for p in pngs:
-        print(f"  images/{p.name}")
+    print(f"  {made.storyboard_file}")
+    for name in made.images:
+        print(f"  images/{name}")
     return 0
 
 
@@ -226,36 +201,18 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def _targets(data: dict, ids: list[str] | None, pending) -> list[dict]:
-    """The narrated scenes named, or every narrated scene for which
-    `pending(scene)` holds; a clip scene without narration is never one."""
-    if ids:
-        named = [_scene(data, sid) for sid in ids]
-        silent = [s["id"] for s in named if not storyboard.narrated(s)]
-        if silent:
-            config.error(f"scene(s) {', '.join(silent)} have no narration table (a silent scene)")
-        return named
-    return [s for s in storyboard.scenes(data) if storyboard.narrated(s) and pending(s)]
-
-
-def _voice_line(speaker: str | None, voice: dict) -> str:
-    """The voice to voice a script with, as `script` prints it."""
-    return " ".join(([f"speaker={speaker}"] if speaker else []) + ([f"model={voice['model']}"] if voice["model"] else [])
-                    + ([f"name={voice['name']}"] if voice["name"] else [])
-                    + [f"speed={voice['speed']}"] + ([f"style={voice['style']}"] if voice["style"] else []))
-
-
 def _cmd_script(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
-    film = storyboard.resolve_voice(data)
-    targets = _targets(data, args.scene, lambda s: state.latest_voice(project, s["id"]) is None)
-    for s in targets:
-        for path, speaker, voice in narration.write_script(project, data, s):
-            print(path)
-            if speaker is not None or voice != film:
-                print("  " + _voice_line(speaker, voice))
-    if not targets:
+    try:
+        parts = narration.write_scripts(project, data, args.scene)
+    except (storyboard.StoryboardError, narration.NarrationError) as e:
+        config.error(str(e))
+    for part in parts:
+        print(part.path)
+        if part.voice_line is not None:
+            print("  " + part.voice_line)
+    if not parts:
         print("every scene has narration; name scenes with --scene to write their scripts again")
     return 0
 
@@ -263,21 +220,13 @@ def _cmd_script(args: argparse.Namespace) -> int:
 def _cmd_voice(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
-
-    def voiced(s: dict) -> bool:
-        if narration.is_multipart(data, s):
-            n = len(speakers.runs(data, s))
-            return all((speakers.part_dir(project, s["id"], k) / "timing.json").is_file() for k in range(1, n + 1))
-        return (narration.script_dir(project, s["id"]) / "timing.json").is_file()
-
-    def pending(s: dict) -> bool:
-        return state.latest_voice(project, s["id"]) is None and voiced(s)
-
-    targets = _targets(data, args.scene, pending)
+    try:
+        targets = narration.voice_targets(project, data, args.scene)
+    except (storyboard.StoryboardError, narration.NarrationError) as e:
+        config.error(str(e))
     for s in targets:
-        src = Path(args.src).expanduser() if args.src else narration.script_dir(project, s["id"])
         try:
-            out = narration.import_voice(project, data, s, src)
+            out = narration.import_voice(project, data, s, Path(args.src).expanduser() if args.src else None)
         except narration.NarrationError as e:
             config.error(str(e))
         print(out / "narration.wav")
@@ -289,148 +238,31 @@ def _cmd_voice(args: argparse.Namespace) -> int:
     return 0
 
 
-def _scaffold_manim(project: Path, scene: dict) -> int:
-    try:
-        out = manim_scene.scaffold(project, scene)
-    except scenes.SceneError as e:
-        config.error(str(e))
-    print(out / manim_scene.SCENE_PY)
-    print(out / "brief.md")
-    return 0
-
-
-def _render_manim(project: Path, scene: dict, manim_env: Path | None) -> int:
-    try:
-        out = manim_scene.render(project, scene, manim_env)
-    except (scenes.SceneError, media.ToolError) as e:
-        config.error(str(e))
-    print(out)
-    print(out.parent / "contact.png")
-    return 0
-
-
-def _scaffold_video(project: Path, scene: dict) -> int:
-    try:
-        out = video_scene.scaffold(project, scene)
-    except scenes.SceneError as e:
-        config.error(str(e))
-    print(out / video_scene.PROMPT)
-    print(out / "brief.md")
-    return 0
-
-
-def _render_video(project: Path, scene: dict, seed: int | None, model: str | None) -> int:
-    try:
-        out = video_scene.render(project, scene, seed, model)
-    except (scenes.SceneError, media.ToolError) as e:
-        config.error(str(e))
-    print(out)
-    print(out.parent / "contact.png")
-    return 0
-
-
-def _scaffold_presenter(project: Path, scene: dict) -> int:
-    try:
-        out = presenter_scene.scaffold(project, scene)
-    except scenes.SceneError as e:
-        config.error(str(e))
-    print(out / "brief.md")
-    return 0
-
-
-def _render_presenter(project: Path, scene: dict, seed: int | None, model: str | None) -> int:
-    try:
-        out = presenter_scene.render(project, scene, seed, model)
-    except (scenes.SceneError, media.ToolError) as e:
-        config.error(str(e))
-    print(out)
-    print(out.parent / "contact.png")
-    return 0
-
-
-def _scaffold_world(project: Path, data: dict, name: str, refresh: bool, node_dir: Path) -> int:
-    _ensure_node(node_dir)
-    try:
-        out = world.scaffold(project, data, name, node_dir, refresh)
-    except scenes.SceneError as e:
-        config.error(str(e))
-    print(out / "index.html")
-    print(out / "brief.md")
-    return 0
-
-
-def _render_world(project: Path, data: dict, name: str, node_dir: Path) -> int:
-    _ensure_node(node_dir)
-    try:
-        outs = world.render(project, data, name, node_dir)
-    except (scenes.SceneError, media.ToolError) as e:
-        config.error(str(e))
-    for out in outs:
-        print(out)
-        print(out.parent / "contact.png")
-    return 0
-
-
 def _cmd_scaffold(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
-    if storyboard.is_clip(_scene(data, args.scene)):
-        config.error(clip.refuse(args.scene, "scaffold"))
-    scene = _scene(data, args.scene)
-    if getattr(args, "refresh", False) and (manim_scene.is_manim(scene) or storyboard.is_video(scene)
-                                            or storyboard.is_presenter(scene)):
-        config.error("--refresh applies to HTML scenes and worlds only")
-    if manim_scene.is_manim(_scene(data, args.scene)):
-        return _scaffold_manim(project, _scene(data, args.scene))
-    if storyboard.is_video(_scene(data, args.scene)):
-        return _scaffold_video(project, _scene(data, args.scene))
-    if storyboard.is_presenter(_scene(data, args.scene)):
-        return _scaffold_presenter(project, _scene(data, args.scene))
-    refresh = getattr(args, "refresh", False)
-    estimate = getattr(args, "estimate", False)
-    if estimate and (manim_scene.is_manim(scene) or storyboard.is_video(scene) or storyboard.is_presenter(scene)
-                     or storyboard.world_name(scene)):
-        config.error("--estimate applies to an HTML scene without a world only")
-    if name := storyboard.world_name(_scene(data, args.scene)):
-        return _scaffold_world(project, data, name, refresh, args.node_dir)
-    _ensure_node(args.node_dir)
     try:
-        out = scenes.scaffold(project, _scene(data, args.scene), args.node_dir, refresh, estimate)
-    except scenes.SceneError as e:
+        files = dispatch.scaffold(project, data, args.scene, getattr(args, "node_dir", None),
+                                  getattr(args, "refresh", False), getattr(args, "estimate", False))
+    except (storyboard.StoryboardError, scenes.SceneError) as e:
         config.error(str(e))
-    print(out / "index.html")
-    print(out / "brief.md")
+    for f in files:
+        print(f)
     return 0
 
 
 def _cmd_render(args: argparse.Namespace) -> int:
     project = _project(args)
-    seed = getattr(args, "seed", None)
-    model = getattr(args, "model", None)
     data = _valid(project)
-    if storyboard.is_clip(_scene(data, args.scene)):
-        config.error(clip.refuse(args.scene, "render"))
-    if manim_scene.is_manim(_scene(data, args.scene)):
-        return _render_manim(project, _scene(data, args.scene), args.manim_env)
-    if storyboard.is_video(_scene(data, args.scene)):
-        return _render_video(project, _scene(data, args.scene), seed, model)
-    if storyboard.is_presenter(_scene(data, args.scene)):
-        return _render_presenter(project, _scene(data, args.scene), seed, model)
-    if seed is not None or model is not None:
-        config.error("--seed and --model apply only to a video or presenter scene (`Engine: video`, `Engine: presenter`)")
-    if name := storyboard.world_name(_scene(data, args.scene)):
-        return _render_world(project, data, name, args.node_dir)
-    # A scene switched from manim to html has a latest version with no page.
-    latest = state.latest_scene(project, args.scene)
-    if latest is not None and not (latest / "index.html").is_file():
-        config.error(f"scene {args.scene}: latest version {latest.name} has no index.html; run `scaffold` first")
-    _ensure_node(args.node_dir)
     try:
-        out = scenes.render(project, _scene(data, args.scene), args.node_dir)
-    except (scenes.SceneError, media.ToolError) as e:
+        outs = dispatch.render(project, data, args.scene, getattr(args, "node_dir", None),
+                               getattr(args, "manim_env", None), getattr(args, "seed", None),
+                               getattr(args, "model", None))
+    except (storyboard.StoryboardError, scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
-    print(out)
-    print(out.parent / "contact.png")
+    for out in outs:
+        print(out)
+        print(out.parent / "contact.png")
     return 0
 
 
@@ -476,13 +308,8 @@ def _cmd_screencast(args: argparse.Namespace) -> int:
         config.error(str(e))
     print(out)
     if scene is not None:
-        seconds = media.video_duration(out)
-        vdir = state.latest_voice(project, scene["id"]) if storyboard.narrated(scene) else None
-        if vdir and (vdir / "narration.wav").is_file():
-            narration = media.duration(vdir / "narration.wav")
-            if seconds < narration:
-                config.warn(f"the clip is {seconds:.2f} s and the narration {narration:.2f} s; `clip` holds its "
-                            "last frame for the difference: lengthen the shots instead")
+        if warning := clip.length_warning(project, scene, out):
+            config.warn(warning)
         print(f"next: clip --scene {scene['id']} {out}")
     return 0
 
@@ -704,17 +531,13 @@ def _cmd_play(args: argparse.Namespace) -> int:
 
 def _cmd_critic(args: argparse.Namespace) -> int:
     _project(args)
-    c = settings.get().get("critic") or {}
-    if "model" in c and c["model"] is None:
-        print("off")
-        return 0
-    from ai_models import config as ai_config
     from ai_models.errors import AIModelsError
 
     try:
-        print(ai_config.resolve(c.get("model"), "film_critic"))
+        model = settings.critic_model()
     except AIModelsError as e:
         config.error(str(e))
+    print("off" if model is None else model)
     return 0
 
 
@@ -744,18 +567,13 @@ def _cmd_particle_text(args: argparse.Namespace) -> int:
             tuple(args.lines), Path(args.font).expanduser(), size=args.size, tracking=args.tracking,
             line_gap=args.line_gap, count=args.count, edge_share=args.edge_share, seed=args.seed,
             width=width, height=height, fov=args.fov, distance=args.distance)
-        if args.fit is not None:
-            text = text.fitted(args.fit)
-        for p in text.write(args.name or particle_text.default_name(args.lines), out):
-            print(p)
-        w, h = text.measure()
-        print(f"size {text.size:g} px: text {w:.0f}x{h:.0f} px at the end distance, {w / width:.0%} x "
-              f"{h / height:.0%} of the {width}x{height} frame", file=sys.stderr)
-        if w > particle_text.MAX_WIDTH * width:
-            print(f"warning: the text is wider than {particle_text.MAX_WIDTH:.0%} of the frame; lower --size or "
-                  f"pass --fit 0.7", file=sys.stderr)
+        written = particle_text.write_block(text, out, args.name, args.fit)
     except ValueError as e:
         config.error(str(e))
+    for p in written.files:
+        print(p)
+    for line in written.report():
+        print(line, file=sys.stderr)
     return 0
 
 
@@ -929,6 +747,8 @@ def main(argv: list[str] | None = None, plugin_env_dir: Path | None = None) -> i
     return argparse's code. Validates the settings file (exit on an invalid one) and leaves `os.environ` as it is:
     the wrapper path (`__main__`) exports the settings to the environment before it calls `main`.
 
+    A command error, which a handler reports with `config.error` (exit 1), is returned as the exit code.
+
     `plugin_env_dir` is the plugin environment directory, which places the node directory and the Manim
     environment (`config.env_dirs`); None reads `PLUGIN_ENV_DIR`, as the wrapper short-video.sh sets it. The
     handlers find them as `args.node_dir` and `args.manim_env`."""
@@ -942,4 +762,11 @@ def main(argv: list[str] | None = None, plugin_env_dir: Path | None = None) -> i
         plugin_env_dir = Path(env_value) if env_value else None
     dirs = config.env_dirs(plugin_env_dir)
     args.node_dir, args.manim_env = dirs.node_dir, dirs.manim_env
-    return args.func(args)
+    try:
+        return args.func(args)
+    except SystemExit as e:
+        # A command error (`config.error`: `Error: <msg>` on stderr, then exit 1) is the exit code.
+        if e.code is None or isinstance(e.code, int):
+            return e.code or 0
+        print(e.code, file=sys.stderr)
+        return 1

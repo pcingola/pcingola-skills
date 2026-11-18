@@ -229,6 +229,42 @@ class ParticleText:
         return js, png
 
 
+@dataclass(frozen=True)
+class Written:
+    """A text block `write_block` wrote: the text as written (its size after a fit), the targets and texture files,
+    and the ink width and height in frame pixels at the end distance (`ParticleText.measure`)."""
+
+    text: ParticleText
+    files: tuple[Path, Path]
+    ink: tuple[float, float]
+
+    @property
+    def too_wide(self) -> bool:
+        """The ink is wider than `MAX_WIDTH` of the frame."""
+        return self.ink[0] > MAX_WIDTH * self.text.width
+
+    def report(self) -> list[str]:
+        """The size report `particle-text` prints on stderr: the size and the ink's share of the frame, and a
+        warning when the text is too wide."""
+        t, (w, h) = self.text, self.ink
+        lines = [f"size {t.size:g} px: text {w:.0f}x{h:.0f} px at the end distance, {w / t.width:.0%} x "
+                 f"{h / t.height:.0%} of the {t.width}x{t.height} frame"]
+        if self.too_wide:
+            lines.append(f"warning: the text is wider than {MAX_WIDTH:.0%} of the frame; lower --size or "
+                         f"pass --fit 0.7")
+        return lines
+
+
+def write_block(text: ParticleText, out: Path, name: str | None = None, fit: float | None = None) -> Written:
+    """Write the targets and texture of `text` into `out` as `<name>_targets.js` and `<name>_tex.png` (`name`
+    default: `default_name` of the text); with `fit`, at the size whose ink is `fit` of the frame width
+    (`ParticleText.fitted`). Raises ValueError as `ParticleText`."""
+    if fit is not None:
+        text = text.fitted(fit)
+    files = text.write(name or default_name(text.lines), out)
+    return Written(text, files, text.measure())
+
+
 def _no_leading_slashes(xy: np.ndarray, li: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Reorder the points so the base64 of `xy` does not start with "//": the page's determinism check reads a
     string starting with "//" as a remote URL."""

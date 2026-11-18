@@ -99,6 +99,18 @@ def author() -> str | None:
     return ", ".join(authors()) or None
 
 
+def critic_model() -> str | None:
+    """The film critic's model: `critic.model` of the settings, else task `film_critic` of the ai_models config;
+    None when `critic.model` is null (the critic is off). Raises ai_models' AIModelsError when neither names a
+    model."""
+    c = get().get("critic") or {}
+    if "model" in c and c["model"] is None:
+        return None
+    from ai_models import config as ai_config
+
+    return ai_config.resolve(c.get("model"), "film_critic")
+
+
 def asset(name: str) -> str:
     """Text of a file under `assets/`."""
     return (ASSETS_DIR / name).read_text(encoding="utf-8")

@@ -23,6 +23,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -110,6 +112,66 @@ def write_script(project: Path, data: dict, scene: dict) -> list[tuple[Path, str
         (pd / "script.txt").write_text(_lines(sentences), encoding="utf-8")
         out.append((pd / "script.txt", speaker, voice))
     return out
+
+
+def voice_line(speaker: str | None, voice: dict) -> str:
+    """The voice to voice a script with, as `script` prints it: `speaker=`, `model=`, `name=`, `speed=` and
+    `style=`, each only when set (speed always)."""
+    return " ".join(([f"speaker={speaker}"] if speaker else []) + ([f"model={voice['model']}"] if voice["model"] else [])
+                    + ([f"name={voice['name']}"] if voice["name"] else [])
+                    + [f"speed={voice['speed']}"] + ([f"style={voice['style']}"] if voice["style"] else []))
+
+
+@dataclass(frozen=True)
+class ScriptPart:
+    """A script `write_scripts` wrote: its path, speaker (None = no speaker), resolved voice, and the voice line
+    `script` prints under it (`voice_line`), None for the film's voice without a speaker."""
+
+    path: Path
+    speaker: str | None
+    voice: dict
+    voice_line: str | None
+
+
+def targets(data: dict, scene_ids: list[str] | None, pending: Callable[[dict], bool]) -> list[dict]:
+    """The narrated scenes named in `scene_ids`, or, with none named, every narrated scene for which
+    `pending(scene)` holds; a clip scene without narration is never one. Raises StoryboardError for an unknown
+    scene and NarrationError for a named scene without narration."""
+    if scene_ids:
+        named = [storyboard.scene_by_id(data, sid) for sid in scene_ids]
+        silent = [s["id"] for s in named if not storyboard.narrated(s)]
+        if silent:
+            raise NarrationError(f"scene(s) {', '.join(silent)} have no narration table (a silent scene)")
+        return named
+    return [s for s in storyboard.scenes(data) if storyboard.narrated(s) and pending(s)]
+
+
+def write_scripts(project: Path, data: dict, scene_ids: list[str] | None = None) -> list[ScriptPart]:
+    """Write the scripts (`write_script`) of the scenes named in `scene_ids`, else of every narrated scene without
+    a voice version. Returns the scripts in scene order; an empty list when no scene needed one. Raises as
+    `targets`."""
+    film = storyboard.resolve_voice(data)
+    out = []
+    for s in targets(data, scene_ids, lambda s: state.latest_voice(project, s["id"]) is None):
+        for path, speaker, voice in write_script(project, data, s):
+            line = voice_line(speaker, voice) if speaker is not None or voice != film else None
+            out.append(ScriptPart(path, speaker, voice, line))
+    return out
+
+
+def voiced(project: Path, data: dict, scene: dict) -> bool:
+    """The scene's narration directory holds a voiced `timing.json` (a scene with several runs: every part's)."""
+    if is_multipart(data, scene):
+        n = len(speakers.runs(data, scene))
+        return all((speakers.part_dir(project, scene["id"], k) / "timing.json").is_file() for k in range(1, n + 1))
+    return (script_dir(project, scene["id"]) / "timing.json").is_file()
+
+
+def voice_targets(project: Path, data: dict, scene_ids: list[str] | None = None) -> list[dict]:
+    """The scenes `voice` imports: those named in `scene_ids`, else every narrated scene without a voice version
+    whose narration directory is voiced. Raises as `targets`."""
+    return targets(data, scene_ids,
+                   lambda s: state.latest_voice(project, s["id"]) is None and voiced(project, data, s))
 
 
 def _norm(text: str) -> str:
@@ -219,11 +281,14 @@ def recording_problems(data: dict, scene: dict, vdir: Path) -> list[str]:
     return out
 
 
-def import_voice(project: Path, data: dict, scene: dict, src: Path) -> Path:
-    """Copy a voiced narration directory into the scene's next voice version.
+def import_voice(project: Path, data: dict, scene: dict, src: Path | None = None) -> Path:
+    """Copy a voiced narration directory (`src`, default the scene's `script_dir`) into the scene's next voice
+    version and return that version's directory.
     A scene with several runs is joined from its part directories first; each
     recording's voice is checked against its run's resolved voice. The stored
     `timing.json` holds the written form of every sentence."""
+    if src is None:
+        src = script_dir(project, scene["id"])
     if is_multipart(data, scene):
         src = join_parts(project, data, scene, src)
     _missing(scene, src)

@@ -98,6 +98,21 @@ def brief_markdown(scene: dict, source: Path, clip_seconds: float, voice: Path |
     return "\n".join(lines + (brief_sentences(scene, timing) if timing else []))
 
 
+def length_warning(project: Path, scene: dict, video: Path) -> str | None:
+    """The warning for a clip `video` of the clip scene `scene` that is shorter than the scene's latest narration
+    (`import_clip` would hold its last frame for the difference); None when it is not shorter or the scene has no
+    narration recording."""
+    seconds = media.video_duration(video)
+    vdir = state.latest_voice(project, scene["id"]) if storyboard.narrated(scene) else None
+    if not (vdir and (vdir / "narration.wav").is_file()):
+        return None
+    narration = media.duration(vdir / "narration.wav")
+    if seconds >= narration:
+        return None
+    return (f"the clip is {seconds:.2f} s and the narration {narration:.2f} s; `clip` holds its "
+            "last frame for the difference: lengthen the shots instead")
+
+
 def import_clip(project: Path, scene: dict, src: Path) -> Path:
     """Import `src` as the next version of the clip scene `scene`. Returns scene.mp4."""
     sid = scene["id"]
