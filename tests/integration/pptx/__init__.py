@@ -2,9 +2,7 @@
 
 import contextlib
 import io
-import json
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,10 +18,6 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = PROJECT_DIR / "tests" / "data"
 TMP_DIR = DATA_DIR / "tmp_pptx"
 PPTX_TOOL = str(PROJECT_DIR / "plugins" / "docs" / "skills" / "pptx" / "scripts" / "pptx.sh")
-
-
-def run_cli(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([PPTX_TOOL, *args], capture_output=True, text=True, cwd=PROJECT_DIR, timeout=25)
 
 
 @dataclass(frozen=True)
@@ -331,11 +325,3 @@ def write_readme(d: Path, description: str) -> None:
         return
     readme = d / "README.txt"
     readme.write_text(description.strip() + "\n")
-
-
-def write_text_data_json(d: Path, data: dict, name: str = "text_data.json") -> Path:
-    """Write a text data JSON file for use with add-text command."""
-    path = d / name
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-    return path

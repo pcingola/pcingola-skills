@@ -14,7 +14,7 @@ from pptx_tool.cmd_add_shapes import PresentationShapesAdder
 from pptx_tool.cmd_new_deck import create_deck
 from pptx_tool.exceptions import PptxError
 from tests.integration.pptx import (
-    cleanup_dir, cli, create_test_image, fresh_dir, stamp_description, write_readme,
+    cli, create_test_image, fresh_dir, stamp_description, write_readme,
 )
 
 DIR = fresh_dir("test_new_deck_and_shapes")

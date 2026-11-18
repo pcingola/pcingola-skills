@@ -8,7 +8,6 @@ runs the `pptx` commands on it.
 """
 
 import shutil
-import subprocess
 from pathlib import Path
 
 from tests.options import keep_tmp
@@ -17,19 +16,10 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = PROJECT_DIR / "tests" / "data"
 TMP_DIR = DATA_DIR / "tmp_pptx_author"
 
-# pptx-author has no scripts/ of its own; its templates are read through pptx.
-PPTX_TOOL = str(
-    PROJECT_DIR / "plugins" / "docs" / "skills" / "pptx" / "scripts" / "pptx.sh"
-)
-
 BRAND_PPTX_DIR = (
     PROJECT_DIR / "plugins" / "brand" / "skills" / "brand" / "brands" / "neutral" / "pptx"
 )
 PRESENTATION_TEMPLATE = BRAND_PPTX_DIR / "presentation.pptx"
-
-
-def run_cli(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([PPTX_TOOL, *args], capture_output=True, text=True, cwd=PROJECT_DIR, timeout=25)
 
 
 def fresh_dir(name: str) -> Path:
