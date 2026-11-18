@@ -500,7 +500,8 @@ class TestNeutralPptx(unittest.TestCase):
         pres = self.part("ppt/presentation.xml")
         size = pres.find(f"{P_NS}sldSz")
         self.assertEqual((size.get("cx"), size.get("cy")), ("12192000", "6858000"))
-        self.assertEqual(list(pres.find(f"{P_NS}sldIdLst") or []), [])
+        slides = pres.find(f"{P_NS}sldIdLst")
+        self.assertEqual([] if slides is None else list(slides), [])
         with zipfile.ZipFile(self.pptx) as z:
             self.assertFalse([n for n in z.namelist() if n.startswith("ppt/slides/")])
 
