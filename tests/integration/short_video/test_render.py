@@ -167,7 +167,9 @@ class TestRenderEndTemplate(unittest.TestCase):
             "| Narration | On screen |\n|---|---|\n| Hello world. | Hello takeaway |\n",
             encoding="utf-8",
         )
-        (p / "settings.yaml").write_text("author: [Jane Doe]\n", encoding="utf-8")
+        # A short hold (the default is 4 s): the test checks that the hold is added, not its default length.
+        (p / "settings.yaml").write_text("author: [Jane Doe]\ntemplates:\n  end:\n    hold_seconds: 0.5\n",
+                                         encoding="utf-8")
         set_fps(p)
         settings.use_project(p)
         data = storyboard.load(p)

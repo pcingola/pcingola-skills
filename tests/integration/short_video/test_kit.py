@@ -48,6 +48,27 @@ def chrome() -> str:
     return done.stdout.strip().splitlines()[-1]
 
 
+# One Playwright and one Chrome for the module, started by the first class that needs them; each test opens its
+# own page.
+_PW: dict = {}
+
+
+def browser():
+    """The module's Chrome, launched on first use."""
+    if "pw" not in _PW:
+        _PW["pw"] = sync_playwright().start()
+    if "browser" not in _PW:
+        _PW["browser"] = _PW["pw"].chromium.launch(executable_path=chrome(), args=LAUNCH_ARGS)
+    return _PW["browser"]
+
+
+def tearDownModule() -> None:
+    if "browser" in _PW:
+        _PW.pop("browser").close()
+    if "pw" in _PW:
+        _PW.pop("pw").stop()
+
+
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *args) -> None:
         pass
@@ -57,7 +78,7 @@ class QuietHandler(SimpleHTTPRequestHandler):
 def serve(folder: Path):
     """Serve `folder` on 127.0.0.1 and yield its base URL."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietHandler, directory=str(folder)))
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}/"
@@ -151,13 +172,10 @@ class TestKit(unittest.TestCase):
         cls.pt.write("pt", cls.folder)
         cls._serve = serve(cls.folder)
         cls.url = cls._serve.__enter__() + "index.html"
-        cls._pw = sync_playwright().start()
-        cls.browser = cls._pw.chromium.launch(executable_path=chrome(), args=LAUNCH_ARGS)
+        cls.browser = browser()
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.browser.close()
-        cls._pw.stop()
         cls._serve.__exit__(None, None, None)
         cls._tmp.cleanup()
 
@@ -541,21 +559,6 @@ class TestKit(unittest.TestCase):
         self.assertLess(r["outside"][0], 10)
 
 
-def still(out: Path, width: int = 1280, height: int = 720) -> Path:
-    """Render the combined still to `out` (PNG)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        build_page(Path(tmp), width, height)
-        with serve(Path(tmp)) as base, sync_playwright() as pw:
-            url = base + "index.html"
-            browser = pw.chromium.launch(executable_path=chrome(), args=LAUNCH_ARGS)
-            page = browser.new_page(viewport={"width": width, "height": height})
-            page.goto(url)
-            page.evaluate(STILL_JS)
-            page.locator("#stage").screenshot(path=str(out))
-            browser.close()
-    return out
-
-
 # kit/beat.js runs on GSAP alone; its tests load gsap.min.js from short-video's node environment and the kit file,
 # and the beat_reel technique page with both.
 GSAP = NODE_DIR / "node_modules" / "gsap" / "dist" / "gsap.min.js"
@@ -588,13 +591,10 @@ class TestBeat(unittest.TestCase):
         shutil.copyfile(KIT / "beat.js", reel / "kit" / "beat.js")
         cls._serve = serve(folder)
         cls.base = cls._serve.__enter__()
-        cls._pw = sync_playwright().start()
-        cls.browser = cls._pw.chromium.launch(executable_path=chrome(), args=LAUNCH_ARGS)
+        cls.browser = browser()
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.browser.close()
-        cls._pw.stop()
         cls._serve.__exit__(None, None, None)
         cls._tmp.cleanup()
 
@@ -712,13 +712,10 @@ class TestPipelinePage(unittest.TestCase):
                 shutil.copyfile(KIT / f, folder / sub / "kit" / f)
         cls._serve = serve(folder)
         cls.base = cls._serve.__enter__()
-        cls._pw = sync_playwright().start()
-        cls.browser = cls._pw.chromium.launch(executable_path=chrome(), args=LAUNCH_ARGS)
+        cls.browser = browser()
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.browser.close()
-        cls._pw.stop()
         cls._serve.__exit__(None, None, None)
         cls._tmp.cleanup()
 
@@ -735,8 +732,9 @@ class TestPipelinePage(unittest.TestCase):
           var out = {dur: tl.duration(), root: +document.getElementById("root").dataset.duration, at: []};
           times.forEach(function (t) {
             tl.seek(t, false);
-            var png = document.getElementById("gl").toDataURL(), h = 0;
-            for (var i = 0; i < png.length; i += 7) h = (h * 31 + png.charCodeAt(i)) % 1000000007;
+            var gl = renderer.getContext(), px = new Uint8Array(4 * gl.drawingBufferWidth * gl.drawingBufferHeight), h = 0;
+            gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, px);
+            for (var i = 0; i < px.length; i += 7) h = (h * 31 + px[i]) % 1000000007;
             out.at.push({op: labels.map(function (e) { return +e.style.opacity; }), canvas: h,
                          boxes: labels.map(function (e) { var b = e.getBoundingClientRect(); return [b.left, b.top, b.right, b.bottom]; })});
           });
@@ -798,13 +796,10 @@ class TestGalleryPage(unittest.TestCase):
                 shutil.copyfile(KIT / f, sub / "kit" / f)
         cls._serve = serve(folder)
         cls.base = cls._serve.__enter__()
-        cls._pw = sync_playwright().start()
-        cls.browser = cls._pw.chromium.launch(executable_path=chrome(), args=LAUNCH_ARGS)
+        cls.browser = browser()
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.browser.close()
-        cls._pw.stop()
         cls._serve.__exit__(None, None, None)
         cls._tmp.cleanup()
 
@@ -822,8 +817,9 @@ class TestGalleryPage(unittest.TestCase):
           var out = {dur: tl.duration(), root: +document.getElementById("root").dataset.duration, at: []};
           times.forEach(function (t) {
             tl.seek(t, false);
-            var png = document.getElementById("gl").toDataURL(), h = 0;
-            for (var i = 0; i < png.length; i += 7) h = (h * 31 + png.charCodeAt(i)) % 1000000007;
+            var gl = renderer.getContext(), px = new Uint8Array(4 * gl.drawingBufferWidth * gl.drawingBufferHeight), h = 0;
+            gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, px);
+            for (var i = 0; i < px.length; i += 7) h = (h * 31 + px[i]) % 1000000007;
             out.at.push({n: document.querySelector("#cap .n").textContent, of: document.querySelector("#cap .of").textContent,
                          word: document.querySelector("#cap .word").textContent,
                          cap: +getComputedStyle(document.getElementById("cap")).opacity,
