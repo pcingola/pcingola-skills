@@ -1,20 +1,15 @@
-import subprocess
+from pathlib import Path
 
 import pytest
 
-from tests.settings_env import write_config
-from tests.subproc import child_env, run_module
+from tests.settings_env import use_settings, write_config
 
 
 @pytest.fixture
-def cli_env(tmp_path) -> dict[str, str]:
-    """The environment of a CLI subprocess with a `config.yaml` whose `tasks.chat` and `tasks.vision` route to
-    Ollama model ids that no test calls, and no user settings."""
+def cli_settings(tmp_path) -> Path:
+    """A `config.yaml` whose `tasks.chat` and `tasks.vision` route to Ollama model ids that no test calls, set as
+    the settings file of this process for the test (`use_settings`)."""
     cfg = write_config(tmp_path / "config.yaml", providers={"ollama": {"kind": "ollama"}},
                        tasks={"chat": "ollama:c", "vision": "ollama:v"})
-    return child_env(SKILLS_CONFIG=str(cfg))
-
-
-def run(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:
-    """`python -m second_opinion_tool <argv>` in a subprocess with `env`."""
-    return run_module("second_opinion_tool", argv, env)
+    with use_settings(cfg):
+        yield cfg

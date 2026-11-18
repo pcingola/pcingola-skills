@@ -1,8 +1,6 @@
 """Unit tests for second_opinion_tool.review and models: the request content, the answer check,
 the Markdown report, the CLI refusals and the model choice. No test calls a model."""
 
-import contextlib
-import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,8 +10,7 @@ from pydantic_ai import BinaryContent
 
 from second_opinion_tool import cli, review
 from second_opinion_tool.files import ReviewFile
-
-from .conftest import run
+from tests.inproc import run_main
 
 
 def text_file(path="notes.md", text="line 1\nline 2\n"):
@@ -66,11 +63,11 @@ def test_check_answer_rejects_malformed(bad):
         review.check_answer(bad)
 
 
-def test_models_task_by_kinds(cli_env):
-    """`second-opinion models` shows tasks.chat and tasks.vision of config.yaml. Guards
-    models.describe.
+def test_models_task_by_kinds(cli_settings):
+    """`second-opinion models` shows tasks.chat and tasks.vision of config.yaml and exits 0. Guards
+    models.describe and the `models` command.
     """
-    p = run(["models"], cli_env)
+    p = run_main(cli.main, "models")
     assert p.returncode == 0, p.stderr
     assert "chat    ollama:c" in p.stdout and "vision  ollama:v" in p.stdout
 
@@ -100,11 +97,9 @@ class TestCliRefusals(unittest.TestCase):
     """Refusals happen before any request, so they need no model."""
 
     def run_cli(self, argv):
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(SystemExit) as cm:
-                cli.main(argv)
-        return cm.exception.code, err.getvalue()
+        """The exit code and stderr of `cli.main(argv)` in process."""
+        p = run_main(cli.main, *argv)
+        return p.returncode, p.stderr
 
     def test_empty_brief_refused(self):
         """`second-opinion review` exits 1 for a whitespace-only brief. Guards the refusal before any

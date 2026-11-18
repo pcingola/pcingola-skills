@@ -102,7 +102,6 @@ PLUGINS = ROOT / "plugins"
 CLI_PROCESS_ALLOWLIST = {
     "tests/integration/pptx/test_wrapper.py":
         "subject is pptx.sh: the wrapper, uv_env.sh and the skill's locked environment",
-    "tests/integration/second_opinion/test_review.py": "not converted yet",
     "tests/integration/short_video/test_wrapper.py":
         "subject is short-video.sh: the wrapper, uv_env.sh and the skill's locked environment",
     "tests/integration/voiceover/test_fish_voice.py":
@@ -112,9 +111,6 @@ CLI_PROCESS_ALLOWLIST = {
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
     "tests/unit/music/test_cli.py":
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
-    "tests/unit/second_opinion/conftest.py": "not converted yet",
-    "tests/unit/second_opinion/test_review.py": "not converted yet",
-    "tests/unit/second_opinion/test_routes.py": "not converted yet",
     "tests/unit/short_video/test_routes.py": "not converted yet",
 }
 DOCSTRING_DIRS = ("tests/integration/pptx", "tests/integration/pptx_author")

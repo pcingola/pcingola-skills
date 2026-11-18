@@ -12,10 +12,22 @@ import sys
 from pathlib import Path
 
 from ai_models import AIModelsError, routes
-from plugin_settings import Plugin, error
+from plugin_settings import Plugin, config, error
 
 PLUGIN = Plugin.of(__file__)
-load_settings = PLUGIN.load
+
+
+def load_settings() -> None:
+    """Load the settings and export them to the process environment (`Plugin.load`); exit when the file is not
+    valid. The wrapper path (`__main__`) only: an in-process `main(argv)` calls `check_settings` and leaves
+    `os.environ` unchanged."""
+    PLUGIN.load()
+
+
+def check_settings() -> None:
+    """Exit when the settings file is not valid (`config()`). Leaves the process environment unchanged."""
+    config()
+
 
 from . import files as files_mod
 from . import models, review
@@ -31,17 +43,24 @@ def cmd_review(args: argparse.Namespace) -> None:
     if args.out and Path(args.out).exists() and not args.force:
         error(f"{args.out} exists; pass --force to replace it")
     try:
-        inputs = files_mod.load_all(args.file)
-        model = models.resolve(args.model, {f.kind for f in inputs})
-        answer = review.review(model, brief, inputs)
+        result = run_review(brief, args.file, args.model, Path(args.out) if args.out else None)
     except (files_mod.FileError, review.ReviewError, AIModelsError) as e:
         error(str(e))
-    result = {"model": model, "files": [f.record() for f in inputs], "brief": brief, **answer}
-    if args.out:
-        out = Path(args.out)
+    print(review.markdown(result), end="")
+
+
+def run_review(brief: str, paths: list[str], model: str | None = None, out: Path | None = None) -> dict:
+    """Review the files at `paths` against `brief` with `model` (default: `models.resolve` by the file kinds); the
+    result (model, files, brief, summary, findings), also written as JSON to `out` when given. Raises
+    `files.FileError`, `review.ReviewError` or `AIModelsError`."""
+    inputs = files_mod.load_all(paths)
+    model_id = models.resolve(model, {f.kind for f in inputs})
+    answer = review.review(model_id, brief, inputs)
+    result = {"model": model_id, "files": [f.record() for f in inputs], "brief": brief, **answer}
+    if out:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(review.markdown(result), end="")
+    return result
 
 
 def _read_brief(path: str) -> str:
@@ -86,7 +105,17 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> None:
-    load_settings()
-    args = build_parser().parse_args(argv)
-    sys.exit(args.func(args))
+def main(argv: list[str] | None = None) -> int:
+    """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help`, argument errors and
+    command errors (`error`: `Error: <msg>` on stderr, exit 1) return their code. Checks the settings
+    (`check_settings`) and leaves `os.environ` unchanged: the wrapper path (`__main__`) exports the settings to the
+    environment before it calls `main`."""
+    try:
+        check_settings()
+        args = build_parser().parse_args(argv)
+        return args.func(args) or 0
+    except SystemExit as e:
+        if e.code is None or isinstance(e.code, int):
+            return e.code or 0
+        print(e.code, file=sys.stderr)
+        return 1
