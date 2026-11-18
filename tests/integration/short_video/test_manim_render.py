@@ -2,9 +2,11 @@
 and a film assembled from an HTML scene and a manim scene.
 
 The voice versions are made by hand (a tone WAV and its timing.json; the
-voiceover skill is not used). The Manim environment
-(`wrapper_env.MANIM_VENV`) must exist: the tests fail with the command that builds
-it when it does not.
+voiceover skill is not used). Scenes render in process with
+`manim_scene.render`, which runs Manim as a child process in the Manim
+environment `wrapper_env.MANIM_VENV`. That environment must exist: the tests
+fail with the command that builds it when it does not. Settings are TEST_CONFIG
+(`use_settings`) for the whole class.
 """
 import json
 import shutil
@@ -17,8 +19,9 @@ from tests.prereq import require, requires
 from tests.integration.short_video import wrapper_env
 from tests.integration.short_video.fast_render import FPS, set_fps
 from tests.integration.short_video.wrapper_env import NODE_DIR
-from tests.settings_env import model_entry, task_model
+from tests.settings_env import TEST_CONFIG, model_entry, task_model, use_settings
 from short_video_tool import config, manim_scene, media, mix, scenes, settings, state, storyboard, versions
+from short_video_tool.scenes import SceneError
 
 DURATION = 2.0
 TIMING = {
@@ -89,21 +92,10 @@ def _manim_ready() -> str | None:
     return None
 
 
-def _render(project: Path, sid: str) -> Path:
-    """manim_scene.render of scene `sid` through short-video.sh render, which sets PLUGIN_ENV_DIR and so the
-    Manim environment; returns the scene.mp4 it prints."""
-    r = wrapper_env.run("render", "-p", project, "--scene", sid)
-    if r.returncode != 0:
-        raise AssertionError(f"short-video.sh render failed ({r.returncode}):\n{r.stderr}")
-    return Path(r.stdout.splitlines()[0])
-
-
-def _render_error(project: Path, sid: str) -> str:
-    """The error of a short-video.sh render that must fail (the SceneError message on stderr)."""
-    r = wrapper_env.run("render", "-p", project, "--scene", sid)
-    if r.returncode == 0:
-        raise AssertionError(f"short-video.sh render succeeded: {r.stdout}")
-    return r.stderr
+def _render(project: Path, scene: dict) -> Path:
+    """manim_scene.render of `scene` in the Manim environment of the wrapper (`wrapper_env.MANIM_VENV`); returns
+    its scene.mp4."""
+    return manim_scene.render(project, scene, wrapper_env.MANIM_VENV)
 
 
 def _voice(project: Path, sid: str) -> None:
@@ -120,6 +112,7 @@ class TestManimRender(unittest.TestCase):
     def setUpClass(cls) -> None:
         reason = _manim_ready()
         require(reason is None, reason)
+        cls.enterClassContext(use_settings(TEST_CONFIG))
         cls._tmp = tempfile.TemporaryDirectory()
         cls.project = p = Path(cls._tmp.name) / "manim_project"
         for d in ("images", "sources", "voice", "scenes", "music", "film"):
@@ -135,7 +128,7 @@ class TestManimRender(unittest.TestCase):
             _voice(p, sid)
         cls.sdir = manim_scene.scaffold(p, cls.scene)
         (cls.sdir / "scene.py").write_text(SCENE_PY, encoding="utf-8")
-        cls.scene_mp4 = _render(p, "plot")
+        cls.scene_mp4 = _render(p, cls.scene)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -193,7 +186,7 @@ class TestManimRender(unittest.TestCase):
         sdir = manim_scene.scaffold(self.project, self.scene)
         try:
             (sdir / "scene.py").write_text(manim_scene.render_starting_page(self.scene), encoding="utf-8")
-            mp4 = _render(self.project, self.scene["id"])
+            mp4 = _render(self.project, self.scene)
             self.assertAlmostEqual(media.duration(mp4), DURATION, delta=0.05)
 
             def frame(t: float) -> bytes:
@@ -212,23 +205,25 @@ class TestManimRender(unittest.TestCase):
             shutil.rmtree(sdir)
 
     def test_unknown_word_blocks_render(self) -> None:
-        """manim_scene.scaffold copies scene.py from the latest version, and render refuses a helper call naming
-        a word not in the narration. Guards the static check before running Manim."""
+        """manim_scene.scaffold copies scene.py from the latest version, and manim_scene.render raises SceneError
+        naming a helper call's word that is not in the narration. Guards the static check before running Manim."""
         sdir = manim_scene.scaffold(self.project, self.scene)
         try:
             self.assertEqual((sdir / "scene.py").read_text(), SCENE_PY)
             (sdir / "scene.py").write_text(SCENE_PY.replace('W(1, "world")', 'W(1, "planet")'))
-            self.assertRegex(_render_error(self.project, "plot"), "planet")
+            with self.assertRaisesRegex(SceneError, "planet"):
+                _render(self.project, self.scene)
         finally:
             shutil.rmtree(sdir)
 
     def test_missing_finish_fails_length_check(self) -> None:
-        """manim_scene.render refuses a scene that ends short without self.finish(), naming it. Guards the
-        length check after the Manim render."""
+        """manim_scene.render raises SceneError naming self.finish() for a scene that ends short without it.
+        Guards the length check after the Manim render."""
         sdir = manim_scene.scaffold(self.project, self.scene)
         try:
             (sdir / "scene.py").write_text(SCENE_PY.replace("        self.finish()\n", ""))
-            self.assertRegex(_render_error(self.project, "plot"), r"self\.finish\(\)")
+            with self.assertRaisesRegex(SceneError, r"self\.finish\(\)"):
+                _render(self.project, self.scene)
         finally:
             shutil.rmtree(sdir)
 
