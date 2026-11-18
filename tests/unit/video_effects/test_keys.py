@@ -11,6 +11,7 @@ from video_effects_tool.cli import main
 from video_effects_tool.frames import EffectError
 
 from .images import gradient, save
+from tests.inproc import run_main
 
 STYLE = "watercolour painting with soft washes"
 
@@ -108,13 +109,16 @@ class TestPlan(unittest.TestCase):
         """cli keys writes keys.json, refuses to replace it without --force and replaces it with --force. Guards
         keys.write."""
         out = self.dir / "kk"
-        main(["keys", str(self.start), "--style", STYLE, "--dir", str(out)])
+        argv = ("keys", str(self.start), "--style", STYLE, "--dir", str(out))
+        r = run_main(main, *argv)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(f"wrote {out.resolve() / 'keys.json'}", r.stdout)
         data = json.loads((out / "keys.json").read_text())
         self.assertEqual(len(data["images"]), 4)
-        with self.assertRaises(SystemExit) as cm:
-            main(["keys", str(self.start), "--style", STYLE, "--dir", str(out)])
-        self.assertEqual(cm.exception.code, 1)
-        main(["keys", str(self.start), "--style", STYLE, "--dir", str(out), "--force", "--fractions", "0.5"])
+        r = run_main(main, *argv)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--force", r.stderr)
+        self.assertEqual(run_main(main, *argv, "--force", "--fractions", "0.5").returncode, 0)
         self.assertEqual(len(json.loads((out / "keys.json").read_text())["images"]), 2)
 
     def test_read_chain(self) -> None:

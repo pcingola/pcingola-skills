@@ -106,7 +106,6 @@ CLI_PROCESS_ALLOWLIST = {
     "tests/integration/second_opinion/test_review.py": "not converted yet",
     "tests/integration/short_video/test_wrapper.py":
         "subject is short-video.sh: the wrapper, uv_env.sh and the skill's locked environment",
-    "tests/integration/video_effects/test_morph_live.py": "not converted yet",
     "tests/integration/voiceover/test_fish_voice.py":
         "a voice saved by one command and reused by the next is the subject",
     "tests/unit/brand/test_brand.py": "not converted yet",

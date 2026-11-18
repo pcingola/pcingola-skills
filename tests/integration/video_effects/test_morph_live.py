@@ -1,27 +1,22 @@
-"""`keys` without --end, every keyframe generated with `image-gen generate`
-and the `image_edit` model of tests/config.yaml, then `morph --from` of
-video-effects. Each CLI runs as `python -m` in a child process of the root
-`dev` environment (the working tree's lib/), with the user's settings file
-hidden and TEST_CONFIG in SKILLS_CONFIG."""
+"""`keys` without --end, every keyframe generated with image-gen's `generate` and the `image_edit` model of
+tests/config.yaml, then the morph of `keys.json`'s chain. Everything runs in process under TEST_CONFIG
+(`use_settings`)."""
 
 import json
 import shutil
 import subprocess
 import tempfile
 import unittest
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import cv2
 import numpy as np
+from image_gen_tool import models as image_models
+from image_gen_tool.generate import generate as image_generate
 from tests.prereq import requires
-from tests.settings_env import TEST_CONFIG
-from tests.subproc import child_env, run_module
+from tests.settings_env import TEST_CONFIG, use_settings
+from video_effects_tool import cli, keys
 
-VIDEO_EFFECTS = "video_effects_tool"
-IMAGE_GEN = "image_gen_tool"
-# The CLIs' environment: no user settings file, the tiny models of tests/config.yaml.
-ENV = child_env(SKILLS_CONFIG=str(TEST_CONFIG))
 STYLE = "soft watercolour painting on textured paper, gentle washes of colour, visible brush strokes"
 
 
@@ -41,47 +36,44 @@ def drawing(path: Path) -> Path:
     return path
 
 
-def run(module: str, *argv: str | Path) -> subprocess.CompletedProcess:
-    """`python -m <module> <argv>` in ENV, for at most 25 s (below the 30 s test timeout)."""
-    return run_module(module, [str(a) for a in argv], ENV)
-
-
-def generate(entry: dict) -> subprocess.CompletedProcess:
-    refs = [a for r in entry["refs"] for a in ("--ref", r)]
-    model = ["--model", entry["model"]] if entry["model"] else []
-    return run(IMAGE_GEN, "generate", "--prompt", entry["prompt"], *refs, "--out", entry["out"], *model,
-               "--aspect", entry["aspect"], "--size", "1K", "--quality", "low")
+def generate(entry: dict) -> None:
+    """Generate the keyframe of one keys.json entry with image-gen at size 1K and quality low (the entry's prompt,
+    references, model and aspect) and write it to the entry's `out`."""
+    refs = [Path(r).read_bytes() for r in entry["refs"]]
+    image, = image_generate(entry["prompt"], reference_images=refs, aspect_ratio=entry["aspect"], image_size="1K",
+                            model=entry["model"], quality="low")
+    Path(entry["out"]).write_bytes(image.data)
 
 
 @requires(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class TestMorphLive(unittest.TestCase):
     def test_keys_generate_morph(self) -> None:
-        """keys with one in-between, then image-gen for every listed keyframe with the image_edit model of
-        tests/config.yaml, then morph --from: size, fps, frame count, strip and sidecar inputs equal to the chain. Guards that keys.json
-        entries are valid image-gen arguments and that generated keys render."""
-        with tempfile.TemporaryDirectory() as tmp:
+        """keys.plan and keys.write with one in-between, then image-gen's generate for every listed keyframe with the
+        image_edit model of tests/config.yaml, then cli.morph of the keys.json chain: size, fps, frame count, strip
+        and sidecar inputs equal to the chain. Guards that keys.json entries are valid image-gen arguments (aspect,
+        size and tier among image-gen's choices) and that generated keys render."""
+        with tempfile.TemporaryDirectory() as tmp, use_settings(TEST_CONFIG):
             tmp = Path(tmp)
             start = drawing(tmp / "start.png")
             keys_dir = tmp / "keys"
-            r = run(VIDEO_EFFECTS, "keys", start, "--style", STYLE, "--dir", keys_dir, "--fractions", "0.5")
-            self.assertEqual(r.returncode, 0, r.stderr)
+            data = keys.plan(start, STYLE, keys_dir, fractions=keys.parse_fractions("0.5"))
+            keys.write(data, keys_dir.resolve(), force=False)
             data = json.loads((keys_dir / "keys.json").read_text())
             self.assertEqual([e["name"] for e in data["images"]], ["end", "k50"])
 
-            # the end image first (the in-betweens reference it), then the in-betweens in parallel
-            end, betweens = data["images"][0], data["images"][1:]
-            r = generate(end)
-            self.assertEqual(r.returncode, 0, r.stderr)
-            with ThreadPoolExecutor(len(betweens)) as pool:
-                for e, r in zip(betweens, pool.map(generate, betweens)):
-                    self.assertEqual(r.returncode, 0, f"{e['name']}: {r.stderr}")
+            # the end image first (the in-betweens reference it), then the in-betweens
+            for e in data["images"]:
+                self.assertIn(e["aspect"], image_models.ASPECT_RATIOS, e["name"])
+                self.assertIn(e["size"], image_models.IMAGE_SIZES, e["name"])
+                self.assertIn(e["tier"], image_models.TIERS, e["name"])
+                generate(e)
             for e in data["images"]:
                 self.assertTrue(Path(e["out"]).is_file(), e["out"])
 
             out = tmp / "morph.mp4"
-            r = run(VIDEO_EFFECTS, "morph", "--from", keys_dir, "--out", out, "--trans", "1.5", "--hold", "0.5",
-                    "--size", "640x360", "--fps", "24")
-            self.assertEqual(r.returncode, 0, r.stderr)
+            paths, times = cli.key_chain(from_dir=keys_dir)
+            clip = cli.make_clip("640x360", fps=24, trans=1.5, hold=0.5, push_in=0.08)
+            cli.morph(paths, times, clip, out)
             probe = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
                                     "-show_entries", "stream=width,height,r_frame_rate,nb_read_frames", "-of", "json",
                                     str(out)], capture_output=True, text=True, check=True, timeout=25).stdout

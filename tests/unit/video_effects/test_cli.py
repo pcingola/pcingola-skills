@@ -1,7 +1,5 @@
 """Effects through the CLI: sidecar, strip, frame counts, refusals."""
 
-import contextlib
-import io
 import json
 import shutil
 import subprocess
@@ -16,6 +14,7 @@ from video_effects_tool.cli import main
 from video_effects_tool import keys
 
 from .images import gradient, save, texture, with_disc
+from tests.inproc import run_main
 from tests.prereq import requires
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -23,14 +22,9 @@ SMALL = ["--size", "96x54", "--fps", "10", "--trans", "1", "--hold", "0.5"]
 
 
 def run(*argv: str) -> tuple[int, str, str]:
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        try:
-            main(list(argv))
-            code = 0
-        except SystemExit as e:
-            code = int(e.code or 0)
-    return code, out.getvalue(), err.getvalue()
+    """Exit code, stdout and stderr of `main(argv)` in process."""
+    r = run_main(main, *argv)
+    return r.returncode, r.stdout, r.stderr
 
 
 def probe(path: Path) -> dict:
@@ -105,6 +99,19 @@ class TestRefusals(Base):
             self.assertEqual(code, 1, argv)
             self.assertTrue(err.startswith("error:"), err)
         self.assertFalse(Path(out).exists())
+
+    def test_help_and_usage(self) -> None:
+        """main returns 0 for --help, 2 for an unknown option and 1 with the help for no command, without raising
+        SystemExit. Guards main returning argparse's exit codes to __main__."""
+        code, out, _ = run("--help")
+        self.assertEqual(code, 0)
+        self.assertIn("usage: video-effects", out)
+        code, _, err = run("--nope")
+        self.assertEqual(code, 2)
+        self.assertIn("unrecognized arguments", err)
+        code, out, _ = run()
+        self.assertEqual(code, 1)
+        self.assertIn("usage: video-effects", out)
 
     def test_from_without_keys_json(self) -> None:
         """cli morph --from on a directory without keys.json exits 1 naming keys.json. Guards keys.read_chain's

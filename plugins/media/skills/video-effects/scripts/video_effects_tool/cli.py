@@ -21,39 +21,44 @@ MAX_STEPS = 480
 Build = Callable[[list[np.ndarray], Clip], effects.Frame]
 
 
-def cmd_keys(args: argparse.Namespace) -> None:
+def cmd_keys(args: argparse.Namespace) -> int:
     data = keys.plan(Path(args.start), args.style, Path(args.dir),
                      end=Path(args.end) if args.end else None, model=args.model,
                      tier=args.tier, fractions=keys.parse_fractions(args.fractions))
     path = keys.write(data, Path(args.dir).resolve(), args.force)
     print(keys.describe(data))
     print(f"\nwrote {path}")
+    return 0
 
 
-def make_clip(args: argparse.Namespace) -> Clip:
-    w, h = parse_size(args.size)
-    hold_start = args.hold if args.hold_start is None else args.hold_start
-    hold_end = args.hold if args.hold_end is None else args.hold_end
-    return Clip(width=w, height=h, fps=args.fps, trans=args.trans, hold_start=hold_start,
-                hold_end=hold_end, push_in=args.push_in)
+def make_clip(size: str, fps: float, trans: float, hold: float, hold_start: float | None = None,
+              hold_end: float | None = None, push_in: float = 0.0) -> Clip:
+    """The clip of `size` ('WxH'); `hold_start` and `hold_end` default to `hold`. EffectError on a bad value."""
+    w, h = parse_size(size)
+    return Clip(width=w, height=h, fps=fps, trans=trans, hold_start=hold if hold_start is None else hold_start,
+                hold_end=hold if hold_end is None else hold_end, push_in=push_in)
 
 
-def render(args: argparse.Namespace, effect: str, key_paths: list[Path], params: dict, build: Build,
-           clip: Clip | None = None) -> dict:
-    """Check every option and input, load and fit the keys, render the clip,
-    write MP4, strip and sidecar. Returns the sidecar content."""
-    clip = clip or make_clip(args)
+def clip_of(args: argparse.Namespace) -> Clip:
+    """`make_clip` from the common options."""
+    return make_clip(args.size, args.fps, args.trans, args.hold, args.hold_start, args.hold_end, args.push_in)
+
+
+def render(effect: str, key_paths: list[Path], params: dict, build: Build, clip: Clip, out: Path,
+           strip: Path | None = None, force: bool = False) -> dict:
+    """Check the outputs and inputs, load and fit the keys, render the clip, write the MP4 `out`, the strip
+    (default `<out stem>_frames.png`) and the sidecar. Returns the sidecar content; EffectError on a refusal."""
     if len(key_paths) < 2:
         raise EffectError("need at least 2 key images")
-    out = Path(args.out).resolve()
+    out = Path(out).resolve()
     if out.suffix.lower() != ".mp4":
         raise EffectError(f"--out must end in .mp4: {out}")
-    strip = Path(args.strip).resolve() if args.strip else default_strip(out)
+    strip = Path(strip).resolve() if strip else default_strip(out)
     if strip.suffix.lower() not in STRIP_SUFFIXES:
         raise EffectError(f"--strip must end in {', '.join(STRIP_SUFFIXES)}: {strip}")
     side = sidecar_path(out)
     ffmpeg_path()
-    check_writable([out, strip, side], args.force)
+    check_writable([out, strip, side], force)
     canvas = []
     for p in key_paths:  # one decoded original in memory at a time
         img = load_image(p)
@@ -80,43 +85,72 @@ def render(args: argparse.Namespace, effect: str, key_paths: list[Path], params:
         "versions": {"opencv": cv2.__version__, "numpy": np.__version__, "ffmpeg": ffmpeg_version()},
     }
     write_json(side, data)
-    print(out)
-    print(strip)
-    print(side)
     return data
 
 
-def chain(args: argparse.Namespace) -> tuple[list[Path], list[float]]:
-    """Key paths and their chain times: the keys.json fractions with --from,
-    equal spacing with --keys."""
-    if args.from_dir:
-        return keys.read_chain(Path(args.from_dir).resolve())
-    paths = [Path(p) for p in args.keys]
+def print_outputs(data: dict) -> int:
+    """Print the MP4, strip and sidecar paths of a rendered clip; return exit code 0."""
+    print(data["out"])
+    print(data["strip"])
+    print(sidecar_path(Path(data["out"])))
+    return 0
+
+
+def key_chain(keys_: list[Path] | None = None, from_dir: Path | None = None) -> tuple[list[Path], list[float]]:
+    """Key paths and their chain times: the keys.json fractions of `from_dir`, else equal spacing of `keys_`."""
+    if from_dir:
+        return keys.read_chain(Path(from_dir).resolve())
+    paths = [Path(p) for p in keys_ or []]
     n = len(paths)
     return paths, [i / (n - 1) for i in range(n)] if n > 1 else [0.0]
 
 
-def cmd_morph(args: argparse.Namespace) -> None:
+def chain(args: argparse.Namespace) -> tuple[list[Path], list[float]]:
+    """`key_chain` from --keys or --from."""
+    return key_chain(args.keys, Path(args.from_dir) if args.from_dir else None)
+
+
+def morph(paths: list[Path], times: list[float], clip: Clip, out: Path, strip: Path | None = None,
+          force: bool = False) -> dict:
+    """Optical-flow morph along the key chain `paths` at chain times `times`; returns the sidecar content."""
+    return render("morph", paths, {"key_times": times}, lambda c, clip: effects.morph(c, times), clip, out, strip,
+                  force)
+
+
+def cmd_morph(args: argparse.Namespace) -> int:
     paths, times = chain(args)
-    render(args, "morph", paths, {"key_times": times}, lambda c, clip: effects.morph(c, times))
+    return print_outputs(morph(paths, times, clip_of(args), args.out, args.strip, args.force))
 
 
-def cmd_region(args: argparse.Namespace) -> None:
-    if not 0 <= args.spread < 1:
+def check_region(spread: float, lum_weight: float, seed: int, steps: int | None) -> None:
+    """EffectError for a region option out of range."""
+    if not 0 <= spread < 1:
         raise EffectError("--spread must be in [0, 1)")
-    if not 0 <= args.lum_weight <= 1:
+    if not 0 <= lum_weight <= 1:
         raise EffectError("--lum-weight must be in [0, 1]")
-    if args.seed < 0:
+    if seed < 0:
         raise EffectError("--seed must be zero or positive")
-    if args.steps is not None and not 2 <= args.steps <= MAX_STEPS:
+    if steps is not None and not 2 <= steps <= MAX_STEPS:
         raise EffectError(f"--steps must be in [2, {MAX_STEPS}]")
-    clip = make_clip(args)
-    steps = args.steps or default_steps(clip)
+
+
+def region(paths: list[Path], times: list[float], clip: Clip, out: Path, spread: float, lum_weight: float,
+           seed: int, steps: int | None = None, strip: Path | None = None, force: bool = False) -> dict:
+    """Flow morph along the key chain where regions change at different times; `steps` defaults to
+    `default_steps(clip)`. Returns the sidecar content."""
+    check_region(spread, lum_weight, seed, steps)
+    steps = steps or default_steps(clip)
+    params = {"spread": spread, "lum_weight": lum_weight, "seed": seed, "steps": steps, "key_times": times}
+    return render("region", paths, params,
+                  lambda c, clip: effects.region(c, steps, spread, lum_weight, seed, times), clip, out, strip, force)
+
+
+def cmd_region(args: argparse.Namespace) -> int:
+    check_region(args.spread, args.lum_weight, args.seed, args.steps)
+    clip = clip_of(args)
     paths, times = chain(args)
-    params = {"spread": args.spread, "lum_weight": args.lum_weight, "seed": args.seed, "steps": steps,
-              "key_times": times}
-    render(args, "region", paths, params,
-           lambda c, clip: effects.region(c, steps, args.spread, args.lum_weight, args.seed, times), clip)
+    return print_outputs(region(paths, times, clip, args.out, args.spread, args.lum_weight, args.seed, args.steps,
+                                args.strip, args.force))
 
 
 def default_steps(clip: Clip) -> int:
@@ -124,15 +158,35 @@ def default_steps(clip: Clip) -> int:
     return min(2 * clip.n_trans, DEFAULT_STEPS_CAP)
 
 
-def cmd_crossfade(args: argparse.Namespace) -> None:
-    render(args, "crossfade", [Path(args.a), Path(args.b)], {}, lambda c, clip: effects.crossfade(c[0], c[1]))
+def crossfade(a: Path, b: Path, clip: Clip, out: Path, strip: Path | None = None, force: bool = False) -> dict:
+    """Eased crossfade of `a` into `b`; returns the sidecar content."""
+    return render("crossfade", [Path(a), Path(b)], {}, lambda c, clip: effects.crossfade(c[0], c[1]), clip, out,
+                  strip, force)
 
 
-def cmd_blur_crossfade(args: argparse.Namespace) -> None:
-    if args.blur < 0:
+def cmd_crossfade(args: argparse.Namespace) -> int:
+    return print_outputs(crossfade(args.a, args.b, clip_of(args), args.out, args.strip, args.force))
+
+
+def check_blur(blur: float) -> None:
+    """EffectError for a negative blur."""
+    if blur < 0:
         raise EffectError("--blur must be zero or positive")
-    render(args, "blur-crossfade", [Path(args.a), Path(args.b)], {"blur": args.blur},
-           lambda c, clip: effects.blur_crossfade(c[0], c[1], args.blur * (1 + clip.push_in)))
+
+
+def blur_crossfade(a: Path, b: Path, clip: Clip, out: Path, blur: float, strip: Path | None = None,
+                   force: bool = False) -> dict:
+    """Eased crossfade of `a` into `b` under a blur of sigma `blur` at mid-transition; returns the sidecar
+    content."""
+    check_blur(blur)
+    return render("blur-crossfade", [Path(a), Path(b)], {"blur": blur},
+                  lambda c, clip: effects.blur_crossfade(c[0], c[1], blur * (1 + clip.push_in)), clip, out, strip,
+                  force)
+
+
+def cmd_blur_crossfade(args: argparse.Namespace) -> int:
+    check_blur(args.blur)
+    return print_outputs(blur_crossfade(args.a, args.b, clip_of(args), args.out, args.blur, args.strip, args.force))
 
 
 def common_parser() -> argparse.ArgumentParser:
@@ -200,14 +254,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def main(argv: list[str] | None = None) -> int:
+    """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code: 1 with the help when no command
+    is given, 1 with `error: <msg>` on stderr for an EffectError, argparse's code for `--help` and argument
+    errors."""
+    try:
+        parser = build_parser()
+        args = parser.parse_args(argv)
+    except SystemExit as e:
+        return int(e.code or 0)
     if not hasattr(args, "func"):
         parser.print_help()
-        sys.exit(1)
+        return 1
     try:
-        args.func(args)
+        return args.func(args)
     except EffectError as e:
         print(f"error: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
