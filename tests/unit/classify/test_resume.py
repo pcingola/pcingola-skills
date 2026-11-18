@@ -7,7 +7,7 @@ import pytest
 from classify_tool import output
 from classify_tool.items import ItemError
 
-from .test_run import TEAM, lines, main
+from .test_run import TEAM, classify, lines
 
 CHOICE = {"type": "choice", "choice": "billing", "probabilities": {"billing": 0.9, "technical": 0.1},
           "confidence": 0.9}
@@ -56,14 +56,14 @@ def test_finish_rewrites_in_input_order(tmp_path):
     (["run", "--backend", "system1", "--type", "noul", "--instructions", "Yes?", "--id", "u", "--item", "billing",
       "--item", "x"], "answers questions ['q'], this run asks ['u']"),
 ])
-def test_resume_refuses_other_runs(capsys, tmp_path, argv, message):
+def test_resume_refuses_other_runs(tmp_path, argv, message):
     """A rerun refuses an --out that holds other ids, another backend or other questions before
-    the backend is made. Guards cli._resume.
+    the backend is made. Guards runner.resume.
     """
     out = write_lines(tmp_path / "scored.jsonl", [{"id": n, "backend": "system1", "answers": {"q": CHOICE}}
                                                   for n in (1, 2)])
-    code, _, err = main([*argv, "--out", str(out)], capsys)
-    assert code == 1 and message in err
+    p = classify(*argv, "--out", str(out))
+    assert p.returncode == 1 and message in p.stderr
 
 
 def labeled_csv(tmp_path):
@@ -72,7 +72,7 @@ def labeled_csv(tmp_path):
     return p
 
 
-def test_eval_scores_metrics(capsys, tmp_path):
+def test_eval_scores_metrics(tmp_path):
     """`classify eval --scores` computes the metrics from existing lines: a labelled item without a
     line is an error, lines of other ids are ignored, and --out is refused. Guards the --scores
     branch of cli._cmd_eval and backends.answer_parts.
@@ -80,15 +80,14 @@ def test_eval_scores_metrics(capsys, tmp_path):
     labeled = labeled_csv(tmp_path)
     scores = write_lines(tmp_path / "s.jsonl", [{"id": "1", "backend": "system1", "model": "m", "answers": {"q": CHOICE}},
                                                 {"id": "9", "backend": "system1", "model": "m", "answers": {}}])
-    code, out, err = main(["eval", *TEAM, "--labeled", str(labeled), "--scores", str(scores), "--json"], capsys)
-    m = json.loads(out)
-    assert code == 1 and (m["n"], m["errors"], m["accuracy"]) == (2, 1, 1.0)
+    p = classify("eval", *TEAM, "--labeled", str(labeled), "--scores", str(scores), "--json")
+    m = json.loads(p.stdout)
+    assert p.returncode == 1 and (m["n"], m["errors"], m["accuracy"]) == (2, 1, 1.0)
     assert m["brier"] == pytest.approx(0.02)
     assert (m["backend"], m["model"]) == ("system1", "m")
-    assert "1 lines of" in err and f"item 2: no line in {scores}" in err
-    code, _, err = main(["eval", *TEAM, "--labeled", str(labeled), "--scores", str(scores),
-                         "--out", str(tmp_path / "p.jsonl")], capsys)
-    assert code == 1 and "writes no --out" in err
+    assert "1 lines of" in p.stderr and f"item 2: no line in {scores}" in p.stderr
+    p = classify("eval", *TEAM, "--labeled", str(labeled), "--scores", str(scores), "--out", str(tmp_path / "p.jsonl"))
+    assert p.returncode == 1 and "writes no --out" in p.stderr
 
 
 @pytest.mark.parametrize("flags, answer, top", [
@@ -97,23 +96,23 @@ def test_eval_scores_metrics(capsys, tmp_path):
      {"type": "score", "score": 0.8, "level": 1, "probabilities": {"0": 0.2, "1": 0.8}}, "technical"),
     (TEAM, {"type": "choice", "answer": "technical"}, "technical"),
 ])
-def test_eval_scores_answer_types(capsys, tmp_path, flags, answer, top):
+def test_eval_scores_answer_types(tmp_path, flags, answer, top):
     """`classify eval --scores` reads noul, score and chat answers of output lines. Guards
     backends.answer_parts per answer form.
     """
     labeled = tmp_path / "l.jsonl"
     labeled.write_text(json.dumps({"id": 1, "text": "x", "label": top}) + "\n")
     scores = write_lines(tmp_path / "s.jsonl", [{"id": 1, "backend": "system1", "answers": {"q": answer}}])
-    code, out, _ = main(["eval", *flags, "--labeled", str(labeled), "--scores", str(scores), "--json"], capsys)
-    assert code == 0 and json.loads(out)["accuracy"] == 1.0
+    p = classify("eval", *flags, "--labeled", str(labeled), "--scores", str(scores), "--json")
+    assert p.returncode == 0 and json.loads(p.stdout)["accuracy"] == 1.0
 
 
-def test_eval_scores_refuses_answers_of_another_question(capsys, tmp_path):
+def test_eval_scores_refuses_answers_of_another_question(tmp_path):
     """`classify eval --scores` stops on a line whose answer does not fit the question's classes.
     Guards the class check of backends.answer_parts.
     """
     labeled = labeled_csv(tmp_path)
     scores = write_lines(tmp_path / "s.jsonl", [{"id": "1", "backend": "system1", "answers": {"q": {
         "type": "choice", "choice": "sales", "probabilities": {"sales": 1.0}}}}])
-    code, _, err = main(["eval", *TEAM, "--labeled", str(labeled), "--scores", str(scores)], capsys)
-    assert code == 1 and "does not fit the classes" in err
+    p = classify("eval", *TEAM, "--labeled", str(labeled), "--scores", str(scores))
+    assert p.returncode == 1 and "does not fit the classes" in p.stderr

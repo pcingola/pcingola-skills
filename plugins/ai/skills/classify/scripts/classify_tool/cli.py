@@ -86,69 +86,11 @@ def _load_items(args) -> list[Item]:
     return items_from_texts(args.item) if args.item else read_items(args.items)
 
 
-def _resume(path: str | None, items: list[Item], qs: questions.Questions, backend_name: str):
-    """The `--out` file with the records it already holds, refused when they
-    belong to other items, another backend or other questions; None without
-    `--out`."""
-    if not path:
-        return None
-    out = output.Output(path)
-    ids = {it.id for it in items}
-    extra = [i for i in out.records if i not in ids]
-    if extra:
-        config.error(f"{path} holds ids that are not among the items ({', '.join(map(repr, extra[:5]))}); "
-                     "give another --out")
-    for rec in filter(output.done, out.records.values()):
-        if rec.get("backend") != backend_name:
-            config.error(f"{path}: id {rec['id']!r} was scored with backend {rec.get('backend')!r}, "
-                         f"this run uses {backend_name!r}; give another --out")
-        if set(rec.get("answers") or {}) != set(qs):
-            config.error(f"{path}: id {rec['id']!r} answers questions {sorted(rec.get('answers') or {})}, "
-                         f"this run asks {sorted(qs)}; give another --out")
-    return out
-
-
-def _score(args, items: list[Item], qs: questions.Questions, extra=lambda rec: rec):
-    """Score the items that `--out` holds no successful line for. Each record
-    (passed through `extra`) is appended to `--out` as soon as its item
-    finishes; when the run ends `--out` is rewritten in input order. Returns
-    the records by id, the backend, and the number of items taken from `--out`."""
-    args.backend = args.backend or backends.default_backend()
-    out = _resume(args.out, items, qs, args.backend)
-    records = out.records if out else {}
-    todo = [it for it in items if not (it.id in records and output.done(records[it.id]))]
-    resumed = len(items) - len(todo)
-    backend = backends.make(args.backend, args.model, args.timeout)
-    backend.check(qs)
-    try:
-        if out:
-            out.open()
-
-        def emit(o: runner.Outcome) -> None:
-            rec = extra(runner.record(o, backend.name, backend.model, qs))
-            if out:
-                out.write(rec)
-            else:
-                records[rec["id"]] = rec
-
-        if todo and todo[0].text.strip():
-            # The first item alone: a missing model, an unreachable provider or a missing key
-            # (`AIModelsError`) ends the run once instead of failing every item.
-            try:
-                emit(runner.Outcome(todo[0], backend.classify(todo[0].text, qs), None, runner.now()))
-                todo = todo[1:]
-            except AIModelsError as e:
-                config.error(str(e))
-            except Exception:  # noqa: BLE001 - an item error: the loop records and retries it
-                pass
-        if todo:
-            runner.run_with_retry(backend, todo, qs, args.concurrency, args.retry_failed, on_outcome=emit)
-    finally:
-        if out:
-            out.close()
-    if out:
-        out.finish([it.id for it in items], extra)
-    return records, backend, resumed
+def _score(args, items: list[Item], qs: questions.Questions, extra=lambda rec: rec) -> runner.Scored:
+    """`runner.score` with the backend flags and `--out` of `args`."""
+    return runner.score(items, qs, backend_name=args.backend, model=args.model, timeout=args.timeout,
+                        concurrency=args.concurrency, retry_failed=args.retry_failed, out_path=args.out,
+                        extra=extra)
 
 
 def _summary(items: list[Item], failed: int, resumed: int, path: str | None) -> str:
@@ -159,7 +101,8 @@ def _summary(items: list[Item], failed: int, resumed: int, path: str | None) -> 
 def _cmd_run(args) -> int:
     qs = questions.load(args)
     items = _load_items(args)
-    records, _, resumed = _score(args, items, qs)
+    scored = _score(args, items, qs)
+    records, resumed = scored.records, scored.resumed
     if not args.out:
         for it in items:
             sys.stdout.write(json.dumps(records[it.id], ensure_ascii=False) + "\n")
@@ -223,8 +166,9 @@ def _cmd_eval(args) -> int:
         model = ", ".join(sorted({str(r.get("model")) for r in scored})) or "-"
         missing = f"no line in {args.scores}"
     else:
-        records, backend, resumed = _score(args, items, qs, with_label)
-        backend_name, model, missing = backend.name, backend.model, "not scored"
+        scored = _score(args, items, qs, with_label)
+        records, resumed = scored.records, scored.resumed
+        backend_name, model, missing = scored.backend.name, scored.backend.model, "not scored"
         print(_summary(items, sum(not output.done(records[it.id]) for it in items), resumed, args.out),
               file=sys.stderr)
     preds = []
@@ -244,17 +188,27 @@ def _cmd_eval(args) -> int:
     return 1 if m["errors"] else 0
 
 
-def main(argv: list[str] | None = None) -> None:
-    config.load_settings()
-    args = build_parser().parse_args(argv)
-    if args.command == "routes":
-        sys.exit(args.func(args))
+def main(argv: list[str] | None = None) -> int:
+    """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help`, argument errors and
+    command errors (`config.error`: `Error: <msg>` on stderr, exit 1) return their code, an interrupt 130. Checks the
+    settings (`config.check_settings`) and leaves `os.environ` unchanged: the wrapper path (`__main__`) exports the
+    settings to the environment before it calls `main`."""
+    args = None
     try:
-        code = _cmd_run(args) if args.command == "run" else _cmd_eval(args)
-    except (AIModelsError, ItemError, QuestionError) as e:
-        config.error(str(e))
+        config.check_settings()
+        args = build_parser().parse_args(argv)
+        if args.command == "routes":
+            return args.func(args)
+        try:
+            return _cmd_run(args) if args.command == "run" else _cmd_eval(args)
+        except (AIModelsError, ItemError, QuestionError) as e:
+            config.error(str(e))
     except KeyboardInterrupt:
         resume = "; rerun with the same --out to resume" if getattr(args, "out", None) else ""
         print(f"interrupted{resume}", file=sys.stderr)
-        code = 130
-    sys.exit(code)
+        return 130
+    except SystemExit as e:
+        if e.code is None or isinstance(e.code, int):
+            return e.code or 0
+        print(e.code, file=sys.stderr)
+        return 1
