@@ -238,8 +238,6 @@ def stamp_description(pptx_path: Path, description: str) -> None:
     if not keep_tmp() or not pptx_path.exists():
         return
 
-    from pptx.oxml.ns import qn
-
     prs = Presentation(str(pptx_path))
     slide_count = len(prs.slides)
     if slide_count == 0:

@@ -1,7 +1,7 @@
 # architecture
 
-The tests named here are in `tests/unit/plugin/test_manifest.py` (`uv run --group dev pytest tests/unit/plugin`). How a single skill
-works is in `docs/<skill>.md` where one exists.
+The tests named here are in `tests/unit/plugin/test_manifest.py` and `tests/unit/plugin/test_tests_rules.py`
+(`uv run --group dev pytest tests/unit/plugin`). How a single skill works is in `docs/<skill>.md` where one exists.
 
 ## Plugin isolation
 
@@ -212,6 +212,14 @@ wrapper: `Bash(${CLAUDE_SKILL_DIR}/scripts/<skill>.sh:*)`, and in most skills al
 `Bash(scripts/<skill>.sh:*)` (`_own_wrapper_rule` accepts both). No `allowed-tools` entry starts with `Bash(*`, which
 would pre-approve any command ending in the wrapper path (`test_allowed_tools_no_unanchored_bash_rules`).
 
+A command of a `<skill>_tool` package has a core function with typed parameters. It returns its result (the data
+the command prints, or the paths it writes) and raises an exception on error (`PptxError` in `pptx_tool`). Every
+`pptx_tool` command has this split; the skills whose test files `CLI_PROCESS_ALLOWLIST` marks "not converted yet" may
+not have it everywhere. The CLI
+layer, `main(argv: list[str] | None = None) -> int` and the argument handlers it dispatches to, parses the arguments,
+calls the core function, prints the result, and turns the exception into the error message and exit code 1. No core
+function prints its result, calls `sys.exit` or reads `sys.argv`, so a test calls it in process (Tests).
+
 ## Installation and versions
 
 Installation, in-place loading, the cache copy and updates are in `README.md`. `plugin.json` has no `version` field,
@@ -247,6 +255,17 @@ Tests call the real code and the real dependency. No test imports a mock library
 `mocker` fixture, uses a fake or stub server, writes the process environment, or skips (`skip`, `skipif`, `xfail`,
 `importorskip`, `SkipTest`). The reasons: a mock tests the test's idea of the dependency, not the dependency; an
 environment write leaks into other tests; a skipped test reports nothing and hides a missing prerequisite.
+
+A test calls the code under test in process, except a test that needs a setting (below). It calls a command's core
+function (CLI wrappers), or `main(argv)` with `stdout` and `stderr` redirected when its subject is the CLI's
+arguments, output or exit code. A test starts a skill's wrapper or CLI as a process only
+when the process is its subject: the wrapper and its environment, a lock between processes, or state kept across
+commands. Its docstring names that subject. A call through the wrapper adds the wrapper, `uv run` and an interpreter
+start (a pptx command: 0.20 s through `pptx.sh`, 0.05 s in process) and tests the wrapper again on every call.
+`CLI_PROCESS_ALLOWLIST` of `tests/unit/plugin/test_tests_rules.py` lists each file that starts a wrapper or a
+`<skill>_tool` CLI as a process, with its reason; the files of suites not converted yet have the reason "not converted
+yet" (`test_cli_process_only_in_allowlisted_files`). Every test under `tests/integration/pptx/` and
+`tests/integration/pptx_author/` has a docstring (`test_pptx_tests_have_docstrings`).
 
 A test that needs a setting runs the real code in a child process whose environment it states in full
 (`tests/subproc.py`: `child_env`, `run_python`, `py_value`). `tests/settings_env.py` (`isolated`) points `HOME`,
