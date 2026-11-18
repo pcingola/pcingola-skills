@@ -10,12 +10,14 @@ shapes with their position, text content, fill, and any flags.
 """
 
 import json
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Inches
+
+from .exceptions import PptxError
 
 EMU_PER_INCH = 914400
 
@@ -182,20 +184,21 @@ def inspect_master(pptx_path: Path) -> dict:
     return output
 
 
-def run_inspect_master(args) -> None:
-    pptx_path = Path(args.input)
-    output_path = Path(args.output)
+@dataclass(frozen=True)
+class MasterInspection:
+    """Summary of what `inspect_master_to_file` wrote: counts and the flagged shapes (master first, then layouts)."""
+    master_count: int
+    layout_count: int
+    master_shape_count: int
+    flagged: list[dict]
 
+
+def inspect_master_to_file(pptx_path: Path, output_path: Path) -> MasterInspection:
+    """Write the master and layout inspection of `pptx_path` as JSON to `output_path`."""
     if not pptx_path.exists():
-        print(f"Error: File not found: {pptx_path}", file=sys.stderr)
-        sys.exit(1)
+        raise PptxError(f"File not found: {pptx_path}")
 
-    print(f"Inspecting slide master: {pptx_path}")
     data = inspect_master(pptx_path)
-
-    n_masters = len(data["slide_masters"])
-    n_layouts = len(data["slide_layouts"])
-    n_master_shapes = sum(m["shape_count"] for m in data["slide_masters"])
     flagged = [
         s for m in data["slide_masters"] for s in m["shapes"] if s.get("flags")
     ] + [
@@ -206,10 +209,24 @@ def run_inspect_master(args) -> None:
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-    print(f"Masters: {n_masters}, Layouts: {n_layouts}, Master shapes: {n_master_shapes}")
-    if flagged:
-        print(f"Flagged shapes: {len(flagged)}")
-        for s in flagged:
+    return MasterInspection(
+        master_count=len(data["slide_masters"]),
+        layout_count=len(data["slide_layouts"]),
+        master_shape_count=sum(m["shape_count"] for m in data["slide_masters"]),
+        flagged=flagged,
+    )
+
+
+def run_inspect_master(args) -> None:
+    pptx_path = Path(args.input)
+    output_path = Path(args.output)
+    result = inspect_master_to_file(pptx_path, output_path)
+
+    print(f"Inspecting slide master: {pptx_path}")
+    print(f"Masters: {result.master_count}, Layouts: {result.layout_count}, Master shapes: {result.master_shape_count}")
+    if result.flagged:
+        print(f"Flagged shapes: {len(result.flagged)}")
+        for s in result.flagged:
             print(f"  [{', '.join(s['flags'])}] name={s['name']!r} text={s.get('text','')!r} pos=({s['left']}\", {s['top']}\")")
     else:
         print("No flagged shapes found on master or layouts.")

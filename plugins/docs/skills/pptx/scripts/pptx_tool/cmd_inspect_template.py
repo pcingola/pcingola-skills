@@ -5,7 +5,7 @@ slide-N/shape-N structure as inventory and replacement JSON files.
 """
 
 import json
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
@@ -16,6 +16,7 @@ from .cmd_extract_shapes import (
     collect_shapes_with_absolute_positions,
     sort_shapes_by_position,
 )
+from .exceptions import PptxError
 
 
 def get_placeholder_metadata(shape) -> dict:
@@ -163,38 +164,47 @@ def create_unified_template_summary(template_path: Path) -> dict:
     return template_summary
 
 
-def run_inspect_template(args) -> None:
-    """Entry point from CLI dispatcher."""
-    template_path = Path(args.template)
-    output_path = Path(args.output)
+@dataclass(frozen=True)
+class TemplateInspection:
+    """Counts of what `inspect_template` wrote to its JSON file."""
+    slide_count: int
+    shape_count: int
+    picture_count: int
 
+    @property
+    def text_count(self) -> int:
+        return self.shape_count - self.picture_count
+
+
+def inspect_template(template_path: Path, output_path: Path) -> TemplateInspection:
+    """Write the unified template summary of `template_path` as JSON to `output_path`."""
     if not template_path.exists():
-        print(f"Error: Template file not found at {template_path}", file=sys.stderr)
-        sys.exit(1)
+        raise PptxError(f"Template file not found at {template_path}")
 
-    print(f"Inspecting template: {template_path}")
     template_summary = create_unified_template_summary(template_path)
+    slides = template_summary["slides"].values()
 
-    # Count slides and shapes
-    total_slides = len(template_summary["slides"])
-    total_shapes = sum(
-        len(slide_data["shapes"])
-        for slide_data in template_summary["slides"].values()
-    )
-
-    # Count picture vs text shapes
-    picture_count = sum(
-        1 for slide_data in template_summary["slides"].values()
-        for shape_data in slide_data["shapes"].values()
-        if shape_data.get("content_type") == "image"
-    )
-    text_count = total_shapes - picture_count
-
-    print(f"Found {total_slides} slides with {total_shapes} shapes ({text_count} text, {picture_count} image)")
-
-    # Save to output file
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(template_summary, f, indent=2, ensure_ascii=False)
 
+    return TemplateInspection(
+        slide_count=len(slides),
+        shape_count=sum(len(slide_data["shapes"]) for slide_data in slides),
+        picture_count=sum(
+            1 for slide_data in slides
+            for shape_data in slide_data["shapes"].values()
+            if shape_data.get("content_type") == "image"
+        ),
+    )
+
+
+def run_inspect_template(args) -> None:
+    """Entry point from CLI dispatcher."""
+    template_path = Path(args.template)
+    output_path = Path(args.output)
+    result = inspect_template(template_path, output_path)
+    print(f"Inspecting template: {template_path}")
+    print(f"Found {result.slide_count} slides with {result.shape_count} shapes "
+          f"({result.text_count} text, {result.picture_count} image)")
     print(f"Output saved to: {output_path}")

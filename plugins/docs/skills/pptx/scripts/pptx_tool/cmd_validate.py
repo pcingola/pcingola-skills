@@ -7,12 +7,16 @@ Reports:
 """
 
 import json
-import sys
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from pptx import Presentation
 
 from .cmd_extract_shapes import extract_text, filter_issues_only, shapes_data_to_json
+from .exceptions import PptxError
+
+# Exit code of `validate` when the report lists a problem.
+PROBLEMS_EXIT_CODE = 2
 
 _VISUAL_PLACEHOLDER_TYPES = {"PICTURE", "OBJECT", "CHART", "MEDIA", "SLIDE_IMAGE"}
 
@@ -31,10 +35,35 @@ def _placeholder_has_content(shape) -> bool:
     return bool(shape.text_frame.text.strip())
 
 
-def _collect_unfilled_visuals(input_path: Path) -> list[dict]:
+@dataclass(frozen=True)
+class PlaceholderIssue:
+    """A placeholder that `validate` reports: slide index, placeholder type, shape name."""
+    slide: int
+    placeholder_type: str
+    shape_name: str
+
+
+@dataclass(frozen=True)
+class ValidationReport:
+    """What `validate` found in a deck. `text_issues` is the extract-shapes JSON of the shapes with issues."""
+    slide_count: int
+    text_issues: dict
+    empty_text_placeholders: list[PlaceholderIssue]
+    unfilled_visual_placeholders: list[PlaceholderIssue]
+
+    @property
+    def has_problems(self) -> bool:
+        return bool(self.text_issues or self.empty_text_placeholders or self.unfilled_visual_placeholders)
+
+    def to_json(self) -> str:
+        """The report as the indented JSON the CLI prints or writes."""
+        return json.dumps(asdict(self), indent=2, ensure_ascii=False)
+
+
+def _collect_unfilled_visuals(input_path: Path) -> list[PlaceholderIssue]:
     """Find PICTURE/OBJECT/etc. placeholders that are genuinely empty."""
     prs = Presentation(str(input_path))
-    unfilled: list[dict] = []
+    unfilled: list[PlaceholderIssue] = []
     for slide_idx, slide in enumerate(prs.slides):
         for shape in slide.shapes:
             if not shape.is_placeholder:
@@ -50,14 +79,14 @@ def _collect_unfilled_visuals(input_path: Path) -> list[dict]:
                 continue
             if _placeholder_has_content(shape):
                 continue
-            unfilled.append({"slide": slide_idx, "placeholder_type": type_name, "shape_name": shape.name})
+            unfilled.append(PlaceholderIssue(slide_idx, type_name, shape.name))
     return unfilled
 
 
-def _collect_empty_text(input_path: Path) -> list[dict]:
+def _collect_empty_text(input_path: Path) -> list[PlaceholderIssue]:
     """Find TITLE/BODY placeholders with no text content."""
     prs = Presentation(str(input_path))
-    empties: list[dict] = []
+    empties: list[PlaceholderIssue] = []
     for slide_idx, slide in enumerate(prs.slides):
         for shape in slide.shapes:
             if not shape.has_text_frame:
@@ -72,29 +101,29 @@ def _collect_empty_text(input_path: Path) -> list[dict]:
                 continue
             if shape.text_frame.text.strip():
                 continue
-            empties.append({"slide": slide_idx, "placeholder_type": type_name, "shape_name": shape.name})
+            empties.append(PlaceholderIssue(slide_idx, type_name, shape.name))
     return empties
 
 
-def run_validate(args) -> None:
-    input_path = Path(args.input)
+def validate_deck(input_path: Path) -> ValidationReport:
+    """Report text issues, empty text placeholders and unfilled visual placeholders of a deck."""
     if not input_path.exists():
-        print(f"Error: Input file '{input_path}' not found", file=sys.stderr)
-        sys.exit(1)
+        raise PptxError(f"Input file '{input_path}' not found")
     if input_path.suffix.lower() not in (".pptx", ".ppt"):
-        print("Error: Input file must be a .pptx or .ppt file", file=sys.stderr)
-        sys.exit(1)
+        raise PptxError("Input file must be a .pptx or .ppt file")
 
-    extracted = extract_text(input_path)
-    issues = filter_issues_only(extracted)
+    issues = filter_issues_only(extract_text(input_path))
+    return ValidationReport(
+        slide_count=len(Presentation(str(input_path)).slides),
+        text_issues=shapes_data_to_json(issues) if issues else {},
+        empty_text_placeholders=_collect_empty_text(input_path),
+        unfilled_visual_placeholders=_collect_unfilled_visuals(input_path),
+    )
 
-    report = {
-        "slide_count": len(Presentation(str(input_path)).slides),
-        "text_issues": shapes_data_to_json(issues) if issues else {},
-        "empty_text_placeholders": _collect_empty_text(input_path),
-        "unfilled_visual_placeholders": _collect_unfilled_visuals(input_path),
-    }
-    payload = json.dumps(report, indent=2, ensure_ascii=False)
+
+def run_validate(args) -> int:
+    report = validate_deck(Path(args.input))
+    payload = report.to_json()
 
     if args.output:
         out = Path(args.output)
@@ -104,8 +133,4 @@ def run_validate(args) -> None:
     else:
         print(payload)
 
-    has_problems = bool(
-        report["text_issues"] or report["empty_text_placeholders"] or report["unfilled_visual_placeholders"]
-    )
-    if has_problems:
-        sys.exit(2)
+    return PROBLEMS_EXIT_CODE if report.has_problems else 0

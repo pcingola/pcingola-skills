@@ -8,10 +8,8 @@ Output:
     JSON file with slide-N/shape-N structure containing text and formatting data
 """
 
-import argparse
 import json
-
-import sys
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +17,7 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Inches
 
+from .exceptions import PptxError
 from .text_metrics import frame_overflow, get_placeholder_type
 
 # Type alias for extracted shapes data structure
@@ -948,87 +947,120 @@ def shapes_data_to_json(extracted_shapes_data: ExtractedShapesData) -> dict:
     return result
 
 
+@dataclass(frozen=True)
+class ExtractShapesResult:
+    """What `extract_shapes` wrote: slide and shape counts, the JSON files, and
+    whether they are one file per slide."""
+    slide_count: int
+    shape_count: int
+    files: list[Path]
+    per_slide: bool
+
+
+def check_extract_shapes_input(input_path: Path) -> None:
+    """Raise PptxError unless `input_path` is an existing .pptx file."""
+    if not input_path.exists():
+        raise PptxError(f"Input file '{input_path}' not found")
+    if input_path.suffix.lower() != ".pptx":
+        raise PptxError("Input file must be a .pptx file")
+
+
+def extract_shapes(
+    input_path: Path,
+    output_path: Path,
+    *,
+    per_slide: bool = False,
+    issues_only: bool = False,
+    slide: int | None = None,
+) -> ExtractShapesResult | None:
+    """Write the shapes JSON of a deck and return what was written.
+
+    `per_slide` (or an existing directory at `output_path`) writes one
+    slide_N.shapes.json per slide (1-based names) into `output_path`; otherwise one
+    combined file. `slide` keeps one slide (0-based). `issues_only` keeps the shapes
+    with detected issues and drops the notes; it returns None, writing nothing,
+    when no shape has an issue.
+    """
+    check_extract_shapes_input(input_path)
+    per_slide = per_slide or output_path.is_dir()
+
+    prs = Presentation(str(input_path))
+    extracted_shapes_data = extract_text(input_path, prs)
+    notes_by_slide = extract_all_notes(prs)
+
+    if slide is not None:
+        slide_key = f"slide-{slide}"
+        if not 0 <= slide < len(prs.slides):
+            raise PptxError(f"slide index {slide} not found (valid range: 0–{len(prs.slides)-1})")
+        extracted_shapes_data = {
+            k: v for k, v in extracted_shapes_data.items() if k == slide_key
+        }
+        notes_by_slide = {k: v for k, v in notes_by_slide.items() if k == slide_key}
+
+    if issues_only:
+        extracted_shapes_data = filter_issues_only(extracted_shapes_data)
+        if not extracted_shapes_data:
+            return None
+        # Notes are content, not issues — they would only pad the report.
+        notes_by_slide = {}
+
+    json_data = shapes_data_to_json(extracted_shapes_data)
+    for slide_key, notes in notes_by_slide.items():
+        json_data.setdefault(slide_key, {})["notes"] = notes
+    json_data = {k: json_data[k] for k in sorted(json_data, key=_slide_sort_key)}
+
+    shape_count = sum(
+        len([k for k in shapes if k.startswith("shape-")]) for shapes in json_data.values()
+    )
+
+    if per_slide:
+        output_path.mkdir(parents=True, exist_ok=True)
+        files = []
+        for slide_key, shapes in json_data.items():
+            # slide_key is "slide-0", "slide-1", ...
+            slide_idx = int(slide_key.split("-")[1])
+            file_path = output_path / f"slide_{slide_idx + 1}.shapes.json"
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump({slide_key: shapes}, f, indent=2, ensure_ascii=False)
+            files.append(file_path)
+    else:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        files = [output_path]
+
+    return ExtractShapesResult(len(json_data), shape_count, files, per_slide)
+
+
 def run_extract_shapes(args) -> None:
     """Entry point from CLI dispatcher."""
     input_path = Path(args.input)
-    output_arg = args.output
-
-    # Validate input
-    if not input_path.exists():
-        print(f"Error: Input file '{input_path}' not found")
-        sys.exit(1)
-
-    if input_path.suffix.lower() != ".pptx":
-        print(f"Error: Input file must be a .pptx file")
-        sys.exit(1)
-
-    # Directory mode: output ends with "/" or is an existing directory
-    dir_mode = output_arg.endswith("/") or Path(output_arg).is_dir()
-    output_path = Path(output_arg)
-
+    output_path = Path(args.output)
+    # The input check comes before "Processing:"; both print to stdout.
+    check_extract_shapes_input(input_path)
     try:
         print(f"Processing: {input_path}")
-
-        # Extract shapes data
-        prs = Presentation(str(input_path))
-        extracted_shapes_data = extract_text(input_path, prs)
-        notes_by_slide = extract_all_notes(prs)
-
-        # Filter to a single slide if requested
-        if args.slide is not None:
-            slide_key = f"slide-{args.slide}"
-            if not 0 <= args.slide < len(prs.slides):
-                print(f"Error: slide index {args.slide} not found (valid range: 0–{len(prs.slides)-1})")
-                sys.exit(1)
-            extracted_shapes_data = {
-                k: v for k, v in extracted_shapes_data.items() if k == slide_key
-            }
-            notes_by_slide = {k: v for k, v in notes_by_slide.items() if k == slide_key}
-
-        # Filter if requested
-        if args.issues_only:
-            extracted_shapes_data = filter_issues_only(extracted_shapes_data)
-            if not extracted_shapes_data:
-                print("No issues discovered")
-                sys.exit(0)
-            # Notes are content, not issues — they would only pad the report.
-            notes_by_slide = {}
-
-        # Convert to JSON
-        json_data = shapes_data_to_json(extracted_shapes_data)
-        for slide_key, notes in notes_by_slide.items():
-            json_data.setdefault(slide_key, {})["notes"] = notes
-        json_data = {k: json_data[k] for k in sorted(json_data, key=_slide_sort_key)}
-
-        total_slides = len(json_data)
-        total_shapes = sum(
-            len([k for k in shapes if k.startswith("shape-")]) for shapes in json_data.values()
+        result = extract_shapes(
+            input_path,
+            output_path,
+            per_slide=args.output.endswith("/"),
+            issues_only=args.issues_only,
+            slide=args.slide,
         )
-
-        if dir_mode:
-            # Write one slide_N.shapes.json per slide (1-based filenames)
-            output_path.mkdir(parents=True, exist_ok=True)
-            written = []
-            for slide_key, shapes in json_data.items():
-                # slide_key is "slide-0", "slide-1", ...
-                slide_idx = int(slide_key.split("-")[1])
-                file_path = output_path / f"slide_{slide_idx + 1}.shapes.json"
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump({slide_key: shapes}, f, indent=2, ensure_ascii=False)
-                written.append(str(file_path))
-            print(f"Extracted {total_slides} slides with {total_shapes} text elements")
-            for p in written:
-                print(f"  {p}")
-        else:
-            # Single combined file (original behaviour)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(json_data, f, indent=2, ensure_ascii=False)
-            print(f"Extracted {total_slides} slides with {total_shapes} text elements")
-            print(f"Output saved to: {output_path}")
-
+    except PptxError:
+        raise
     except Exception as e:
         print(f"Error: {e}")
-        import traceback
         traceback.print_exc()
-        sys.exit(1)
+        return 1
+
+    if result is None:
+        print("No issues discovered")
+        return 0
+    print(f"Extracted {result.slide_count} slides with {result.shape_count} text elements")
+    if result.per_slide:
+        for p in result.files:
+            print(f"  {p}")
+    else:
+        print(f"Output saved to: {output_path}")
+    return 0

@@ -5,8 +5,9 @@ position, dimensions, and a text preview for each shape on each slide.
 """
 
 import json
-import sys
 from pathlib import Path
+
+from .exceptions import PptxError
 
 TEXT_PREVIEW_LEN = 60
 
@@ -79,14 +80,17 @@ def format_shapes(data: dict) -> str:
     return "\n".join(lines)
 
 
-def run_show_shapes(args) -> None:
-    """Entry point from CLI dispatcher."""
-    input_path = Path(args.input)
-
+def show_shapes(input_path: Path) -> str:
+    """Compact summary of the extracted-shapes JSON file at `input_path`."""
     if not input_path.exists():
-        sys.exit(f"Error: File not found: {input_path}")
+        raise PptxError(f"File not found: {input_path}")
 
     with open(input_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    print(format_shapes(data))
+    return format_shapes(data)
+
+
+def run_show_shapes(args) -> None:
+    """Entry point from CLI dispatcher."""
+    print(show_shapes(Path(args.input)))

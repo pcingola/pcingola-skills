@@ -1,8 +1,9 @@
 """Unit tests for show-shapes command."""
 import unittest
-from argparse import Namespace
+from pathlib import Path
 
-from pptx_tool.cmd_show_shapes import _first_text, _issue_flags, format_shapes, run_show_shapes
+from pptx_tool.cmd_show_shapes import _first_text, _issue_flags, format_shapes, show_shapes
+from pptx_tool.exceptions import PptxError
 
 
 class TestFirstText(unittest.TestCase):
@@ -106,10 +107,9 @@ class TestFormatShapes(unittest.TestCase):
         output = format_shapes({})
         self.assertIn("No shapes", output)
 
-    def test_missing_file_exits(self) -> None:
-        """cmd_show_shapes.run_show_shapes exits with a not-found message for a missing JSON path.
+    def test_missing_file_raises(self) -> None:
+        """cmd_show_shapes.show_shapes raises PptxError with a not-found message for a missing JSON path.
         Guards the error message instead of a FileNotFoundError traceback."""
-        args = Namespace(input="/nonexistent/shapes.json")
-        with self.assertRaises(SystemExit) as ctx:
-            run_show_shapes(args)
+        with self.assertRaises(PptxError) as ctx:
+            show_shapes(Path("/nonexistent/shapes.json"))
         self.assertIn("not found", str(ctx.exception))

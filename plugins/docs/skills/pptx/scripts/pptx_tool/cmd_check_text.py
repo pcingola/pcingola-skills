@@ -7,11 +7,13 @@ extract-text  Dumps every non-empty paragraph as one line: slide number,
 """
 
 import json
-import sys
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+from .exceptions import PptxError
 
 EMU_PER_INCH = 914400
 
@@ -71,47 +73,50 @@ def _iter_paragraphs(shape, parent_left=0, parent_top=0):
                 yield (abs_left, abs_top, label, text)
 
 
-def run_extract_text(args) -> None:
-    input_path = Path(args.input)
+@dataclass(frozen=True)
+class TextParagraph:
+    """One non-empty paragraph: slide index, layout name, shape label, text."""
+    slide: int
+    layout: str
+    shape: str
+    text: str
+
+
+def extract_paragraphs(input_path: Path, slide: int | None = None) -> list[TextParagraph]:
+    """Every non-empty paragraph of the deck, or of one slide (0-based) when `slide` is set."""
     if not input_path.exists():
-        print(f"Error: '{input_path}' not found", file=sys.stderr)
-        sys.exit(1)
+        raise PptxError(f"'{input_path}' not found")
 
     prs = Presentation(str(input_path))
-    slide_filter = args.slide  # 0-based int or None
-
-    records = []
-    for slide_idx, slide in enumerate(prs.slides):
-        if slide_filter is not None and slide_idx != slide_filter:
+    paragraphs = []
+    for slide_idx, pptx_slide in enumerate(prs.slides):
+        if slide is not None and slide_idx != slide:
             continue
         try:
-            layout_name = slide.slide_layout.name
+            layout_name = pptx_slide.slide_layout.name
         except Exception:
             layout_name = "?"
-        for shape in slide.shapes:
-            for left, top, label, text in _iter_paragraphs(shape):
-                records.append({
-                    "slide": slide_idx,
-                    "layout": layout_name,
-                    "shape": label,
-                    "text": text,
-                })
+        for shape in pptx_slide.shapes:
+            for _left, _top, label, text in _iter_paragraphs(shape):
+                paragraphs.append(TextParagraph(slide_idx, layout_name, label, text))
+    return paragraphs
 
-    if args.json:
-        out = json.dumps(records, indent=2, ensure_ascii=False)
-        if args.output:
-            Path(args.output).write_text(out, encoding="utf-8")
-            print(f"Wrote {len(records)} paragraphs to {args.output}")
-        else:
-            print(out)
-    else:
-        lines = [
-            f"S{r['slide']:02d}  {r['layout']:<28}  {r['shape']:<40}  {r['text']}"
-            for r in records
-        ]
-        output_text = "\n".join(lines)
-        if args.output:
-            Path(args.output).write_text(output_text + "\n", encoding="utf-8")
-            print(f"Wrote {len(records)} paragraphs to {args.output}")
-        else:
-            print(output_text)
+
+def format_paragraphs(paragraphs: list[TextParagraph], as_json: bool) -> str:
+    """Paragraphs as a JSON array, or as one aligned line each (no trailing newline)."""
+    if as_json:
+        return json.dumps([asdict(p) for p in paragraphs], indent=2, ensure_ascii=False)
+    return "\n".join(
+        f"S{p.slide:02d}  {p.layout:<28}  {p.shape:<40}  {p.text}" for p in paragraphs
+    )
+
+
+def run_extract_text(args) -> None:
+    paragraphs = extract_paragraphs(Path(args.input), args.slide)
+    out = format_paragraphs(paragraphs, args.json)
+    if not args.output:
+        print(out)
+        return
+    # The plain-text file ends with a newline; the JSON file does not.
+    Path(args.output).write_text(out if args.json else out + "\n", encoding="utf-8")
+    print(f"Wrote {len(paragraphs)} paragraphs to {args.output}")
