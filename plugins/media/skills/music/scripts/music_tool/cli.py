@@ -18,6 +18,7 @@ import json
 import random
 import sys
 from datetime import datetime, timezone
+from collections.abc import Callable
 from pathlib import Path
 
 from ai_models import routes
@@ -123,6 +124,7 @@ def generate(
     min_crest_db: float | None = None,
     crest_attempts: int = crest.DEFAULT_ATTEMPTS,
     force: bool = False,
+    on_written: Callable[[Path], object] | None = None,
 ) -> list[Path]:
     """The work of `music generate`: compose the prompt `text` with the music model `model` (None: `tasks.music`)
     into `out` (`<stem>_1` ... `<stem>_N` for several samples), each file with its `.json` sidecar and, when the
@@ -130,8 +132,9 @@ def generate(
 
     `image` and `lyrics_file` are paths as given on the command line, recorded in the sidecar's `options`. With a
     crest factor threshold (`min_crest_db`, else the model entry's), requests are sent again up to `crest_attempts`
-    times (`crest.regenerate`). Warnings go to stderr. Raises `GenerateError` on a refused path, input or option,
-    or a failed request; nothing is written before the request succeeds."""
+    times (`crest.regenerate`). `on_written` is called with each audio path as soon as it is written, so a caller
+    reports the samples written before a later one fails. Warnings go to stderr. Raises `GenerateError` on a refused
+    path, input or option, or a failed request; nothing is written before the request succeeds."""
     from ai_models import config as ai_config
     from ai_models import music
     from ai_models.errors import AIModelsError
@@ -221,6 +224,8 @@ def generate(
         }
         sidecar(path, ".json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
         written.append(path)
+        if on_written:
+            on_written(path)
     return written
 
 
@@ -228,14 +233,13 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     _check(args)
     text = _read_prompt(args)
     try:
-        paths = generate(text, Path(args.out).expanduser(), model=args.model, image=args.image,
-                         lyrics_file=args.lyrics, instrumental=args.instrumental, bpm=args.bpm, seconds=args.seconds,
-                         negative=args.negative, seed=args.seed, samples=args.samples,
-                         min_crest_db=args.min_crest_db, crest_attempts=args.crest_attempts, force=args.force)
+        generate(text, Path(args.out).expanduser(), model=args.model, image=args.image,
+                 lyrics_file=args.lyrics, instrumental=args.instrumental, bpm=args.bpm, seconds=args.seconds,
+                 negative=args.negative, seed=args.seed, samples=args.samples,
+                 min_crest_db=args.min_crest_db, crest_attempts=args.crest_attempts, force=args.force,
+                 on_written=print)
     except GenerateError as e:
         config.error(str(e))
-    for path in paths:
-        print(path)
     return 0
 
 
