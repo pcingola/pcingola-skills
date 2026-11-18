@@ -10,7 +10,7 @@ and `TimedScene` (a Manim Scene with `at(t)` and `finish()`). It also holds
 
 `render` checks the helper calls in `scene.py`, runs `manim render` from the
 separate uv project `scripts/manim/` in its own environment
-(`config.manim_env()`), with Manim's media directory inside the version, and
+(`manim_env`, from `config.env_dirs`), with Manim's media directory inside the version, and
 copies the video to `silent.mp4` with its sample aspect ratio set to 1:1 (as
 HyperFrames writes it), so `assemble` can join it with HTML scenes. After a
 length check against the narration it muxes, writes the contact sheet and
@@ -135,16 +135,15 @@ def manim_command(sdir: Path) -> list[str]:
             str(sdir / SCENE_PY), scene_class()]
 
 
-def manim_env_vars(base: dict | None = None) -> dict:
+def manim_env_vars(manim_env: Path | None, base: dict | None = None) -> dict:
     """The environment for the Manim subprocess: uv's project environment is
-    the Manim one, never short-video's."""
-    venv = config.manim_env()
-    if venv is None:
+    `manim_env`, never short-video's. `base` defaults to the process environment."""
+    if manim_env is None:
         raise SceneError("PLUGIN_ENV_DIR is not set, so the Manim environment has no place outside the "
                          "plugin directory; run short-video through its wrapper short-video.sh")
     env = dict(os.environ if base is None else base)
     env.pop("VIRTUAL_ENV", None)
-    env["UV_PROJECT_ENVIRONMENT"] = str(venv)
+    env["UV_PROJECT_ENVIRONMENT"] = str(manim_env)
     return env
 
 
@@ -184,9 +183,9 @@ def _manim_video(sdir: Path) -> Path:
     return max(found, key=lambda p: p.stat().st_mtime)
 
 
-def render(project: Path, scene: dict) -> Path:
-    """Static check, Manim render, length check, mux narration, contact sheet,
-    meta. Returns scene.mp4."""
+def render(project: Path, scene: dict, manim_env: Path | None) -> Path:
+    """Static check, Manim render in the environment `manim_env`, length check,
+    mux narration, contact sheet, meta. Returns scene.mp4."""
     sid = scene["id"]
     sdir = state.latest_scene(project, sid)
     if sdir is None or not (sdir / SCENE_PY).is_file():
@@ -199,7 +198,7 @@ def render(project: Path, scene: dict) -> Path:
     if errors:
         raise SceneError(f"{py_path}: timing helper calls do not match timing.json:\n" + "\n".join(errors))
 
-    env = manim_env_vars()
+    env = manim_env_vars(manim_env)
     media.run(manim_command(sdir), cwd=sdir, env=env)
 
     ffmpeg = media.which("ffmpeg")

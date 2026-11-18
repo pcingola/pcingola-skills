@@ -9,7 +9,6 @@ import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 
-from tests.subproc import child_env, py_value, run_python
 from short_video_tool import cli, config, manim_scene, scenes, settings, state, storyboard, versions
 
 MD = """\
@@ -198,20 +197,22 @@ class TestStaticCheckAndPage(unittest.TestCase):
         self.assertFalse(manim_scene.length_ok(139 / 30, 4.5667))
 
     def test_command_and_env(self) -> None:
-        """manim_scene.manim_command runs `uv run --project scripts/manim` at the video size on scene.py, and
-        manim_env_vars drops VIRTUAL_ENV, sets UV_PROJECT_ENVIRONMENT next to PLUGIN_ENV_DIR and refuses without
-        it. Guards the Manim environment staying outside the plugin directory."""
+        """manim_scene.manim_command runs `uv run --project scripts/manim` at the video size on scene.py;
+        config.env_dirs places the node directory in the plugin environment directory (next to the package
+        files without one) and the Manim environment next to it (none without one); manim_env_vars drops
+        VIRTUAL_ENV, sets UV_PROJECT_ENVIRONMENT to the Manim environment and refuses without one, naming
+        PLUGIN_ENV_DIR. Guards the Manim environment staying outside the plugin directory."""
         cmd = manim_scene.manim_command(Path("/p/scenes/x/v1"))
         self.assertEqual(cmd[1:4], ["run", "--project", str(config.MANIM_PROJECT)])
         self.assertIn("1920,1080", cmd)
         self.assertEqual(cmd[-2:], ["/p/scenes/x/v1/scene.py", "Main"])
-        imports = "from short_video_tool import manim_scene"
-        env = py_value(imports, "manim_scene.manim_env_vars({'VIRTUAL_ENV': '/v', 'PATH': '/bin'})",
-                       child_env({"HOME": "/nonexistent", "PLUGIN_ENV_DIR": "/d/env/123/short-video"}))
+        dirs = config.env_dirs(Path("/d/env/123/short-video"))
+        self.assertEqual(dirs.node_dir, Path("/d/env/123/short-video/node"))
+        self.assertEqual(config.env_dirs(None), config.EnvDirs(config.NODE_SRC, None))
+        env = manim_scene.manim_env_vars(dirs.manim_env, {"VIRTUAL_ENV": "/v", "PATH": "/bin"})
         self.assertEqual(env, {"PATH": "/bin", "UV_PROJECT_ENVIRONMENT": "/d/env/123/short-video-scripts-manim/.venv"})
-        done = run_python(f"{imports}\nmanim_scene.manim_env_vars()", child_env({"HOME": "/nonexistent"}))
-        self.assertNotEqual(done.returncode, 0)
-        self.assertIn("PLUGIN_ENV_DIR", done.stderr)
+        with self.assertRaisesRegex(scenes.SceneError, "PLUGIN_ENV_DIR"):
+            manim_scene.manim_env_vars(config.env_dirs(None).manim_env)
 
 
 class TestScaffold(unittest.TestCase):
@@ -267,7 +268,7 @@ class TestScaffold(unittest.TestCase):
         with self.assertRaisesRegex(scenes.SceneError, "nothing.png not found"):
             manim_scene.scaffold(self.project, dict(self.scene, image="nothing.png"))
         with self.assertRaisesRegex(scenes.SceneError, "run `scaffold` first"):
-            manim_scene.render(self.project, self.scene)
+            manim_scene.render(self.project, self.scene, None)
 
 
 class TestRenderSwitchedToHtml(unittest.TestCase):

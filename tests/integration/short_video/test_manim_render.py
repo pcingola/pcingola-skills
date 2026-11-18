@@ -3,7 +3,7 @@ and a film assembled from an HTML scene and a manim scene.
 
 The voice versions are made by hand (a tone WAV and its timing.json; the
 voiceover skill is not used). The Manim environment
-(`config.manim_env()`) must exist: the tests fail with the command that builds
+(`wrapper_env.MANIM_VENV`) must exist: the tests fail with the command that builds
 it when it does not.
 """
 import json

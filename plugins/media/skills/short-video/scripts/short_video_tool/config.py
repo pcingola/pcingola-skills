@@ -8,8 +8,8 @@ project goes inside that directory.
 
 from __future__ import annotations
 
-import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from plugin_settings import Plugin, error
@@ -19,22 +19,31 @@ from . import settings
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 # package.json and package-lock.json for HyperFrames and GSAP.
 NODE_SRC = SCRIPTS_DIR / "node"
-# Where `setup` installs them: `<PLUGIN_ENV_DIR>/node`, set by the wrapper
-# (lib/uv_env.sh) outside the plugin directory, else next to the package files.
-NODE_DIR = Path(os.environ["PLUGIN_ENV_DIR"]) / "node" if os.environ.get("PLUGIN_ENV_DIR") else NODE_SRC
 # The uv project with Manim Community Edition, for scenes with `Engine: manim`.
 MANIM_PROJECT = SCRIPTS_DIR / "manim"
-# Its environment sits next to short-video's own under the wrapper's
-# PLUGIN_ENV_DIR, named by lib/uv_env.sh's rule for `skills/short-video/scripts/manim`
-# (path without `skills/`, `/` as `-`). None when PLUGIN_ENV_DIR is not set:
-# Manim then cannot run, since uv's default `.venv` would sit in the plugin directory.
+# The Manim environment's directory name next to short-video's own, by lib/uv_env.sh's
+# rule for `skills/short-video/scripts/manim` (path without `skills/`, `/` as `-`).
 MANIM_ENV_NAME = "short-video-scripts-manim"
 
 
-def manim_env() -> Path | None:
-    """The Manim environment: `<PLUGIN_ENV_DIR parent>/short-video-scripts-manim/.venv`."""
-    v = os.environ.get("PLUGIN_ENV_DIR")
-    return Path(v).parent / MANIM_ENV_NAME / ".venv" if v else None
+@dataclass(frozen=True)
+class EnvDirs:
+    """Where `setup` installs HyperFrames and GSAP (`node_dir`), and the Manim
+    environment (`manim_env`, None when it has no place outside the plugin directory)."""
+    node_dir: Path
+    manim_env: Path | None
+
+
+def env_dirs(plugin_env_dir: Path | None) -> EnvDirs:
+    """The node directory and the Manim environment for the plugin environment
+    directory `plugin_env_dir` (the one the wrapper short-video.sh sets through
+    lib/uv_env.sh). With a directory: `<dir>/node` and
+    `<dir parent>/short-video-scripts-manim/.venv`. With None: the node directory
+    next to the package files, and no Manim environment, since uv's default
+    `.venv` would sit in the plugin directory."""
+    if plugin_env_dir is None:
+        return EnvDirs(NODE_SRC, None)
+    return EnvDirs(plugin_env_dir / "node", plugin_env_dir.parent / MANIM_ENV_NAME / ".venv")
 
 
 def warn(msg: str) -> None:

@@ -71,6 +71,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -118,11 +119,11 @@ def _scene(data: dict, scene_id: str) -> dict:
         config.error(str(e))
 
 
-def _ensure_node() -> None:
-    if not scenes.node_ready(config.NODE_DIR, config.NODE_SRC):
+def _ensure_node(node_dir: Path) -> None:
+    if not scenes.node_ready(node_dir, config.NODE_SRC):
         print("HyperFrames not installed or package-lock.json changed; running setup", file=sys.stderr)
         try:
-            scenes.setup(config.NODE_DIR, config.NODE_SRC)
+            scenes.setup(node_dir, config.NODE_SRC)
         except (scenes.SceneError, media.ToolError) as e:
             config.error(str(e))
 
@@ -298,9 +299,9 @@ def _scaffold_manim(project: Path, scene: dict) -> int:
     return 0
 
 
-def _render_manim(project: Path, scene: dict) -> int:
+def _render_manim(project: Path, scene: dict, manim_env: Path | None) -> int:
     try:
-        out = manim_scene.render(project, scene)
+        out = manim_scene.render(project, scene, manim_env)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
     print(out)
@@ -347,10 +348,10 @@ def _render_presenter(project: Path, scene: dict, seed: int | None, model: str |
     return 0
 
 
-def _scaffold_world(project: Path, data: dict, name: str, refresh: bool) -> int:
-    _ensure_node()
+def _scaffold_world(project: Path, data: dict, name: str, refresh: bool, node_dir: Path) -> int:
+    _ensure_node(node_dir)
     try:
-        out = world.scaffold(project, data, name, config.NODE_DIR, refresh)
+        out = world.scaffold(project, data, name, node_dir, refresh)
     except scenes.SceneError as e:
         config.error(str(e))
     print(out / "index.html")
@@ -358,10 +359,10 @@ def _scaffold_world(project: Path, data: dict, name: str, refresh: bool) -> int:
     return 0
 
 
-def _render_world(project: Path, data: dict, name: str) -> int:
-    _ensure_node()
+def _render_world(project: Path, data: dict, name: str, node_dir: Path) -> int:
+    _ensure_node(node_dir)
     try:
-        outs = world.render(project, data, name, config.NODE_DIR)
+        outs = world.render(project, data, name, node_dir)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
     for out in outs:
@@ -391,10 +392,10 @@ def _cmd_scaffold(args: argparse.Namespace) -> int:
                      or storyboard.world_name(scene)):
         config.error("--estimate applies to an HTML scene without a world only")
     if name := storyboard.world_name(_scene(data, args.scene)):
-        return _scaffold_world(project, data, name, refresh)
-    _ensure_node()
+        return _scaffold_world(project, data, name, refresh, args.node_dir)
+    _ensure_node(args.node_dir)
     try:
-        out = scenes.scaffold(project, _scene(data, args.scene), config.NODE_DIR, refresh, estimate)
+        out = scenes.scaffold(project, _scene(data, args.scene), args.node_dir, refresh, estimate)
     except scenes.SceneError as e:
         config.error(str(e))
     print(out / "index.html")
@@ -410,7 +411,7 @@ def _cmd_render(args: argparse.Namespace) -> int:
     if storyboard.is_clip(_scene(data, args.scene)):
         config.error(clip.refuse(args.scene, "render"))
     if manim_scene.is_manim(_scene(data, args.scene)):
-        return _render_manim(project, _scene(data, args.scene))
+        return _render_manim(project, _scene(data, args.scene), args.manim_env)
     if storyboard.is_video(_scene(data, args.scene)):
         return _render_video(project, _scene(data, args.scene), seed, model)
     if storyboard.is_presenter(_scene(data, args.scene)):
@@ -418,14 +419,14 @@ def _cmd_render(args: argparse.Namespace) -> int:
     if seed is not None or model is not None:
         config.error("--seed and --model apply only to a video or presenter scene (`Engine: video`, `Engine: presenter`)")
     if name := storyboard.world_name(_scene(data, args.scene)):
-        return _render_world(project, data, name)
+        return _render_world(project, data, name, args.node_dir)
     # A scene switched from manim to html has a latest version with no page.
     latest = state.latest_scene(project, args.scene)
     if latest is not None and not (latest / "index.html").is_file():
         config.error(f"scene {args.scene}: latest version {latest.name} has no index.html; run `scaffold` first")
-    _ensure_node()
+    _ensure_node(args.node_dir)
     try:
-        out = scenes.render(project, _scene(data, args.scene), config.NODE_DIR)
+        out = scenes.render(project, _scene(data, args.scene), args.node_dir)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
     print(out)
@@ -516,9 +517,9 @@ def _cmd_stills(args: argparse.Namespace) -> int:
         page = pages.scene_page(project, data, scene, args.version)
     except scenes.SceneError as e:
         config.error(str(e))
-    _ensure_node()
+    _ensure_node(args.node_dir)
     try:
-        for p in stills.stills(scene["id"], page, times, config.NODE_DIR, mark, args.sheet):
+        for p in stills.stills(scene["id"], page, times, args.node_dir, mark, args.sheet):
             print(p)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
@@ -528,9 +529,9 @@ def _cmd_stills(args: argparse.Namespace) -> int:
 def _cmd_check(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
-    _ensure_node()
+    _ensure_node(args.node_dir)
     try:
-        index, warnings = pages.check(project, data, _scene(data, args.scene), config.NODE_DIR)
+        index, warnings = pages.check(project, data, _scene(data, args.scene), args.node_dir)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
     for line in warnings:
@@ -542,9 +543,9 @@ def _cmd_check(args: argparse.Namespace) -> int:
 def _cmd_html(args: argparse.Namespace) -> int:
     project = _project(args)
     data = _valid(project)
-    _ensure_node()
+    _ensure_node(args.node_dir)
     try:
-        out, warnings = film_html.write(project, data, config.NODE_DIR,
+        out, warnings = film_html.write(project, data, args.node_dir,
                                         Path(args.out).expanduser() if args.out else None, args.music)
     except (scenes.SceneError, mix.AssembleError, media.ToolError, FileNotFoundError) as e:
         config.error(str(e))
@@ -665,11 +666,11 @@ def _cmd_credit(args: argparse.Namespace) -> int:
 
 def _cmd_setup(args: argparse.Namespace) -> int:
     try:
-        lines = scenes.setup(config.NODE_DIR, config.NODE_SRC)
+        lines = scenes.setup(args.node_dir, config.NODE_SRC)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
     print("\n".join(lines))
-    print(f"ready: {config.NODE_DIR / 'node_modules'}")
+    print(f"ready: {args.node_dir / 'node_modules'}")
     return 0
 
 
@@ -923,13 +924,22 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, plugin_env_dir: Path | None = None) -> int:
     """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help` and argument errors
     return argparse's code. Validates the settings file (exit on an invalid one) and leaves `os.environ` as it is:
-    the wrapper path (`__main__`) exports the settings to the environment before it calls `main`."""
+    the wrapper path (`__main__`) exports the settings to the environment before it calls `main`.
+
+    `plugin_env_dir` is the plugin environment directory, which places the node directory and the Manim
+    environment (`config.env_dirs`); None reads `PLUGIN_ENV_DIR`, as the wrapper short-video.sh sets it. The
+    handlers find them as `args.node_dir` and `args.manim_env`."""
     plugin_config()
     try:
         args = _build_parser().parse_args(argv)
     except SystemExit as e:
         return int(e.code or 0)
+    if plugin_env_dir is None:
+        env_value = os.environ.get("PLUGIN_ENV_DIR")
+        plugin_env_dir = Path(env_value) if env_value else None
+    dirs = config.env_dirs(plugin_env_dir)
+    args.node_dir, args.manim_env = dirs.node_dir, dirs.manim_env
     return args.func(args)
