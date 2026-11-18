@@ -83,6 +83,7 @@ from pathlib import Path
 
 from ai_models import routes
 from plugin_settings import config as plugin_config
+from plugin_settings import exit_code
 
 from . import audiocheck, brand, clip, config, credit, media, mix, music, narration, scenes, settings
 from . import dispatch, film_html, pages, projects, refs, status, stills, storyboard
@@ -744,19 +745,20 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, plugin_env_dir: Path | None = None) -> int:
     """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help` and argument errors
-    return argparse's code. Validates the settings file (exit on an invalid one) and leaves `os.environ` as it is:
-    the wrapper path (`__main__`) exports the settings to the environment before it calls `main`.
+    return argparse's code. Validates the settings file (1 with its message on stderr for an invalid one) and leaves
+    `os.environ` as it is: the wrapper path (`__main__`) exports the settings to the environment before it calls
+    `main`.
 
     A command error, which a handler reports with `config.error` (exit 1), is returned as the exit code.
 
     `plugin_env_dir` is the plugin environment directory, which places the node directory and the Manim
     environment (`config.env_dirs`); None reads `PLUGIN_ENV_DIR`, as the wrapper short-video.sh sets it. The
     handlers find them as `args.node_dir` and `args.manim_env`."""
-    plugin_config()
     try:
+        plugin_config()
         args = _build_parser().parse_args(argv)
     except SystemExit as e:
-        return int(e.code or 0)
+        return exit_code(e)
     if plugin_env_dir is None:
         env_value = os.environ.get("PLUGIN_ENV_DIR")
         plugin_env_dir = Path(env_value) if env_value else None
@@ -766,7 +768,4 @@ def main(argv: list[str] | None = None, plugin_env_dir: Path | None = None) -> i
         return args.func(args)
     except SystemExit as e:
         # A command error (`config.error`: `Error: <msg>` on stderr, then exit 1) is the exit code.
-        if e.code is None or isinstance(e.code, int):
-            return e.code or 0
-        print(e.code, file=sys.stderr)
-        return 1
+        return exit_code(e)

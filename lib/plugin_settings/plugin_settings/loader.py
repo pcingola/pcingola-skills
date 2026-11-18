@@ -32,6 +32,15 @@ def error(msg: str) -> NoReturn:
     sys.exit(1)
 
 
+def exit_code(e: SystemExit) -> int:
+    """The exit code of `e` as the interpreter sets it: 0 for None, an int code as is, 1 for any other code, which
+    is printed on stderr. A CLI's `main` returns it for a `SystemExit` raised in process."""
+    if e.code is None or isinstance(e.code, int):
+        return e.code or 0
+    print(e.code, file=sys.stderr)
+    return 1
+
+
 def clear_cache() -> None:
     _cache.clear()
 

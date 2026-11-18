@@ -21,6 +21,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 from ai_models import AIModelsError, routes
+from plugin_settings import exit_code
 
 from . import config, voices
 from .align import AlignFn, clip_aligner, sentence_words
@@ -286,7 +287,4 @@ def main(argv: list[str] | None = None) -> int:
         args = build_parser().parse_args(argv)
         return args.func(args)
     except SystemExit as e:
-        if e.code is None or isinstance(e.code, int):
-            return e.code or 0
-        print(e.code, file=sys.stderr)
-        return 1
+        return exit_code(e)

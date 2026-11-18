@@ -254,24 +254,25 @@ Tests call the real code and the real dependency. No test imports a mock library
 `importorskip`, `SkipTest`). The reasons: a mock tests the test's idea of the dependency, not the dependency; an
 environment write leaks into other tests; a skipped test reports nothing and hides a missing prerequisite.
 
-A test calls the code under test in process, except a test that needs a setting (below). It calls a command's core
-function (CLI wrappers), or `main(argv)` with `stdout` and `stderr` redirected when its subject is the CLI's
-arguments, output or exit code. A test starts a skill's wrapper or CLI as a process only
-when the process is its subject: the wrapper and its environment, a lock between processes, or state kept across
-commands. Its docstring names that subject. A call through the wrapper adds the wrapper, `uv run` and an interpreter
-start (a pptx command: 0.20 s through `pptx.sh`, 0.05 s in process) and tests the wrapper again on every call.
-`CLI_PROCESS_ALLOWLIST` of `tests/unit/plugin/test_tests_rules.py` lists each file that starts a wrapper or a
-`<skill>_tool` CLI as a process, with its reason (`test_cli_process_only_in_allowlisted_files`). Every test under
-`tests/unit/` and `tests/integration/` has a docstring that states what it checks (`test_tests_have_docstrings`).
+A test calls the code under test in process. It calls a command's core function (CLI wrappers), or `main(argv)` with
+`stdout` and `stderr` redirected when its subject is the CLI's arguments, output or exit code. A test starts a skill's
+wrapper or CLI as a process only when the process is its subject: the wrapper and its environment, a lock between
+processes, or state kept across commands. Its docstring names that subject. A call through the wrapper adds the wrapper,
+`uv run` and an interpreter start (a pptx command: 0.20 s through `pptx.sh`, 0.05 s in process) and tests the wrapper
+again on every call. `CLI_PROCESS_ALLOWLIST` of `tests/unit/plugin/test_tests_rules.py` lists each file that starts a
+wrapper or a `<skill>_tool` CLI as a process, with its reason (`test_cli_process_only_in_allowlisted_files`). Every test
+under `tests/unit/` and `tests/integration/` has a docstring that states what it checks (`test_tests_have_docstrings`).
 
-A test that needs a setting runs the real code in a child process whose environment it states in full
-(`tests/subproc.py`: `child_env`, `run_python`, `py_value`). `tests/settings_env.py` (`isolated`) points `HOME`,
-`CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` of that child at a temporary directory with no settings file, so the
-user's settings do not reach the code under test. It keeps uv's cache, Python installs and configuration and git's
-global configuration. A test that needs a setting, a provider or a model writes a real `config.yaml` in a temporary
-directory (`write_config`) and passes its path to the child in `SKILLS_CONFIG`; an in-process test of `ai_models`
-names it with `config.use`. A test that needs a key, a model, a GPU or a tool fails with a message naming what is
-missing (`tests/prereq.py`: `requires`).
+A test that needs a setting writes a real `config.yaml` in a temporary directory (`tests/settings_env.py`:
+`write_config`), or takes `TEST_CONFIG`, and applies it in process with `use_settings(file)`
+(`plugin_settings.paths.use`), which restores the file set before it when the block ends. A child process gets the file
+in `SKILLS_CONFIG` only when the process is the test's subject (the files of `CLI_PROCESS_ALLOWLIST`) or when the code
+under test reads a process variable (the brand test that sets `BRAND_PATH`). Such a child has an environment the test
+states in full (`tests/subproc.py`: `child_env`, `run_python`, `py_value`). `isolated` points its `HOME`,
+`CLAUDE_CONFIG_DIR` and `CLAUDE_PLUGIN_DATA` at a temporary directory with no settings file, so the user's settings do
+not reach the code under test. It keeps uv's cache, Python installs and configuration and git's global configuration. A
+test that needs a key, a model, a GPU or a tool fails with a message naming what is missing (`tests/prereq.py`:
+`requires`).
 
 Models:
 

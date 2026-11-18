@@ -17,6 +17,7 @@ import sys
 
 from ai_models import routes
 from ai_models.errors import AIModelsError
+from plugin_settings import exit_code
 from pydantic_ai.models.decision import DecisionQuestion, NoulQuestion, ScoreQuestion
 
 from . import backends, config, metrics, output, questions, runner
@@ -208,7 +209,4 @@ def main(argv: list[str] | None = None) -> int:
         print(f"interrupted{resume}", file=sys.stderr)
         return 130
     except SystemExit as e:
-        if e.code is None or isinstance(e.code, int):
-            return e.code or 0
-        print(e.code, file=sys.stderr)
-        return 1
+        return exit_code(e)

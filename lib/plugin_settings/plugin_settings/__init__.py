@@ -20,7 +20,7 @@ binds to its plugin with `Plugin.of(__file__)`.
 """
 
 from .env_export import CLEARED_KEYS, CLEARED_PREFIXES, ENV_EXPORTS, EnvVar, export
-from .loader import SETUP_LINE, ConfigFileError, config, error, load_config
+from .loader import SETUP_LINE, ConfigFileError, config, error, exit_code, load_config
 from .old_keys import old_key_errors
 from .paths import CONFIG_ENV, config_dir, config_file, display, use
 from .plugin import MANIFEST, Plugin
@@ -29,6 +29,6 @@ from .schema import __all__ as _schema_all
 
 __all__ = [
     "CLEARED_KEYS", "CLEARED_PREFIXES", "CONFIG_ENV", "ENV_EXPORTS", "MANIFEST", "SETUP_LINE", "ConfigFileError",
-    "EnvVar", "Plugin", "config", "config_dir", "config_file", "display", "error", "export", "load_config",
+    "EnvVar", "Plugin", "config", "config_dir", "config_file", "display", "error", "exit_code", "export", "load_config",
     "old_key_errors", "use", *_schema_all,
 ]

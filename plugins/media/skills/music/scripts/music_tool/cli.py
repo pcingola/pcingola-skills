@@ -16,12 +16,12 @@ from __future__ import annotations
 import argparse
 import json
 import random
-import sys
 from datetime import datetime, timezone
 from collections.abc import Callable
 from pathlib import Path
 
 from ai_models import routes
+from plugin_settings import exit_code
 
 from . import config, crest, fit, prompt
 
@@ -333,7 +333,4 @@ def main(argv: list[str] | None = None) -> int:
         args = _build_parser().parse_args(argv)
         return args.func(args)
     except SystemExit as e:
-        if e.code is None or isinstance(e.code, int):
-            return e.code or 0
-        print(e.code, file=sys.stderr)
-        return 1
+        return exit_code(e)

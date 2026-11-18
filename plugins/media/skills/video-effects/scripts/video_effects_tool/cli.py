@@ -9,6 +9,7 @@ from typing import Callable
 
 import cv2
 import numpy as np
+from plugin_settings import exit_code
 
 from . import effects, keys
 from .frames import (STRIP_SUFFIXES, Clip, EffectError, aspect_differs, check_writable, clip_frames, cover_fit,
@@ -262,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         parser = build_parser()
         args = parser.parse_args(argv)
     except SystemExit as e:
-        return int(e.code or 0)
+        return exit_code(e)
     if not hasattr(args, "func"):
         parser.print_help()
         return 1

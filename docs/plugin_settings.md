@@ -10,7 +10,7 @@ documented for users in the `setup:settings` skill; the template is
 | File | Content |
 |---|---|
 | `paths.py` | `config_dir`, `config_file`, `use`, `display` (home shown as `~`), `CONFIG_ENV` |
-| `loader.py` | `load_config`, `config`, `error`, `ConfigFileError`, `SETUP_LINE`, the error formatter |
+| `loader.py` | `load_config`, `config`, `error`, `exit_code`, `ConfigFileError`, `SETUP_LINE`, the error formatter |
 | `env_export.py` | `EnvVar`, `ENV_EXPORTS`, `CLEARED_PREFIXES`, `CLEARED_KEYS`, `export` |
 | `old_keys.py` | `OLD_SECTIONS`, `OLD_SETTINGS`, `OLD_PROVIDER_KEYS`, `OLD_KIND_KEYS`, `OLD_KINDS`, `old_key_errors` |
 | `plugin.py` | `Plugin`: name, directory, data directory, `load` |
@@ -100,6 +100,9 @@ is not YAML, not a mapping, or not valid raises `ConfigFileError`. The result is
 
 `config()` is `load_config()` that prints `Error: <message>` on stderr and exits 1 on `ConfigFileError`. Skills read
 settings as typed attributes, `plugin_settings.config().studio.dir`, never from `os.environ`.
+
+`exit_code(e)` is the exit code of a `SystemExit` as the interpreter sets it: 0 for None, an int code as is, 1 for any
+other code, which it prints on stderr. A CLI's `main(argv)` returns it for the `SystemExit` of argparse or of `error`.
 
 ## Errors
 

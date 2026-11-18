@@ -1,4 +1,4 @@
-"""`keys` without --end, every keyframe generated with image-gen's `generate` and the `image_edit` model of
+"""`keys` without --end, every keyframe generated with image-gen's `write_images` and the `image_edit` model of
 tests/config.yaml, then the morph of `keys.json`'s chain. Everything runs in process under TEST_CONFIG
 (`use_settings`)."""
 
@@ -12,7 +12,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from image_gen_tool import models as image_models
-from image_gen_tool.generate import generate as image_generate
+from image_gen_tool.generate import write_images
 from tests.prereq import requires
 from tests.settings_env import TEST_CONFIG, use_settings
 from video_effects_tool import cli, keys
@@ -36,20 +36,18 @@ def drawing(path: Path) -> Path:
     return path
 
 
-def generate(entry: dict) -> None:
-    """Generate the keyframe of one keys.json entry with image-gen at size 1K and quality low (the entry's prompt,
-    references, model and aspect) and write it to the entry's `out`."""
-    refs = [Path(r).read_bytes() for r in entry["refs"]]
-    image, = image_generate(entry["prompt"], reference_images=refs, aspect_ratio=entry["aspect"], image_size="1K",
-                            model=entry["model"], quality="low")
-    Path(entry["out"]).write_bytes(image.data)
+def generate(entry: dict) -> list[Path]:
+    """Generate the keyframe of one keys.json entry with image-gen's `write_images` at size 1K and quality low (the
+    entry's prompt, references, model and aspect), written to the entry's `out`; return the written paths."""
+    return write_images(entry["prompt"], entry["out"], refs=entry["refs"], aspect_ratio=entry["aspect"],
+                        image_size="1K", model=entry["model"], quality="low")
 
 
 @requires(shutil.which("ffmpeg") and shutil.which("ffprobe"), "needs ffmpeg and ffprobe")
 class TestMorphLive(unittest.TestCase):
     def test_keys_generate_morph(self) -> None:
-        """keys.plan and keys.write with one in-between, then image-gen's generate for every listed keyframe with the
-        image_edit model of tests/config.yaml, then cli.morph of the keys.json chain: size, fps, frame count, strip
+        """keys.plan and keys.write with one in-between, then image-gen's write_images for every listed keyframe with
+        the image_edit model of tests/config.yaml, then cli.morph of the keys.json chain: size, fps, frame count, strip
         and sidecar inputs equal to the chain. Guards that keys.json entries are valid image-gen arguments (aspect,
         size and tier among image-gen's choices) and that generated keys render."""
         with tempfile.TemporaryDirectory() as tmp, use_settings(TEST_CONFIG):
@@ -66,7 +64,7 @@ class TestMorphLive(unittest.TestCase):
                 self.assertIn(e["aspect"], image_models.ASPECT_RATIOS, e["name"])
                 self.assertIn(e["size"], image_models.IMAGE_SIZES, e["name"])
                 self.assertIn(e["tier"], image_models.TIERS, e["name"])
-                generate(e)
+                self.assertEqual(generate(e), [Path(e["out"])], e["name"])
             for e in data["images"]:
                 self.assertTrue(Path(e["out"]).is_file(), e["out"])
 

@@ -5,7 +5,12 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=2",
     "opencv-python-headless>=4.10",
+    # the exit code of a SystemExit raised in process (lib/plugin_settings, git source)
+    "plugin-settings",
 ]
+
+[tool.uv.sources]
+plugin-settings = { git = "https://github.com/pcingola/pcingola-skills", subdirectory = "lib/plugin_settings", branch = "main" }
 
 [dependency-groups]
 dev = [

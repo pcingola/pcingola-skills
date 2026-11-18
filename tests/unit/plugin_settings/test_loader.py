@@ -1,5 +1,5 @@
 """`plugin_settings.load_config` and `config` (docs/plugin_settings.md, loader): the missing file, malformed files,
-the cache per file version, and the exit of `config()`."""
+the cache per file version, the exit of `config()`, and `exit_code`."""
 
 import os
 from pathlib import Path
@@ -85,3 +85,12 @@ def test_use_returns_the_file_set_before(tmp_path):
     assert plugin_settings.paths.config_file() == b
     assert plugin_settings.use(None) == b
     assert plugin_settings.use(before) is None
+
+
+@pytest.mark.parametrize("code, expected, stderr", [(None, 0, ""), (0, 0, ""), (2, 2, ""), ("Error: bad", 1, "Error: bad\n")])
+def test_exit_code_maps_system_exit_as_the_interpreter(code, expected, stderr, capsys):
+    """`exit_code` gives a CLI's `main` the code the interpreter would exit with: 0 for None, an int as is, 1 for a
+    string, which it prints on stderr. Guards that every CLI's `main` returns what its wrapper exits with."""
+    assert plugin_settings.exit_code(SystemExit(code)) == expected
+    out = capsys.readouterr()
+    assert (out.out, out.err) == ("", stderr)

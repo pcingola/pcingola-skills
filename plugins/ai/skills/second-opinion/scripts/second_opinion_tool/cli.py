@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from ai_models import AIModelsError, routes
-from plugin_settings import Plugin, config, error
+from plugin_settings import Plugin, config, error, exit_code
 
 PLUGIN = Plugin.of(__file__)
 
@@ -115,7 +114,4 @@ def main(argv: list[str] | None = None) -> int:
         args = build_parser().parse_args(argv)
         return args.func(args) or 0
     except SystemExit as e:
-        if e.code is None or isinstance(e.code, int):
-            return e.code or 0
-        print(e.code, file=sys.stderr)
-        return 1
+        return exit_code(e)

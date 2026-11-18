@@ -17,6 +17,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from plugin_settings import exit_code
+
 from .exceptions import PptxError
 
 @dataclass(frozen=True)
@@ -256,16 +258,6 @@ def _command(name: str) -> Callable[[argparse.Namespace], int | None]:
     return getattr(module, ref.function)
 
 
-def _exit_code(exc: SystemExit) -> int:
-    """Exit code of a SystemExit, printing a string code to stderr as the interpreter does."""
-    if exc.code is None:
-        return 0
-    if isinstance(exc.code, int):
-        return exc.code
-    print(exc.code, file=sys.stderr)
-    return 1
-
-
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI on `argv` (default: `sys.argv[1:]`) and return the exit code.
 
@@ -277,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
-        return _exit_code(exc)
+        return exit_code(exc)
     try:
         return _command(args.command)(args) or 0
     except PptxError as exc:
