@@ -5,11 +5,10 @@ import wave
 from pathlib import Path
 
 import numpy as np
-import plugin_settings
 import pytest
 
-from tests.settings_env import write_config
-from tests.unit.voiceover.cli_run import voiceover
+from tests.settings_env import use_settings, write_config
+from tests.unit.voiceover import voiceover
 from voiceover_tool.voices import fish_folder, fish_names, reference_path
 
 CHATTERBOX = {"kind": "chatterbox",
@@ -34,7 +33,7 @@ def test_add_voice_rules_and_listing(tmp_path):
     config = write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices)},
                           providers={"cb": CHATTERBOX, "g": {"kind": "google", "api_key": "k"}},
                           tasks={"speech": "cb:chatterbox-turbo"})
-    env = {"SKILLS_CONFIG": str(config)}
+    env = {"config": config}
     short, ok = write_wav(tmp_path / "short.wav", 3.0), write_wav(tmp_path / "ok.wav", 6.0)
 
     assert voiceover("voices", **env).stdout.split() == ["default", "(default)"]
@@ -67,13 +66,13 @@ def test_fish_voice_names(tmp_path):
     voices = tmp_path / "voices"
     (voices / "anna.fish").mkdir(parents=True)
     write_wav(voices / "rec.wav", 6.0)
-    plugin_settings.use(write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices)}))
-    assert fish_folder("default") is None
-    assert fish_folder("anna") == voices / "anna.fish"
-    assert fish_folder("nara") == voices / "nara.fish" and not (voices / "nara.fish").exists()
-    for recording in ("rec", str(voices / "rec.wav")):
-        with pytest.raises(ValueError, match="Fish takes no user recording"):
-            fish_folder(recording)
-    with pytest.raises(ValueError, match="lowercase letters"):
-        fish_folder("Nara")
-    assert fish_names() == ["anna"]
+    with use_settings(write_config(tmp_path / "config.yaml", voiceover={"voices_dir": str(voices)})):
+        assert fish_folder("default") is None
+        assert fish_folder("anna") == voices / "anna.fish"
+        assert fish_folder("nara") == voices / "nara.fish" and not (voices / "nara.fish").exists()
+        for recording in ("rec", str(voices / "rec.wav")):
+            with pytest.raises(ValueError, match="Fish takes no user recording"):
+                fish_folder(recording)
+        with pytest.raises(ValueError, match="lowercase letters"):
+            fish_folder("Nara")
+        assert fish_names() == ["anna"]

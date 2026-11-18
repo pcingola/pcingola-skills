@@ -45,11 +45,18 @@ def old_route_rows(path: Path) -> list[tuple[int, str]]:
 
 
 def load_settings() -> None:
-    """Load the settings (`Plugin.load`); exit when the file is not valid or a row of routes.md names a model by an
-    earlier name (`OLD_NAMES`)."""
+    """`check_settings`, then export the settings to the process environment (`Plugin.load`). The wrapper path
+    (`__main__`) only: an in-process `cli.main(argv)` calls `check_settings` and leaves `os.environ` unchanged."""
+    check_settings()
+    PLUGIN.load()
+
+
+def check_settings() -> None:
+    """Exit when the settings file is not valid (`config()`) or a row of routes.md names a model by an earlier name
+    (`OLD_NAMES`). Leaves the process environment unchanged."""
     from ai_models import routes
 
-    PLUGIN.load()
+    config()
     if rows := old_route_rows(routes.user_path()):
         n, name = rows[0]
         error(f"{routes.user_path()}:{n}: `{name}` is no longer a model; write the model id <provider>:<model> of a "

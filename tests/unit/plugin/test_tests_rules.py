@@ -109,8 +109,8 @@ CLI_PROCESS_ALLOWLIST = {
     "tests/integration/short_video/test_wrapper.py":
         "subject is short-video.sh: the wrapper, uv_env.sh and the skill's locked environment",
     "tests/integration/video_effects/test_morph_live.py": "not converted yet",
-    "tests/integration/voiceover/test_fish_voice.py": "not converted yet",
-    "tests/integration/voiceover/test_synth.py": "not converted yet",
+    "tests/integration/voiceover/test_fish_voice.py":
+        "a voice saved by one command and reused by the next is the subject",
     "tests/unit/brand/test_brand.py": "not converted yet",
     "tests/unit/classify/conftest.py": "not converted yet",
     "tests/unit/classify/test_routes.py": "not converted yet",
@@ -125,11 +125,6 @@ CLI_PROCESS_ALLOWLIST = {
     "tests/unit/second_opinion/test_review.py": "not converted yet",
     "tests/unit/second_opinion/test_routes.py": "not converted yet",
     "tests/unit/short_video/test_routes.py": "not converted yet",
-    "tests/unit/voiceover/cli_run.py": "not converted yet",
-    "tests/unit/voiceover/test_routes.py": "not converted yet",
-    "tests/unit/voiceover/test_setup.py": "not converted yet",
-    "tests/unit/voiceover/test_speech.py": "not converted yet",
-    "tests/unit/voiceover/test_voices.py": "not converted yet",
 }
 DOCSTRING_DIRS = ("tests/integration/pptx", "tests/integration/pptx_author")
 SUBPROCESS_STARTS = {"run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput"}

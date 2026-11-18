@@ -1,8 +1,10 @@
 """Integration: one Fish voice across two `voiceover synth` commands, on the tiny random-weight Drama 3 checkpoint of
 the `fish` provider of tests/config.yaml (`tests/tiny_fish.py`), on the GPU.
 
-Each command runs in its own child process of the root `dev` environment with a settings file that is TEST_CONFIG
-plus a temporary `voiceover.voices_dir`. One command takes about 11-15 s (imports, load of the tiny model, CUDA
+The subject is the process boundary: a Fish voice saved by one command is reused by the next command, a separate
+process that starts with no in-memory take. So each command runs as `python -m voiceover_tool` in its own child
+process of the root `dev` environment with a settings file that is TEST_CONFIG plus a temporary
+`voiceover.voices_dir`. One command takes about 11-15 s (imports, load of the tiny model, CUDA
 graph capture), so the first command runs once in a module fixture and each test runs at most one command.
 """
 

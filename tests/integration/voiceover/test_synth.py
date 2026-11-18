@@ -1,27 +1,27 @@
 """Integration: real `voiceover synth` with the `speech` and `align` models of tests/config.yaml.
 
-Runs the CLI in a child process of the root `dev` environment with the user's settings file hidden and TEST_CONFIG in
-SKILLS_CONFIG.
+Calls the CLI's `main(argv)` in process under TEST_CONFIG (`tests.inproc.run_main`), so one call checks the printed
+paths an agent reads and the files the command writes. The models are loaded once, in the class setup; the autouse
+`_unload_local_models` fixture drops them after the first test.
 """
 
 import json
-import subprocess
 import tempfile
 import unittest
 import wave
 from pathlib import Path
 
+from tests.inproc import CliResult, run_main
 from tests.settings_env import TEST_CONFIG, model_entry, task_model
-from tests.subproc import child_env, run_module
+from voiceover_tool.cli import main
 
 SCRIPT = ("The heart pumps blood through the body.\n\nCount to five.\nIn 1995, about 42% of pumps failed.\n"
           "[calm] Keep it quiet.\n")
-ENV = child_env(SKILLS_CONFIG=str(TEST_CONFIG))
 
 
-def synth(script: Path, out: Path, *args: str) -> subprocess.CompletedProcess:
-    """`voiceover synth` of `script` into `out` with `args`, for at most 25 s."""
-    return run_module("voiceover_tool", ["synth", "--script", str(script), "--out-dir", str(out), *args], ENV)
+def synth(script: Path, out: Path, *args: str) -> CliResult:
+    """`voiceover synth` of `script` into `out` with `args`, in process under TEST_CONFIG."""
+    return run_main(main, "synth", "--script", str(script), "--out-dir", str(out), *args, settings=TEST_CONFIG)
 
 
 class TestSynth(unittest.TestCase):

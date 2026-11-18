@@ -2,7 +2,7 @@
 
 from tests.settings_env import write_config
 
-from .cli_run import voiceover
+from tests.unit.voiceover import voiceover
 
 UNREACHABLE = "http://127.0.0.1:1/model.bin"
 
@@ -14,7 +14,7 @@ def test_setup_failure_is_one_error_line(tmp_path):
                               "kokoro-v1.0": {"model_url": UNREACHABLE, "voices_url": UNREACHABLE,
                                               "langs": {"af_": "en-us"}}}}},
                           tasks={"speech": "k:kokoro-v1.0"})
-    p = voiceover("setup", SKILLS_CONFIG=str(config))
+    p = voiceover("setup", config=config)
     assert p.returncode == 1, p.stderr
     assert "Traceback" not in p.stderr
     assert f"Error: cannot download {UNREACHABLE}" in p.stderr

@@ -18,10 +18,8 @@ from tests.integration.short_video.fast_render import FPS, set_fps
 from tests.integration.short_video.wrapper_env import ENV_DIR, NODE_DIR
 from tests.prereq import requires
 from tests.settings_env import TEST_CONFIG, model_entry, use_settings
-from voiceover_tool.align import clip_aligner
-from voiceover_tool.cli import synthesize_to_dir
+from voiceover_tool.cli import synth
 from voiceover_tool.script import read_script
-from voiceover_tool.speech import Narrator
 
 # The default voice of the speech model.
 VOICE = model_entry("speech")["voice"]
@@ -51,14 +49,12 @@ Brief: The image holds still.
 
 
 def _synth(part: narration.ScriptPart) -> None:
-    """Voice `part` with the voiceover skill's code as `voiceover.sh synth --script <part> --out-dir <its folder>`
-    does, adding `--model`, `--voice` and `--speed` from the part's voice when `script` prints a voice line for it."""
+    """Voice `part` with the voiceover skill's command function (`voiceover_tool.cli.synth`) as
+    `voiceover.sh synth --script <part> --out-dir <its folder>` does, adding `--model`, `--voice` and `--speed` from
+    the part's voice when `script` prints a voice line for it."""
     voice = part.voice if part.voice_line is not None else {"model": None, "name": None, "speed": 1.0}
-    narrator = Narrator(voice["model"], speed=float(voice["speed"]))
-    name = voice["name"] or narrator.default_voice
-    lines = narrator.lines(read_script(part.path))
-    narrator.prepare(lines, name)
-    synthesize_to_dir(narrator, lines, part.path.parent, voice=name, aligner=clip_aligner())
+    synth(read_script(part.path), part.path.parent, model=voice["model"], voice=voice["name"],
+          speed=float(voice["speed"]))
 
 
 @requires(shutil.which("ffmpeg") is not None, "ffmpeg not installed")

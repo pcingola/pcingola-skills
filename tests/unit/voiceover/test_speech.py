@@ -8,7 +8,7 @@ import numpy as np
 
 from tests.settings_env import write_config
 from tests.subproc import child_env, py_value, run_python
-from tests.unit.voiceover.cli_run import voiceover
+from tests.unit.voiceover import voiceover
 from voiceover_tool.speech import decode
 from voiceover_tool.timing import build_timing
 
@@ -41,13 +41,13 @@ def test_voices_of_the_speech_model_and_of_another(tmp_path):
     """`voices` lists the model entry's `voices` with its `voice` marked default; `--model` lists that model's
     voices, the kind's default voice without a `voice`; no `speech` task is an error naming it."""
     config = write_config(tmp_path / "config.yaml", providers={"oai": OAI_VOICES, "g": GOOGLE}, tasks={})
-    p = voiceover("voices", SKILLS_CONFIG=str(config))
+    p = voiceover("voices", config=config)
     assert p.returncode == 1 and "no model for task 'speech'" in p.stderr
     config = write_config(tmp_path / "config.yaml", providers={"oai": OAI_VOICES, "g": GOOGLE},
                           tasks={"speech": "oai:tts-1"})
-    p = voiceover("voices", SKILLS_CONFIG=str(config))
+    p = voiceover("voices", config=config)
     assert p.returncode == 0 and p.stdout.splitlines() == ["one", "two  (default)"], p.stderr
-    p = voiceover("voices", "--model", "g:gemini-tts", SKILLS_CONFIG=str(config))
+    p = voiceover("voices", "--model", "g:gemini-tts", config=config)
     assert p.returncode == 0 and p.stdout.splitlines() == ["Kore  (default)"], p.stderr
 
 
@@ -63,18 +63,19 @@ def test_speed_and_style_refused_before_any_request(tmp_path):
     script = tmp_path / "s.txt"
     script.write_text("Hello there.\n")
     synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
-    p = voiceover(*synth, "--speed", "5", SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, "--speed", "5", config=config)
     assert p.returncode == 1 and "between 0.25 and 4" in p.stderr, p.stderr
-    p = voiceover(*synth, "--model", "g:gemini-tts", "--speed", "1.2", SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, "--model", "g:gemini-tts", "--speed", "1.2", config=config)
     assert p.returncode == 1 and "no speed setting" in p.stderr, p.stderr
-    p = voiceover(*synth, "--model", "k:kokoro-v1.0", "--style", "calm", SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, "--model", "k:kokoro-v1.0", "--style", "calm", config=config)
     assert p.returncode == 1 and "takes no instructions" in p.stderr, p.stderr
-    p = voiceover(*synth, "--model", "local:flux", SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, "--model", "local:flux", config=config)
     assert p.returncode == 1 and "task speech takes kinds" in p.stderr, p.stderr
     assert not (tmp_path / "o").exists()
 
 
 def test_timing_records_the_model_and_style_only_when_set():
+    """`build_timing` records the model always and `style` only when one is given (timing.json fields)."""
     kw = dict(audio="a.wav", sample_rate=24000, duration=1.0, model="k:kokoro-v1.0", voice="v", speed=1.0,
               sentences=[])
     assert build_timing(**kw)["model"] == "k:kokoro-v1.0" and "style" not in build_timing(**kw)
@@ -113,17 +114,17 @@ def test_speakers_and_params_refused_by_a_model_that_takes_none(tmp_path):
     script = tmp_path / "s.txt"
     script.write_text("@host Hello.\n")
     synth = ("synth", "--script", str(script), "--out-dir", str(tmp_path / "o"), "--no-align")
-    p = voiceover(*synth, "--speaker", "host=alice", SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, "--speaker", "host=alice", config=config)
     assert p.returncode == 1 and "takes no speakers" in p.stderr, p.stderr
-    p = voiceover(*synth, "--param", "seed=7", SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, "--param", "seed=7", config=config)
     assert p.returncode == 1 and "takes no request parameters" in p.stderr, p.stderr
-    p = voiceover(*synth, "--model", "f:drama-3", "--param", "seed", SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, "--model", "f:drama-3", "--param", "seed", config=config)
     assert p.returncode == 1 and "expected NAME=VALUE" in p.stderr, p.stderr
     script.write_text("@host [laughs]\n")
-    p = voiceover(*synth, "--model", "f:drama-3", SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, "--model", "f:drama-3", config=config)
     assert p.returncode == 1 and "has only tags" in p.stderr, p.stderr
     script.write_text("Hello [laughs] there.\n")
-    p = voiceover(*synth, SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, config=config)
     assert p.returncode == 1 and "would speak aloud" in p.stderr, p.stderr
     assert not (tmp_path / "o").exists()
 
@@ -145,10 +146,10 @@ def test_speakers_checked_before_any_request(tmp_path):
                           (("--speaker", "hots=anna"), "no `@name` line of the script has that speaker"),
                           (("--speaker", "host=anna"), "Fish takes no user recording"),
                           (("--voice", "Bob"), "lowercase letters")]:
-        p = voiceover(*synth, *args, SKILLS_CONFIG=str(config))
+        p = voiceover(*synth, *args, config=config)
         assert p.returncode == 1 and message in p.stderr, (args, p.stderr)
     script.write_text("@Host Hello.\n")
-    p = voiceover(*synth, SKILLS_CONFIG=str(config))
+    p = voiceover(*synth, config=config)
     assert p.returncode == 1 and "lowercase letters" in p.stderr, p.stderr
     assert not (tmp_path / "o").exists()
 
@@ -206,7 +207,7 @@ print([p.name for p in n.save_voices()], n.save_voices())
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "['nara.fish'] []"
     assert (voices_dir / "nara.fish" / "voice.wav").read_bytes() == b"G"
-    p = voiceover("voices", SKILLS_CONFIG=str(config))
+    p = voiceover("voices", config=config)
     assert p.returncode == 0 and p.stdout.split() == ["default", "(default)", "anna", "nara"], p.stderr
 
 
@@ -288,11 +289,11 @@ def test_earlier_model_settings_refused(tmp_path):
     config = tmp_path / "config.yaml"
     config.write_text("settings:\n  VOICEOVER_KOKORO_VOICE: af_heart\n  VOICEOVER_MODEL_DIR: /old/voiceover\n"
                       "  VOICEOVER_VOICES_DIR: /old/voiceover/voices\n", encoding="utf-8")
-    p = voiceover("voices", SKILLS_CONFIG=str(config))
+    p = voiceover("voices", config=config)
     assert p.returncode == 1 and "Traceback" not in p.stderr, p.stderr
     for part in ("settings.VOICEOVER_KOKORO_VOICE: no longer read", "tasks.speech and tasks.align",
                  "dir: /old/voiceover", "settings.VOICEOVER_VOICES_DIR: moved to voiceover.voices_dir"):
         assert part in p.stderr, (part, p.stderr)
     config = write_config(tmp_path / "ok.yaml", voiceover={"voices_dir": str(tmp_path)}, providers={"oai": OAI},
                           tasks={"speech": "oai:tts-1"})
-    assert voiceover("voices", SKILLS_CONFIG=str(config)).returncode == 0
+    assert voiceover("voices", config=config).returncode == 0

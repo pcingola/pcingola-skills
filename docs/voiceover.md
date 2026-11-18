@@ -108,7 +108,7 @@ Local weights live in `voiceover/` of the plugin data directory (`config.weights
 voiceover passes it to `ai_models` as `weights_dir`. A `fish` model's checkpoint goes to the Hugging Face cache.
 
 The `VOICEOVER_*` settings of an earlier layout fail at load in `plugin_settings` (`docs/plugin_settings.md`).
-`load_settings` refuses a routes.md row whose model is an earlier name (`kokoro`, `chatterbox`),
+`check_settings` refuses a routes.md row whose model is an earlier name (`kokoro`, `chatterbox`),
 asking for a model id of a provider of that kind. A config error about a missing provider or model gets a hint that
 the setup:settings template has the entries (`config.TEMPLATE_HINT`).
 

@@ -110,6 +110,35 @@ def write_takes(out_dir: Path, takes: dict[str | None, tuple[bytes, str]]) -> li
     return out
 
 
+def synth(
+    sentences: Sequence[str],
+    out_dir: str | Path,
+    *,
+    model: str | None = None,
+    voice: str | None = None,
+    speed: float = 1.0,
+    style: str | None = None,
+    speakers: dict[str, str] | None = None,
+    params: dict | None = None,
+    lead: float = DEFAULT_LEAD,
+    gap: float = DEFAULT_GAP,
+    tail: float = DEFAULT_TAIL,
+    align: bool = True,
+) -> tuple[Path, Path]:
+    """The work of `voiceover synth`: voice the script lines `sentences` (`read_script`) with the speech model `model`
+    (None: `tasks.speech`) into `out_dir`; return the paths of narration.wav and timing.json.
+
+    `voice` None is the model's default voice. Every line and voice is checked (`Narrator.prepare`) before the
+    aligner loads (`align`; False writes sentence times only) and before the first request. Raises `ValueError`,
+    `TTSError` or `AIModelsError` on a refused argument, line or voice, or a failed request."""
+    narrator = Narrator(model, style=style, speed=speed, speakers=speakers or {}, params=params or {})
+    voice = voice or narrator.default_voice
+    lines = narrator.lines(sentences)
+    narrator.prepare(lines, voice)
+    aligner = clip_aligner() if align else None
+    return synthesize_to_dir(narrator, lines, out_dir, voice=voice, lead=lead, gap=gap, tail=tail, aligner=aligner)
+
+
 def _cmd_synth(args: argparse.Namespace) -> int:
     try:
         sentences = read_script(args.script)
@@ -118,22 +147,9 @@ def _cmd_synth(args: argparse.Namespace) -> int:
     if not sentences:
         config.error(f"{args.script}: no sentences (one sentence per line, blank lines skipped)")
     try:
-        narrator = Narrator(args.model, style=args.style, speed=args.speed, speakers=_pairs(args.speaker, "--speaker"),
-                            params=_params(args.param))
-        voice = args.voice or narrator.default_voice
-        lines = narrator.lines(sentences)
-        narrator.prepare(lines, voice)  # every line and voice checked before the aligner loads and the first request
-        aligner = None if args.no_align else clip_aligner()
-        wav, timing = synthesize_to_dir(
-            narrator,
-            lines,
-            args.out_dir,
-            voice=voice,
-            lead=args.lead,
-            gap=args.gap,
-            tail=args.tail,
-            aligner=aligner,
-        )
+        wav, timing = synth(sentences, args.out_dir, model=args.model, voice=args.voice, speed=args.speed,
+                            style=args.style, speakers=_pairs(args.speaker, "--speaker"), params=_params(args.param),
+                            lead=args.lead, gap=args.gap, tail=args.tail, align=not args.no_align)
     except (ValueError, TTSError, AIModelsError) as e:
         config.error(str(e))
     print(wav)
@@ -260,7 +276,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> None:
-    config.load_settings()
-    args = build_parser().parse_args(argv)
-    sys.exit(args.func(args))
+def main(argv: list[str] | None = None) -> int:
+    """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help`, argument errors and
+    command errors (`config.error`: `Error: <msg>` on stderr, exit 1) return their code. Checks the settings
+    (`config.check_settings`) and leaves `os.environ` unchanged: the wrapper path (`__main__`) exports the settings
+    to the environment before it calls `main`."""
+    try:
+        config.check_settings()
+        args = build_parser().parse_args(argv)
+        return args.func(args)
+    except SystemExit as e:
+        if e.code is None or isinstance(e.code, int):
+            return e.code or 0
+        print(e.code, file=sys.stderr)
+        return 1
