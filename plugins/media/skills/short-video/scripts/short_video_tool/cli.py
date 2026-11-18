@@ -78,6 +78,7 @@ import sys
 from pathlib import Path
 
 from ai_models import routes
+from plugin_settings import config as plugin_config
 
 from . import audiocheck, brand, clip, config, credit, media, mix, music, narration, scenes, settings, speakers, state
 from . import film_html, manim_scene, pages, presenter_scene, refs, status, stills, storyboard, video_scene, world
@@ -922,7 +923,13 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main() -> None:
-    config.load_settings()
-    args = _build_parser().parse_args()
-    sys.exit(args.func(args))
+def main(argv: list[str] | None = None) -> int:
+    """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help` and argument errors
+    return argparse's code. Validates the settings file (exit on an invalid one) and leaves `os.environ` as it is:
+    the wrapper path (`__main__`) exports the settings to the environment before it calls `main`."""
+    plugin_config()
+    try:
+        args = _build_parser().parse_args(argv)
+    except SystemExit as e:
+        return int(e.code or 0)
+    return args.func(args)
