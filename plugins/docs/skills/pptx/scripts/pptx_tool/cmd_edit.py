@@ -1,194 +1,126 @@
 """Apply a sequence of operations to a deck in one call, atomically.
 
-`edit` runs the same code the individual commands run — each action dispatches
-straight to that command's runner. It buys two things a shell chain of separate
-invocations cannot:
+Each operation is parsed into its typed form (`edit_operations`) and runs the core
+function of the command of the same name. `edit` buys two things a shell chain of
+separate invocations cannot:
 
 - **No temp files to thread.** Nine operations used to mean nine intermediate
   decks and nine paths to keep straight.
 - **Atomicity.** Every step writes inside a temporary directory; the output path
   is only touched at the end, by `Path.replace`, which is atomic on the same
-  filesystem. A failure at step 7 of 9 leaves no half-written deck behind — not a
+  filesystem. A failure at step 7 of 9 leaves no half-written deck behind: not a
   truncated file, not a stale one, nothing.
 
 Every action name is the name of a command. `add-text` runs `add-text`. There is
 no separate action vocabulary to keep in sync with the CLI.
+
+The CLI prints each step as the command of that step prints its report, with the
+step's temporary deck as the output path, and a failed step as that command
+prints its error.
 """
 
-import argparse
 import json
 import os
 import shutil
 import sys
 import tempfile
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
-from .cmd_add_chart import run_add_chart
-from .cmd_add_images import run_add_images
-from .cmd_add_notes import run_add_notes
-from .cmd_add_slide import add_slides_to_file, print_added_slides
-from .cmd_add_table import run_add_table
-from .cmd_add_text import run_add_text
-from .cmd_copy_slide import run_copy_slide
-from .cmd_delete_slide import run_delete_slide
+from .cmd_add_chart import print_chart_added
+from .cmd_add_images import print_add_images_failure, print_images_added
+from .cmd_add_notes import print_notes_set
+from .cmd_add_slide import print_added_slides
+from .cmd_add_table import print_tables_added
+from .cmd_add_text import print_add_text_failure, print_text_added
+from .cmd_copy_slide import print_copied_slides, print_copy_slide_failure
+from .cmd_delete_slide import print_deleted_slides
+from .common import require_file
+from .edit_operations import EditAction, parse_operation
 from .exceptions import PptxError
-from .pptx import print_error
+from .pptx import print_error, print_unexpected_failure
+
+COMMAND = "edit"
 
 
-def _load_spec(spec_arg: str) -> object:
-    """Accept an inline JSON object or array (first character `{` or `[`), else a
-    path of any extension, with or without a leading `@`."""
-    if spec_arg.lstrip().startswith(("{", "[")):
-        return json.loads(spec_arg)
-    return json.loads(Path(spec_arg.removeprefix("@")).read_text(encoding="utf-8"))
+@dataclass(frozen=True)
+class EditStep:
+    """One operation that ran: its 0-based index, its action and the result of its command's core function."""
+    index: int
+    action: EditAction
+    result: object
 
 
-def _write_tmp_json(data: object, tmp_root: Path, name: str) -> Path:
-    path = tmp_root / name
-    path.write_text(json.dumps(data), encoding="utf-8")
-    return path
+@dataclass(frozen=True)
+class DeckEdited:
+    """What `apply_operations` did: the steps in order and the output path."""
+    steps: list[EditStep]
+    output_path: Path
 
 
-def _require(op: dict, key: str, action: str):
-    if key not in op:
-        raise ValueError(f"'{action}' operation requires '{key}'")
-    return op[key]
+@dataclass(frozen=True)
+class OperationFailure:
+    """The operation that failed: its index, its action, the exception, and whether that exception
+    came from the command's core function (True) or from parsing the operation (False)."""
+    index: int
+    action: EditAction
+    cause: Exception
+    command_ran: bool
 
 
-def _slide_keyed(op: dict, action: str) -> dict:
-    """Return the operation's `data` in the slide-N-keyed form the commands take.
+class EditError(PptxError):
+    """An operation of `edit` failed; nothing was written to the output path.
 
-    Accepts either that form directly, or a bare per-slide payload plus a
-    `slide` index — the shorthand is what most callers reach for when the whole
-    operation targets one slide.
+    `steps` are the operations that ran before it. `failure` is None for an operation that is not
+    an object or names no valid action (the message says which).
     """
-    data = _require(op, "data", action)
-    if isinstance(data, dict) and any(str(k).startswith("slide-") for k in data):
-        return data
-    slide = _require(op, "slide", action)
-    return {f"slide-{int(slide)}": data}
+
+    def __init__(self, message: str, steps: list[EditStep], failure: OperationFailure | None = None):
+        super().__init__(message)
+        self.steps = list(steps)
+        self.failure = failure
 
 
-def _run_add_text(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
-    data_path = _write_tmp_json(_slide_keyed(op, "add-text"), tmp_root, f"text-{i}.json")
-    return run_add_text(argparse.Namespace(input=str(current), text_data=str(data_path), output=str(out)))
+def _action(index: int, spec: object, steps: list[EditStep]) -> EditAction:
+    if not isinstance(spec, dict):
+        raise EditError(f"Operation {index} is not an object", steps)
+    name = spec.get("action")
+    try:
+        return EditAction(name)
+    except ValueError:
+        raise EditError(f"Unknown action '{name}'. Valid: {', '.join(sorted(EditAction))}", steps) from None
 
 
-def _run_add_table(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
-    data_path = _write_tmp_json(_slide_keyed(op, "add-table"), tmp_root, f"table-{i}.json")
-    return run_add_table(argparse.Namespace(input=str(current), table_data=str(data_path), output=str(out)))
+def apply_operations(input_path: Path, output_path: Path, operations: list) -> DeckEdited:
+    """Apply `operations` (spec objects, each with an `action`) in order against `input_path`.
 
-
-def _run_add_notes(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
-    data_path = _write_tmp_json(_slide_keyed(op, "add-notes"), tmp_root, f"notes-{i}.json")
-    return run_add_notes(argparse.Namespace(input=str(current), notes_data=str(data_path), output=str(out)))
-
-
-def _run_add_chart(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
-    data_path = _write_tmp_json(_require(op, "data", "add-chart"), tmp_root, f"chart-{i}.json")
-    return run_add_chart(argparse.Namespace(
-        input=str(current), output=str(out),
-        slide=int(_require(op, "slide", "add-chart")),
-        chart_data=str(data_path), index=int(op.get("index", 0)),
-    ))
-
-
-def _run_add_images(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
-    images = op.get("images", op.get("image"))
-    if images is None:
-        raise ValueError("'add-images' operation requires 'images'")
-    if isinstance(images, list):
-        images = ",".join(str(p) for p in images)
-    return run_add_images(argparse.Namespace(
-        input=str(current), output=str(out),
-        slide=int(_require(op, "slide", "add-images")),
-        images=str(images),
-        placeholder_type=op.get("type", "PICTURE"),
-        index=op.get("index"),
-    ))
-
-
-def _run_copy_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
-    """Copy slides from another deck into this one. The current deck is the target."""
-    indices = _require(op, "source_indices", "copy-slide")
-    if isinstance(indices, (list, tuple)):
-        indices = ",".join(str(x) for x in indices)
-    position = op.get("position")
-    return run_copy_slide(argparse.Namespace(
-        source=str(_require(op, "source", "copy-slide")),
-        target=str(current), output=str(out),
-        source_indices=str(indices),
-        position=None if position is None else int(position),
-    ))
-
-
-def _run_add_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
-    layouts = _require(op, "layouts", "add-slide")
-    if isinstance(layouts, (list, tuple)):
-        names = [str(x) for x in layouts]
-    else:
-        names = [n.strip() for n in str(layouts).split(",") if n.strip()]
-    position = op.get("position")
-    print_added_slides(add_slides_to_file(current, out, names, None if position is None else int(position)))
-
-
-def _run_delete_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
-    indices = op.get("indices", op.get("slide"))
-    if indices is None:
-        raise ValueError("'delete-slide' operation requires 'indices'")
-    if isinstance(indices, (list, tuple)):
-        indices = ",".join(str(x) for x in indices)
-    return run_delete_slide(argparse.Namespace(
-        input=str(current), output=str(out), indices=str(indices)))
-
-
-ACTION_RUNNERS = {
-    "add-text": _run_add_text,
-    "add-table": _run_add_table,
-    "add-notes": _run_add_notes,
-    "add-chart": _run_add_chart,
-    "add-images": _run_add_images,
-    "add-slide": _run_add_slide,
-    "copy-slide": _run_copy_slide,
-    "delete-slide": _run_delete_slide,
-}
-
-
-def apply_operations(input_path: Path, output_path: Path, operations: list[dict]) -> None:
-    """Apply `operations` in order against `input_path`. Writes `output_path` only on success."""
+    Each operation is parsed when its turn comes, so the operations before a malformed one run
+    first. Writes `output_path` only on success; a failed operation raises EditError.
+    """
     if not operations:
-        raise ValueError("'operations' list is empty")
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input deck not found: {input_path}")
+        raise PptxError("'operations' list is empty")
+    require_file(input_path, f"Input deck not found: {input_path}")
 
+    steps: list[EditStep] = []
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_root = Path(tmp_dir)
         current = tmp_root / "cur.pptx"
         shutil.copy2(input_path, current)
 
-        for i, op in enumerate(operations):
-            if not isinstance(op, dict):
-                raise ValueError(f"Operation {i} is not an object")
-            action = op.get("action")
-            runner = ACTION_RUNNERS.get(action)
-            if runner is None:
-                raise ValueError(
-                    f"Unknown action '{action}'. Valid: {', '.join(sorted(ACTION_RUNNERS))}"
-                )
-            step_out = tmp_root / f"step-{i}.pptx"
-            print(f"[{i}] {action}")
-            # A command's error is printed as the command prints it. Inside `edit`
-            # that is a failed step, not a failed process: say which one and abort
-            # before anything reaches output_path.
+        for i, spec in enumerate(operations):
+            action = _action(i, spec, steps)
+            message = f"operation {i} ('{action}') failed"
             try:
-                code = runner(op, current, step_out, tmp_root, i)
-            except PptxError as exc:
-                print_error(action, exc)
-                code = 1
-            if code:
-                raise RuntimeError(f"operation {i} ('{action}') failed")
-            if not step_out.exists():
-                raise RuntimeError(f"operation {i} ('{action}') produced no output file")
+                operation = parse_operation(action, spec)
+            except Exception as exc:
+                raise EditError(message, steps, OperationFailure(i, action, exc, command_ran=False)) from exc
+            step_out = tmp_root / f"step-{i}.pptx"
+            try:
+                result = operation.apply(current, step_out)
+            except Exception as exc:
+                raise EditError(message, steps, OperationFailure(i, action, exc, command_ran=True)) from exc
+            steps.append(EditStep(i, action, result))
             current = step_out
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -200,25 +132,103 @@ def apply_operations(input_path: Path, output_path: Path, operations: list[dict]
             staging.unlink(missing_ok=True)
             raise
 
-    print(f"Applied {len(operations)} operation(s), saved to: {output_path}")
+    return DeckEdited(steps, output_path)
 
 
-def run_edit(args) -> None:
+# --- CLI ---
+
+# Exceptions printed as `Error: <message>` on stderr with no "operation N failed" line.
+REPORTED_ERRORS = (ValueError, FileNotFoundError, RuntimeError)
+
+
+@dataclass(frozen=True)
+class ActionPrinters:
+    """How the CLI prints one action's step: its command's report, and its command's failure
+    printer, which returns False for an exception the command does not print itself."""
+    result: Callable[[object], None]
+    failure: Callable[[Exception], bool] | None = None
+
+
+ACTION_PRINTERS: dict[EditAction, ActionPrinters] = {
+    EditAction.ADD_TEXT: ActionPrinters(print_text_added, print_add_text_failure),
+    EditAction.ADD_TABLE: ActionPrinters(print_tables_added, print_unexpected_failure),
+    EditAction.ADD_NOTES: ActionPrinters(print_notes_set, print_unexpected_failure),
+    EditAction.ADD_CHART: ActionPrinters(print_chart_added),
+    EditAction.ADD_IMAGES: ActionPrinters(print_images_added, print_add_images_failure),
+    EditAction.ADD_SLIDE: ActionPrinters(print_added_slides),
+    EditAction.COPY_SLIDE: ActionPrinters(print_copied_slides, print_copy_slide_failure),
+    EditAction.DELETE_SLIDE: ActionPrinters(print_deleted_slides),
+}
+
+
+def _load_spec(spec_arg: str) -> object:
+    """Accept an inline JSON object or array (first character `{` or `[`), else a
+    path of any extension, with or without a leading `@`."""
+    if spec_arg.lstrip().startswith(("{", "[")):
+        return json.loads(spec_arg)
+    return json.loads(Path(spec_arg.removeprefix("@")).read_text(encoding="utf-8"))
+
+
+def _print_step(index: int, action: EditAction) -> None:
+    print(f"[{index}] {action}")
+
+
+def _print_steps(steps: list[EditStep]) -> None:
+    for step in steps:
+        _print_step(step.index, step.action)
+        ACTION_PRINTERS[step.action].result(step.result)
+
+
+def print_edit_failure(exc: EditError) -> int:
+    """Print the steps that ran and the failed operation, and return exit code 1.
+
+    The failed command's error prints as that command prints it, followed by
+    `Error: operation N ('action') failed`. An error in parsing the operation, or a
+    ValueError, FileNotFoundError or RuntimeError the command does not print, prints
+    as `Error: <message>` alone. Any other exception is raised again.
+    """
+    _print_steps(exc.steps)
+    failure = exc.failure
+    if failure is None:
+        print_error(COMMAND, exc)
+        return 1
+    _print_step(failure.index, failure.action)
+    cause = failure.cause
+    print_failure = ACTION_PRINTERS[failure.action].failure
+    printed = failure.command_ran and print_failure is not None and print_failure(cause)
+    if not printed:
+        if isinstance(cause, PptxError):
+            print_error(failure.action.value, cause)
+        elif isinstance(cause, REPORTED_ERRORS):
+            print(f"Error: {cause}", file=sys.stderr)
+            return 1
+        else:
+            raise cause from None
+    print_error(COMMAND, exc)
+    return 1
+
+
+def run_edit(args) -> int:
     """Entry point from CLI dispatcher."""
     try:
         spec = _load_spec(args.spec)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"Error: could not read spec: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     operations = spec.get("operations", spec) if isinstance(spec, dict) else spec
     if not isinstance(operations, list):
         print("Error: spec must be a list of operations, or an object with an "
               "'operations' key", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     try:
-        apply_operations(Path(args.input), Path(args.output), operations)
-    except (ValueError, FileNotFoundError, RuntimeError) as exc:
+        result = apply_operations(Path(args.input), Path(args.output), operations)
+    except EditError as exc:
+        return print_edit_failure(exc)
+    except REPORTED_ERRORS as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
+    _print_steps(result.steps)
+    print(f"Applied {len(result.steps)} operation(s), saved to: {result.output_path}")
+    return 0

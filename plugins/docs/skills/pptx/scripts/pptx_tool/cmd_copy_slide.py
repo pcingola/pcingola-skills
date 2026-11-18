@@ -68,8 +68,24 @@ def copy_slides(source_path: Path, target_path: Path, output_path: Path, source_
     return CopiedSlides(copied, output_path, len(target_prs.slides))
 
 
+def print_copied_slides(result: CopiedSlides) -> None:
+    """Print the copy-slide report: one line per copied slide, then the saved path and slide count."""
+    for slide in result.slides:
+        print(f"  Copied source slide {slide.source_index} to position {slide.position}")
+    print(f"Saved to: {result.output_path} ({result.total} slides)")
+
+
+def print_copy_slide_failure(exc: Exception) -> bool:
+    """Print a SlidePositionError as `Error: <message>` on stderr and return True; return False for
+    any other exception (a PptxError prints in the standard format, on stdout)."""
+    if not isinstance(exc, SlidePositionError):
+        return False
+    print(f"Error: {exc}", file=sys.stderr)
+    return True
+
+
 def run_copy_slide(args) -> int:
-    """Entry point from CLI dispatcher. An insert position error goes to stderr; other errors to stdout."""
+    """Entry point from CLI dispatcher."""
     source_path = Path(args.source)
     target_path = Path(args.target)
     # The file checks come before the index parse, as the CLI reports the first of the errors.
@@ -77,10 +93,9 @@ def run_copy_slide(args) -> int:
     indices = parse_indices(args.source_indices, INVALID_INDICES_MESSAGE)
     try:
         result = copy_slides(source_path, target_path, Path(args.output), indices, args.position)
-    except SlidePositionError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-    for slide in result.slides:
-        print(f"  Copied source slide {slide.source_index} to position {slide.position}")
-    print(f"Saved to: {result.output_path} ({result.total} slides)")
+    except Exception as e:
+        if print_copy_slide_failure(e):
+            return 1
+        raise
+    print_copied_slides(result)
     return 0

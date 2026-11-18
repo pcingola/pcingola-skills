@@ -11,8 +11,8 @@ from pathlib import Path
 
 from .cmd_extract_shapes import ExtractedShapesData, extract_text
 from .common import load_data_json, require_file
-from .exceptions import PptxError, TextAdditionError, TextOverflowError, ValidationError
-from .pptx import print_unexpected_error
+from .exceptions import TextAdditionError, TextOverflowError, ValidationError
+from .pptx import print_unexpected_failure
 from .text_fitting import FittingResult, TextFitter, MIN_FONT_SIZE, paragraph_base_sizes
 from .text_formatters import ParagraphProcessor
 from .text_validators import TextAdditionValidator, WarningCollector
@@ -265,8 +265,20 @@ def print_text_added(result: TextAdded) -> None:
     print(f"  - Shapes with text added: {result.stats.added}")
 
 
+def print_add_text_failure(exc: Exception) -> bool:
+    """Print an add-text failure and return True: a TextAdditionError as its details and
+    `Error adding text: <message>`, an exception other than PptxError as an unexpected error.
+    Return False for another PptxError, which the caller prints in the standard format."""
+    if isinstance(exc, TextAdditionError):
+        for line in exc.details:
+            print(line)
+        print(f"Error adding text: {exc}")
+        return True
+    return print_unexpected_failure(exc)
+
+
 def run_add_text(args) -> int:
-    """Entry point from CLI dispatcher. A TextAdditionError prints as `Error adding text: <message>`."""
+    """Entry point from CLI dispatcher."""
     input_pptx = Path(args.input)
     output_pptx = Path(args.output)
     # The CLI reports a missing input before a missing or malformed text data file.
@@ -274,14 +286,9 @@ def run_add_text(args) -> int:
     try:
         text_data = load_data_json(Path(args.text_data), "Text data")
         result = PresentationTextAdder().add_text(input_pptx, text_data, output_pptx)
-    except TextAdditionError as e:
-        for line in e.details:
-            print(line)
-        print(f"Error adding text: {e}")
-        return 1
-    except PptxError:
-        raise
     except Exception as e:
-        return print_unexpected_error(e)
+        if print_add_text_failure(e):
+            return 1
+        raise
     print_text_added(result)
     return 0

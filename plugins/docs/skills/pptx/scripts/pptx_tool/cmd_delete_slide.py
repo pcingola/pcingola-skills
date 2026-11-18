@@ -48,7 +48,11 @@ def run_delete_slide(args) -> None:
     input_path = Path(args.input)
     # The input check comes before the index parse, as the CLI reports the first of the two errors.
     require_file(input_path, f"Input file not found: {input_path}")
-    result = delete_slides(input_path, Path(args.output), parse_indices(args.indices, INVALID_INDICES_MESSAGE))
+    print_deleted_slides(delete_slides(input_path, Path(args.output), parse_indices(args.indices, INVALID_INDICES_MESSAGE)))
+
+
+def print_deleted_slides(result: DeletedSlides) -> None:
+    """Print the delete-slide report: one line per removed slide, then the saved path and slides left."""
     for idx in result.removed:
         print(f"  Removed slide {idx}")
     print(f"Saved to: {result.output_path} ({result.remaining} slides remaining)")

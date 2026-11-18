@@ -78,6 +78,18 @@ def print_unexpected_error(exc: Exception) -> int:
     return 1
 
 
+def print_unexpected_failure(exc: Exception) -> bool:
+    """Print an exception other than PptxError with `print_unexpected_error` and return True;
+    return False for a PptxError, which the caller prints in the standard format.
+
+    The failure output of `add-table` and `add-notes`, as a command and as an `edit` operation.
+    """
+    if isinstance(exc, PptxError):
+        return False
+    print_unexpected_error(exc)
+    return True
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser of every command."""
     parser = argparse.ArgumentParser(prog='pptx', description="PowerPoint CLI for presentations and templates")

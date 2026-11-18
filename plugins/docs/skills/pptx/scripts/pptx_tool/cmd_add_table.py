@@ -14,8 +14,8 @@ from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
 from .common import load_data_json, require_file
-from .exceptions import PptxError, ValidationError
-from .pptx import print_unexpected_error
+from .exceptions import ValidationError
+from .pptx import print_unexpected_failure
 from .text_formatters import ParagraphProcessor
 
 # Shared run/paragraph styler — the same path add-text and add-shapes use, so a
@@ -33,9 +33,10 @@ ALIGNMENT_MAP = {
 
 @dataclass(frozen=True)
 class TablesAdded:
-    """What `add_tables` did: the number of tables added and warning lines, in order."""
+    """What `add_tables` did: the number of tables added, warning lines in order, and the output path."""
     tables_added: int
     warnings: list[str]
+    output_path: Path
 
 
 class PresentationTableAdder:
@@ -64,7 +65,7 @@ class PresentationTableAdder:
                 tables_added += 1
 
         prs.save(str(output_path))
-        return TablesAdded(tables_added, list(self.warnings))
+        return TablesAdded(tables_added, list(self.warnings), output_path)
 
     def _validate_table_data(self, prs, table_data: dict) -> None:
         """Validate table data against the presentation."""
@@ -390,12 +391,17 @@ def run_add_table(args) -> int:
     try:
         table_data = load_data_json(Path(args.table_data), "Table data")
         result = PresentationTableAdder().add_tables(input_pptx, table_data, output_pptx)
-    except PptxError:
-        raise
     except Exception as e:
-        return print_unexpected_error(e)
+        if print_unexpected_failure(e):
+            return 1
+        raise
+    print_tables_added(result)
+    return 0
+
+
+def print_tables_added(result: TablesAdded) -> None:
+    """Print the add-table report: warnings, the saved path and the number of tables added."""
     for line in result.warnings:
         print(line)
-    print(f"Saved presentation to: {output_pptx}")
+    print(f"Saved presentation to: {result.output_path}")
     print(f"Tables added: {result.tables_added}")
-    return 0

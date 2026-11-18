@@ -6,23 +6,30 @@ notes never touches slide content (shapes, text, images) -- only the slide's
 notes page. Works on both blank-canvas decks and template-based decks.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
 
 from .common import load_data_json, require_file
-from .exceptions import PptxError, ValidationError
-from .pptx import print_unexpected_error
+from .exceptions import ValidationError
+from .pptx import print_unexpected_failure
+
+
+@dataclass(frozen=True)
+class NotesSet:
+    """What `add_notes` did: the slide keys whose notes it set, in slide order, and the output path."""
+    slide_keys: list[str]
+    output_path: Path
 
 
 class PresentationNotesSetter:
     """Sets speaker notes text on slides from a JSON definition."""
 
-    def add_notes(self, input_path: Path, notes_data: dict, output_path: Path) -> list[str]:
+    def add_notes(self, input_path: Path, notes_data: dict, output_path: Path) -> NotesSet:
         """Set the notes of each slide-N key of `notes_data` and save the deck to output_path.
 
-        Returns the slide keys set, in slide order. Invalid data raises ValidationError with one
-        detail line per problem.
+        Invalid data raises ValidationError with one detail line per problem.
         """
         require_file(input_path, f"Input file '{input_path}' not found")
         prs = Presentation(str(input_path))
@@ -34,7 +41,7 @@ class PresentationNotesSetter:
             self._set_notes(slide, text)
 
         prs.save(str(output_path))
-        return sorted(notes_data, key=lambda k: int(k.split("-")[1]))
+        return NotesSet(sorted(notes_data, key=lambda k: int(k.split("-")[1])), output_path)
 
     def _validate_notes_data(self, prs, notes_data: dict) -> None:
         errors = []
@@ -87,12 +94,17 @@ def run_add_notes(args) -> int:
     require_file(input_pptx, f"Input file '{input_pptx}' not found")
     try:
         notes_data = load_data_json(Path(args.notes_data), "Notes data")
-        slide_keys = PresentationNotesSetter().add_notes(input_pptx, notes_data, output_pptx)
-    except PptxError:
-        raise
+        result = PresentationNotesSetter().add_notes(input_pptx, notes_data, output_pptx)
     except Exception as e:
-        return print_unexpected_error(e)
-    print(f"Saved presentation to: {output_pptx}")
-    for slide_key in slide_keys:
-        print(f"  {slide_key}: notes set")
+        if print_unexpected_failure(e):
+            return 1
+        raise
+    print_notes_set(result)
     return 0
+
+
+def print_notes_set(result: NotesSet) -> None:
+    """Print the add-notes report: the saved path, then one line per slide whose notes were set."""
+    print(f"Saved presentation to: {result.output_path}")
+    for slide_key in result.slide_keys:
+        print(f"  {slide_key}: notes set")

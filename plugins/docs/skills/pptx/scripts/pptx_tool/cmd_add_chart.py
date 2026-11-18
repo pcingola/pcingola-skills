@@ -6,6 +6,7 @@ PowerPoint, and they cannot drift from an image regenerated at another time.
 """
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
@@ -116,7 +117,15 @@ def add_chart_to_slide(slide: object, placeholder: object, chart_config: dict) -
         apply_column_chart_formatting(chart, data)
 
 
-def add_chart(input_path: Path, output_path: Path, slide_index: int, chart_config: dict, index: int = 0) -> None:
+@dataclass(frozen=True)
+class ChartAdded:
+    """What `add_chart` did: the slide index, the OBJECT placeholder index and the output path."""
+    slide_index: int
+    placeholder_index: int
+    output_path: Path
+
+
+def add_chart(input_path: Path, output_path: Path, slide_index: int, chart_config: dict, index: int = 0) -> ChartAdded:
     """Replace the OBJECT placeholder at `index` on one slide with the chart `chart_config`
     (the chart data JSON) and save the deck to output_path."""
     require_file(input_path, f"Input file not found: {input_path}")
@@ -141,6 +150,13 @@ def add_chart(input_path: Path, output_path: Path, slide_index: int, chart_confi
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(output_path))
+    return ChartAdded(slide_index, index, output_path)
+
+
+def print_chart_added(result: ChartAdded) -> None:
+    """Print the add-chart report: the slide and placeholder, then the saved path."""
+    print(f"Inserted chart into slide {result.slide_index}, placeholder {result.placeholder_index}")
+    print(f"Saved to: {result.output_path}")
 
 
 def run_add_chart(args) -> None:
@@ -155,6 +171,4 @@ def run_add_chart(args) -> None:
     with open(data_path, encoding="utf-8") as f:
         chart_config = json.load(f)
 
-    add_chart(input_path, output_path, args.slide, chart_config, args.index)
-    print(f"Inserted chart into slide {args.slide}, placeholder {args.index}")
-    print(f"Saved to: {output_path}")
+    print_chart_added(add_chart(input_path, output_path, args.slide, chart_config, args.index))

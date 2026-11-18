@@ -76,9 +76,12 @@ def insert_images_in_placeholders(slide, image_paths: list[Path], placeholder_ty
 
 @dataclass
 class ImagesAdded:
-    """What `add_images` did: images inserted out of those given, and warning lines for stderr."""
-    inserted: int
-    requested: int
+    """What `add_images` did: the images given, how many were inserted, the slide index, the output
+    path, and warning lines for stderr."""
+    image_paths: list[Path]
+    slide_index: int
+    output_path: Path
+    inserted: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -103,7 +106,7 @@ def add_images(input_path: Path, output_path: Path, slide_index: int, image_path
         raise PptxError(f"Slide index {slide_index} out of range (0-{len(prs.slides)-1})")
     slide = prs.slides[slide_index]
 
-    result = ImagesAdded(0, len(image_paths))
+    result = ImagesAdded(image_paths, slide_index, output_path)
     if len(image_paths) == 1:
         try:
             success = insert_image_in_placeholder(slide, image_paths[0], placeholder_type_value,
@@ -122,22 +125,42 @@ def add_images(input_path: Path, output_path: Path, slide_index: int, image_path
     return result
 
 
-def run_add_images(args) -> int:
-    """Entry point from CLI dispatcher. Any error prints as `Error: <message>` on stderr."""
-    image_paths = [Path(p.strip()) for p in args.images.split(',')]
-    try:
-        result = add_images(Path(args.input), Path(args.output), args.slide, image_paths,
-                            args.placeholder_type, args.index)
-    except PptxError:
-        raise
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-    if len(image_paths) == 1:
-        print(f"Inserted {image_paths[0].name} into slide {args.slide}")
+def parse_image_paths(images: str) -> list[Path]:
+    """Parse the comma-separated image paths of add-images."""
+    return [Path(p.strip()) for p in images.split(',')]
+
+
+def print_images_added(result: ImagesAdded, output: str | None = None) -> None:
+    """Print the add-images report: what was inserted, warnings on stderr, then the saved path.
+
+    `output` is the output path as the command line spelled it (default: `result.output_path`).
+    """
+    if len(result.image_paths) == 1:
+        print(f"Inserted {result.image_paths[0].name} into slide {result.slide_index}")
     else:
-        print(f"Inserted {result.inserted} of {len(image_paths)} images into slide {args.slide}")
+        print(f"Inserted {result.inserted} of {len(result.image_paths)} images into slide {result.slide_index}")
     for line in result.warnings:
         print(line, file=sys.stderr)
-    print(f"Saved presentation to: {args.output}")
+    print(f"Saved presentation to: {result.output_path if output is None else output}")
+
+
+def print_add_images_failure(exc: Exception) -> bool:
+    """Print an exception other than PptxError as `Error: <message>` on stderr and return True;
+    return False for a PptxError, which the caller prints in the standard format."""
+    if isinstance(exc, PptxError):
+        return False
+    print(f"Error: {exc}", file=sys.stderr)
+    return True
+
+
+def run_add_images(args) -> int:
+    """Entry point from CLI dispatcher."""
+    try:
+        result = add_images(Path(args.input), Path(args.output), args.slide, parse_image_paths(args.images),
+                            args.placeholder_type, args.index)
+    except Exception as e:
+        if print_add_images_failure(e):
+            return 1
+        raise
+    print_images_added(result, args.output)
     return 0
