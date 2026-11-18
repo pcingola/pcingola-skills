@@ -4,6 +4,7 @@ free memory after a holder exits, the processes named in a memory error and the 
 both last for the life of the process. No case loads a model."""
 
 import os
+import selectors
 import shutil
 import subprocess
 import sys
@@ -98,23 +99,44 @@ GPU_WAITER = """
 """
 
 
+HELD_BYTES = 8 * 2**30  # the GPU memory the holder allocates
+
+
+def wait_for_stderr_line(proc: subprocess.Popen, text: str, timeout: float) -> None:
+    """Read `proc`'s stderr line by line until a line contains `text`; fail with the lines read when `timeout`
+    seconds pass or the stream ends first."""
+    deadline = time.monotonic() + timeout
+    lines = []
+    with selectors.DefaultSelector() as sel:
+        sel.register(proc.stderr, selectors.EVENT_READ)
+        while (left := deadline - time.monotonic()) > 0 and sel.select(left):
+            line = proc.stderr.readline()
+            if not line:
+                break
+            lines.append(line)
+            if text in line:
+                return
+    raise AssertionError(f"no line with {text!r} on stderr within {timeout} s: {''.join(lines)!r}")
+
+
 @NEEDS_CUDA
 def test_free_memory_comes_back_after_the_holder_exits(tmp_path):
     """Guards the refused LTX renders: after waiting for a holder of GPU memory, `wait_for_memory` reads the
     memory the holder gave back, within `SETTLE_SECONDS`."""
     env = lock_env(tmp_path)
     before = local.free_memory("cuda")
-    size = before // 3
-    first = start(GPU_HOLDER, env, str(size))
+    assert before > 2 * HELD_BYTES, (f"the test needs {2 * HELD_BYTES / 2**30:g} GB of free GPU memory, "
+                                     f"{before / 2**30:.1f} GB free")
+    first = start(GPU_HOLDER, env, str(HELD_BYTES))
     try:
         assert first.stdout.readline().strip() == "held", first.stderr.read()
-        assert local.free_memory("cuda") < before - size // 2
-        need = before - size // 2
+        assert local.free_memory("cuda") < before - HELD_BYTES // 2
+        need = before - HELD_BYTES // 2
         second = start(GPU_WAITER, env, str(need))
         try:
-            time.sleep(2)
+            wait_for_stderr_line(second, "ai_models: waiting for process", timeout=10)
             first.stdin.close()
-            out, err = second.communicate(timeout=20)
+            out, err = second.communicate(timeout=15)
             assert int(out) >= need, err
         finally:
             second.kill()
