@@ -1,4 +1,4 @@
-"""Run a skill CLI's `routes` command, in a child process (`routed_rows`) or in process (`main_rows`), against a config with an Ollama provider, a google one
+"""Run a skill CLI's `routes` command in process (`main_rows`), against a config with an Ollama provider, a google one
 and a diffusers one with a video and a presenter model, and a user `routes.md` holding one escalation row of every
 task, each with a model of a kind the task takes, and, with `tasks.speech` set, the default row of `speech`, so the
 output shows which tasks the skill routes."""
@@ -9,7 +9,6 @@ from pathlib import Path
 
 from tests.inproc import run_main
 from tests.settings_env import write_config
-from tests.subproc import child_env, run_python
 
 HEADER = "| task | model | when | why |"
 TASKS = ("chat", "vision", "system1", "image", "image_edit", "image_best", "image_multi_ref", "speech", "music",
@@ -40,27 +39,12 @@ def _rows(stdout: str) -> list[list[str]]:
     return [[c.strip() for c in line.strip().strip("|").split("|")] for line in lines[2:]]
 
 
-def routed_rows(module: str, tmp_path: Path, *argv: str) -> list[list[str]]:
-    """The rows, as cells `[task, model, when, why]`, that `<module>.main` prints for `routes *argv`, in order, run
-    in a child process."""
-    cfg = _write_settings(tmp_path)
-    code = f"import sys\nsys.argv = ['cli', 'routes', *{list(argv)!r}]\nfrom {module} import main\nmain()"
-    done = run_python(code, child_env(SKILLS_CONFIG=str(cfg)))
-    assert done.returncode == 0, done.stderr
-    return _rows(done.stdout)
-
-
 def main_rows(main: Callable[[list[str]], int], tmp_path: Path, *argv: str) -> list[list[str]]:
     """The rows, as cells `[task, model, when, why]`, that the CLI entry `main(argv) -> int` prints for
     `routes *argv`, in order, called in process with the settings of `_write_settings`."""
     done = run_main(main, "routes", *argv, settings=_write_settings(tmp_path))
     assert done.returncode == 0, done.stderr
     return _rows(done.stdout)
-
-
-def routed_tasks(module: str, tmp_path: Path, *argv: str) -> list[str]:
-    """The tasks of the rows that `<module>.main` prints for `routes *argv`, in order."""
-    return [row[0] for row in routed_rows(module, tmp_path, *argv)]
 
 
 def main_tasks(main: Callable[[list[str]], int], tmp_path: Path, *argv: str) -> list[str]:

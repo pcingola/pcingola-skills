@@ -93,12 +93,20 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> None:
-    config.load_settings()
-    args = build_parser().parse_args(argv)
+def main(argv: list[str] | None = None) -> int:
+    """Run the command in `argv` (default: `sys.argv[1:]`) and return its exit code; `--help`, argument errors,
+    an invalid settings file and `BrandError` (`Error: <msg>` on stderr, exit 1) return their code. Checks the
+    settings (`config.check_settings`) and leaves `os.environ` unchanged: the wrapper path (`__main__`) exports the
+    settings to the environment before it calls `main`."""
     try:
-        rc = args.func(args)
+        config.check_settings()
+        args = build_parser().parse_args(argv)
+        return args.func(args)
     except BrandError as e:
         print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-    sys.exit(rc)
+        return 1
+    except SystemExit as e:
+        if e.code is None or isinstance(e.code, int):
+            return e.code or 0
+        print(e.code, file=sys.stderr)
+        return 1

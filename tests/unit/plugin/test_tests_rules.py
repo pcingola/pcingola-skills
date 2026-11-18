@@ -106,12 +106,10 @@ CLI_PROCESS_ALLOWLIST = {
         "subject is short-video.sh: the wrapper, uv_env.sh and the skill's locked environment",
     "tests/integration/voiceover/test_fish_voice.py":
         "a voice saved by one command and reused by the next is the subject",
-    "tests/unit/brand/test_brand.py": "not converted yet",
     "tests/unit/image_gen/test_generate.py":
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
     "tests/unit/music/test_cli.py":
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
-    "tests/unit/short_video/test_routes.py": "not converted yet",
 }
 DOCSTRING_DIRS = ("tests/integration/pptx", "tests/integration/pptx_author")
 SUBPROCESS_STARTS = {"run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput"}

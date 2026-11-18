@@ -1,40 +1,30 @@
 """Unit tests for brand_tool: lookup order, the `brand.path` setting, the settings file, copy,
-and the bundled brands against the brand folder specification in SKILL.md.
+the CLI output and exit codes, and the bundled brands against the brand folder specification in SKILL.md.
 
-brand_tool reads `brand.path` from config.yaml, so every lookup runs in a child process
-with HOME in a temp directory and SKILLS_CONFIG naming a config.yaml that sets
-`brand.path` as the test gives it."""
+brand_tool reads `brand.path` from config.yaml, so every lookup runs in process inside `use_settings` of a
+config.yaml that sets `brand.path` as the test gives it. Only the test of a process variable runs in a child,
+since tests never write the process environment."""
 import json
 import os
 import re
-import subprocess
-import sys
 import tempfile
 import unittest
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from xml.etree import ElementTree
 
 import yaml
 
-from brand_tool import config
+from brand_tool import cli, config
+from brand_tool.config import BrandError
+from tests.inproc import CliResult, run_main
 from tests.prereq import requires
-from tests.settings_env import write_config
+from tests.settings_env import use_settings, write_config
 from tests.subproc import child_env, run_python
 
 # A brand outside the plugin, for `brand.path` tests: tests/brands/acme.
 TEST_BRANDS = Path(__file__).resolve().parents[2] / "brands"
-
-CALL = """
-import json
-from pathlib import Path
-from brand_tool import cli, config
-from brand_tool.config import BrandError
-try:
-    print(json.dumps({{"ok": {expr}}}, default=str))
-except BrandError as e:
-    print(json.dumps({{"error": str(e)}}))
-"""
 
 
 def make_brand(root: Path, name: str, text: str = "logo: logo.svg\n") -> Path:
@@ -42,11 +32,6 @@ def make_brand(root: Path, name: str, text: str = "logo: logo.svg\n") -> Path:
     folder.mkdir(parents=True)
     (folder / "brand.yaml").write_text(text, encoding="utf-8")
     return folder
-
-
-def pairs(brands: list) -> list[tuple[str, str]]:
-    """config.list_brands output with str paths, as the child returns it."""
-    return [(name, str(path)) for name, path in brands]
 
 
 class TmpCase(unittest.TestCase):
@@ -64,40 +49,33 @@ class TmpCase(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def env(self, brand_path: list[Path] | None, **extra: str) -> dict[str, str]:
-        """A child environment whose config.yaml sets `brand.path` to `brand_path` (no setting when None)."""
+    def settings(self, brand_path: list[Path] | None) -> Path:
+        """Write a config.yaml that sets `brand.path` to `brand_path` (no setting when None); return its path."""
         sections = {} if brand_path is None else {"brand": {"path": [str(p) for p in brand_path]}}
-        cfg = write_config(self.tmp / "config.yaml", **sections)
-        return child_env({"HOME": str(self.tmp / "home"), "SKILLS_CONFIG": str(cfg), **extra})
+        return write_config(self.tmp / "config.yaml", **sections)
 
-    def call(self, brand_path: list[Path] | None, expr: str) -> dict:
-        """Evaluate `expr` (cli, config and Path imported) in a child process with `brand.path` brand_path;
-        return {"ok": value with str paths} or {"error": BrandError message}."""
-        done = run_python(CALL.format(expr=expr), self.env(brand_path))
-        self.assertEqual(done.returncode, 0, done.stderr)
-        return json.loads(done.stdout.strip().splitlines()[-1])
+    def ok(self, brand_path: list[Path] | None, call: Callable[[], object]):
+        """`call()` with `brand.path` brand_path; its value."""
+        with use_settings(self.settings(brand_path)):
+            return call()
 
-    def ok(self, brand_path: list[Path] | None, expr: str):
-        got = self.call(brand_path, expr)
-        self.assertIn("ok", got, got)
-        return got["ok"]
+    def error(self, brand_path: list[Path] | None, call: Callable[[], object]) -> str:
+        """`call()` with `brand.path` brand_path, which must raise BrandError; its message."""
+        with use_settings(self.settings(brand_path)), self.assertRaises(BrandError) as raised:
+            call()
+        return str(raised.exception)
 
-    def error(self, brand_path: list[Path] | None, expr: str) -> str:
-        got = self.call(brand_path, expr)
-        self.assertIn("error", got, got)
-        return got["error"]
+    def copy(self, dest: Path, force: bool = False) -> Callable[[], Path]:
+        return lambda: cli.copy_brand("acme", dest, force=force, bundled=self.bundled)
 
-    def copy(self, brand_path: str, dest: Path, force: bool = False) -> str:
-        return f"cli.copy_brand('acme', Path({str(dest)!r}), force={force}, bundled=Path({str(self.bundled)!r}))"
+    def search_dirs(self, bundled: Path) -> Callable[[], list[Path]]:
+        return lambda: config.search_dirs(bundled)
 
-    def search_dirs(self, bundled: Path) -> str:
-        return f"config.search_dirs(Path({str(bundled)!r}))"
+    def find(self, name: str = "acme") -> Callable[[], Path]:
+        return lambda: config.find(name, self.bundled)
 
-    def find(self, name: str = "acme") -> str:
-        return f"config.find({name!r}, Path({str(self.bundled)!r}))"
-
-    def list_brands(self) -> str:
-        return f"config.list_brands(Path({str(self.bundled)!r}))"
+    def list_brands(self) -> Callable[[], list[tuple[str, Path]]]:
+        return lambda: config.list_brands(self.bundled)
 
 
 class TestSearchOrder(TmpCase):
@@ -106,21 +84,21 @@ class TestSearchOrder(TmpCase):
         """config.search_dirs returns the bundled directory first, then `brand.path`
         entries in their order. Guards the search order SKILL.md defines."""
         got = self.ok([self.b, self.a], self.search_dirs(self.bundled))
-        self.assertEqual(got, [str(self.bundled), str(self.b), str(self.a)])
+        self.assertEqual(got, [self.bundled, self.b, self.a])
 
     def test_bundled_wins_over_brand_path(self) -> None:
         """config.find returns the bundled brand when `brand.path` holds one of the same
         name. Guards that bundled brands come first."""
         bundled = make_brand(self.bundled, "acme")
         make_brand(self.a, "acme")
-        self.assertEqual(self.ok([self.a], self.find()), str(bundled))
+        self.assertEqual(self.ok([self.a], self.find()), bundled)
 
     def test_first_brand_path_entry_wins(self) -> None:
         """config.find returns the brand from the earlier `brand.path` entry when two
         entries hold the name. Guards the first-match rule."""
         make_brand(self.a, "acme")
         in_b = make_brand(self.b, "acme")
-        self.assertEqual(self.ok([self.b, self.a], self.find()), str(in_b))
+        self.assertEqual(self.ok([self.b, self.a], self.find()), in_b)
 
     def test_folder_without_brand_yaml_is_skipped(self) -> None:
         """config.find skips a folder of the right name that has no brand.yaml and
@@ -128,7 +106,7 @@ class TestSearchOrder(TmpCase):
         brands."""
         (self.a / "acme").mkdir()
         in_b = make_brand(self.b, "acme")
-        self.assertEqual(self.ok([self.a, self.b], self.find()), str(in_b))
+        self.assertEqual(self.ok([self.a, self.b], self.find()), in_b)
 
     def test_list_first_match_per_name(self) -> None:
         """config.list_brands lists each name once, at its first match, in search order.
@@ -138,18 +116,17 @@ class TestSearchOrder(TmpCase):
         make_brand(self.b, "acme")
         make_brand(self.b, "beta")
         got = self.ok([self.a, self.b], self.list_brands())
-        self.assertEqual(got, [list(p) for p in pairs(
-            [("zeta", self.bundled / "zeta"), ("acme", self.a / "acme"), ("beta", self.b / "beta")])])
+        self.assertEqual(got, [("zeta", self.bundled / "zeta"), ("acme", self.a / "acme"), ("beta", self.b / "beta")])
 
     def test_test_brand_through_brand_path(self) -> None:
         """config.list_brands and config.find with `brand.path` set to tests/brands
         find the bundled neutral brand first, then the acme test brand. Guards lookup
         of a real brand folder outside the plugin."""
-        got = self.ok([TEST_BRANDS], "[config.list_brands(), config.find('acme'), config.find('neutral')]")
+        got = self.ok([TEST_BRANDS], lambda: [config.list_brands(), config.find("acme"), config.find("neutral")])
         self.assertEqual(got, [
-            [list(p) for p in pairs([("neutral", config.BUNDLED_DIR / "neutral"), ("acme", TEST_BRANDS / "acme")])],
-            str(TEST_BRANDS / "acme"),
-            str(config.BUNDLED_DIR / "neutral"),
+            [("neutral", config.BUNDLED_DIR / "neutral"), ("acme", TEST_BRANDS / "acme")],
+            TEST_BRANDS / "acme",
+            config.BUNDLED_DIR / "neutral",
         ])
 
 
@@ -158,25 +135,25 @@ class TestBrandPathEntries(TmpCase):
     def test_unset(self) -> None:
         """config.search_dirs without `brand.path` is the bundled directory alone. Guards
         that an unset setting adds no entry such as the current directory."""
-        self.assertEqual(self.ok(None, self.search_dirs(self.bundled)), [str(self.bundled)])
+        self.assertEqual(self.ok(None, self.search_dirs(self.bundled)), [self.bundled])
 
     def test_missing_entries_skipped(self) -> None:
         """config.search_dirs skips a `brand.path` entry that is no directory. Guards the
         documented skip of missing entries."""
         missing = self.tmp / "missing"
         got = self.ok([missing, self.a], self.search_dirs(self.bundled))
-        self.assertEqual(got, [str(self.bundled), str(self.a)])
+        self.assertEqual(got, [self.bundled, self.a])
 
     def test_missing_bundled_skipped(self) -> None:
         """config.search_dirs leaves out a bundled directory that does not exist. Guards
         a plugin copy without brands/."""
-        self.assertEqual(self.ok([self.a], self.search_dirs(self.tmp / "nope")), [str(self.a)])
+        self.assertEqual(self.ok([self.a], self.search_dirs(self.tmp / "nope")), [self.a])
 
     def test_duplicate_entries_once(self) -> None:
         """config.search_dirs lists a repeated `brand.path` entry once. Guards the
         duplicate removal on resolved paths."""
         got = self.ok([self.a, self.a], self.search_dirs(self.bundled))
-        self.assertEqual(got, [str(self.bundled), str(self.a)])
+        self.assertEqual(got, [self.bundled, self.a])
 
     def test_not_found_names_searched_dirs(self) -> None:
         """config.find raises BrandError naming every searched directory when no brand
@@ -202,7 +179,7 @@ class TestCopy(TmpCase):
         (src / "pptx").mkdir()
         (src / "pptx" / "t.pptx").write_bytes(b"x")
         dest = self.tmp / "project" / "brand"
-        target = Path(self.ok([self.a], self.copy(str(self.a), dest)))
+        target = self.ok([self.a], self.copy(dest))
         self.assertEqual(target, dest / "acme")
         self.assertEqual((target / "brand.yaml").read_text(), "logo: logo.svg\n")
         self.assertEqual((target / "pptx" / "t.pptx").read_bytes(), b"x")
@@ -213,7 +190,7 @@ class TestCopy(TmpCase):
         make_brand(self.a, "acme", "new\n")
         dest = self.tmp / "dest"
         make_brand(dest, "acme", "old\n")
-        self.error([self.a], self.copy(str(self.a), dest))
+        self.error([self.a], self.copy(dest))
         self.assertEqual((dest / "acme" / "brand.yaml").read_text(), "old\n")
 
     def test_force_replaces_target(self) -> None:
@@ -223,7 +200,7 @@ class TestCopy(TmpCase):
         dest = self.tmp / "dest"
         old = make_brand(dest, "acme", "old\n")
         (old / "stale.txt").write_text("s")
-        self.ok([self.a], self.copy(str(self.a), dest, force=True))
+        self.ok([self.a], self.copy(dest, force=True))
         self.assertEqual((dest / "acme" / "brand.yaml").read_text(), "new\n")
         self.assertFalse((dest / "acme" / "stale.txt").exists())
 
@@ -231,14 +208,14 @@ class TestCopy(TmpCase):
         """cli.copy_brand refuses a target equal to the source, even with force. Guards
         against deleting the source while replacing the target."""
         make_brand(self.a, "acme")
-        self.error([self.a], self.copy(str(self.a), self.a, force=True))
+        self.error([self.a], self.copy(self.a, force=True))
         self.assertTrue((self.a / "acme" / "brand.yaml").is_file())
 
     def test_refuses_target_inside_source(self) -> None:
         """cli.copy_brand refuses a target inside the source folder. Guards the overlap
         check against a copy into itself."""
         src = make_brand(self.a, "acme")
-        self.error([self.a], self.copy(str(self.a), src / "sub"))
+        self.error([self.a], self.copy(src / "sub"))
         self.assertFalse((src / "sub").exists())
 
     def test_refuses_target_holding_source(self) -> None:
@@ -248,7 +225,7 @@ class TestCopy(TmpCase):
         would delete the source."""
         inner = self.a / "acme" / "inner"
         src = make_brand(inner, "acme")
-        self.error([inner], self.copy(str(inner), self.a, force=True))
+        self.error([inner], self.copy(self.a, force=True))
         self.assertTrue((src / "brand.yaml").is_file())
 
     def test_force_replaces_symlink_to_source(self) -> None:
@@ -259,7 +236,7 @@ class TestCopy(TmpCase):
         dest = self.tmp / "dest"
         dest.mkdir()
         (dest / "acme").symlink_to(src)
-        self.ok([self.a], self.copy(str(self.a), dest, force=True))
+        self.ok([self.a], self.copy(dest, force=True))
         self.assertFalse((dest / "acme").is_symlink())
         self.assertTrue((dest / "acme" / "brand.yaml").is_file())
         self.assertTrue((src / "brand.yaml").is_file())
@@ -271,7 +248,7 @@ class TestCopy(TmpCase):
         src = make_brand(self.a, "acme")
         (src / "sub").mkdir()
         (src / "sub" / "acme").symlink_to(self.b)
-        err = self.error([self.a], self.copy(str(self.a), src / "sub", force=True))
+        err = self.error([self.a], self.copy(src / "sub", force=True))
         self.assertIn("overlap", err)
         self.assertTrue((src / "sub" / "acme").is_symlink())
 
@@ -282,7 +259,7 @@ class TestCopy(TmpCase):
         dest = self.tmp / "dest"
         dest.mkdir()
         (dest / "acme").write_text("x")
-        self.ok([self.a], self.copy(str(self.a), dest, force=True))
+        self.ok([self.a], self.copy(dest, force=True))
         self.assertTrue((dest / "acme" / "brand.yaml").is_file())
 
     def test_dest_is_a_file(self) -> None:
@@ -291,7 +268,7 @@ class TestCopy(TmpCase):
         make_brand(self.a, "acme")
         dest = self.tmp / "file"
         dest.write_text("x")
-        self.error([self.a], self.copy(str(self.a), dest))
+        self.error([self.a], self.copy(dest))
 
     @requires(os.geteuid() != 0, "root reads any directory")
     def test_list_skips_unreadable_dir(self) -> None:
@@ -300,18 +277,17 @@ class TestCopy(TmpCase):
         make_brand(self.b, "acme")
         self.a.chmod(0)
         try:
-            got = self.ok([self.a, self.b], f"[{self.list_brands()}, {self.find()}]")
+            got = self.ok([self.a, self.b], lambda: [self.list_brands()(), self.find()()])
         finally:
             self.a.chmod(0o755)
-        self.assertEqual(got, [[["acme", str(self.b / "acme")]], str(self.b / "acme")])
+        self.assertEqual(got, [[("acme", self.b / "acme")], self.b / "acme"])
 
 
 class TestCli(TmpCase):
 
-    def run_cli(self, brand_path: list[Path] | None, *argv: str, **extra: str) -> subprocess.CompletedProcess:
-        """`python -m brand_tool <argv>` in a child process with `brand.path` brand_path."""
-        return subprocess.run([sys.executable, "-m", "brand_tool", *argv], capture_output=True, text=True,
-                              env=self.env(brand_path, **extra), timeout=25)
+    def run_cli(self, brand_path: list[Path] | None, *argv: str) -> CliResult:
+        """`cli.main(argv)` in process with `brand.path` brand_path."""
+        return run_main(cli.main, *argv, settings=self.settings(brand_path))
 
     def test_show_prints_folder_then_yaml(self) -> None:
         """`brand show` prints the resolved folder on the first line, then brand.yaml
@@ -346,13 +322,23 @@ class TestCli(TmpCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn(["acme", str(self.a / "acme")], [line.split() for line in done.stdout.splitlines()])
 
-    def test_list_ignores_brand_path_in_environment(self) -> None:
-        """`brand list` ignores a process variable BRAND_PATH. Guards config.yaml as the only
-        source of the setting."""
+    def test_usage_error_returns_2(self) -> None:
+        """`brand` without a command returns exit code 2 with the usage on stderr, from `main`, which returns
+        instead of exiting. Guards the argparse exit code that `__main__` passes to sys.exit."""
+        done = self.run_cli(None)
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("usage: brand", done.stderr)
+
+    def test_lookup_ignores_brand_path_in_environment(self) -> None:
+        """config.list_brands ignores a process variable BRAND_PATH, in a child process whose environment sets it
+        (tests never write the process environment). Guards config.yaml as the only source of the setting, which
+        `brand list` prints."""
         make_brand(self.a, "acme")
-        done = self.run_cli(None, "list", BRAND_PATH=str(self.a))
+        env = child_env({"SKILLS_CONFIG": str(self.settings(None)), "BRAND_PATH": str(self.a)})
+        done = run_python("import json\nfrom brand_tool import config\n"
+                          "print(json.dumps([str(f) for _, f in config.list_brands()]))", env)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertNotIn(str(self.a), done.stdout)
+        self.assertNotIn(str(self.a / "acme"), json.loads(done.stdout.strip().splitlines()[-1]))
 
 
 # The brand.yaml keys the checks below cover; test_spec_table_matches compares
