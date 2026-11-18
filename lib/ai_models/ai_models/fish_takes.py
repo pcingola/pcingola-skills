@@ -58,6 +58,10 @@ class Takes:
         """Whether the take of `speaker`'s untagged spans by `model_id` came from its linked folder."""
         return (model_id, speaker, DEFAULT_TAG) in self._loaded
 
+    def __len__(self) -> int:
+        """The number of takes held."""
+        return len(self._takes)
+
     def clear(self) -> None:
         """Forget every take and link."""
         self._takes.clear()

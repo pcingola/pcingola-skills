@@ -25,7 +25,7 @@ SAMPLE_RATE = 24_000
 
 _models: dict[Path, Any] = {}
 _lock = threading.Lock()  # one load at a time when callers run in several threads
-local.on_unload(_models.clear)
+local.on_unload(_models)
 
 
 def files(spec: KokoroProvider, entry: KokoroModel, model: str) -> tuple[Path, Path]:

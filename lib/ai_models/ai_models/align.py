@@ -24,7 +24,7 @@ KIND = ProviderKind.TORCHAUDIO
 TASK = "align"
 
 _aligners: dict[str, "Aligner"] = {}
-local.on_unload(_aligners.clear)
+local.on_unload(_aligners)
 
 
 class Aligner:

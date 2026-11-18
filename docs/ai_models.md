@@ -241,10 +241,12 @@ the model's `memory` in place of the weights it counts):
   stuck holder can be found. A process that has loaded a model keeps the lock until it exits or calls `unload`,
   also while it does other work; a load that fails while the process has no model loaded releases it. One
   `threading.RLock` serialises loads within a process, so worker threads (`asyncio.to_thread`) share one lock.
-- Unload. `local.unload()` runs every cache-clearing function registered with `local.on_unload` (the diffusers
-  pipelines, Kokoro, Chatterbox, Fish and its first takes, the aligners), collects garbage, empties the CUDA
-  allocator cache when torch is imported, empties the PID file and releases the lock, so a waiting process loads at
-  once without waiting for this one to exit. The integration tests call it after each test.
+- Unload. `local.unload()` empties every cache registered with `local.on_unload` (an object with `__len__` and
+  `clear`: the diffusers pipelines, Kokoro, Chatterbox, Fish and its first takes, the aligners), empties the PID
+  file and releases the lock, so a waiting process loads at once without waiting for this one to exit. When the
+  process held the lock or a cache held an entry, it also collects garbage and empties the CUDA allocator cache
+  when torch is imported; otherwise it returns at once (0.15 s per call saved after torch is imported). The
+  integration tests call it after each test.
 - Handover. The OS releases the lock file before the holder has exited, and the holder's device memory comes
   back after that. On a GB10, a waiter that got the lock from a holder of a 60 GB CUDA tensor read 65.5 GB free
   for 0.5 s and 126.9 GB 1 s after, so a 70 GB load right after the handover is refused. A process that waited for the lock

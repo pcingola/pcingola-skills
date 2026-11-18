@@ -2,7 +2,9 @@
 (docs/ai_models.md, Local models). Each case that takes the lock runs in a child process, because the lock lasts for
 the life of the process. The cases that need a GPU are in tests/integration/ai_models/test_memory.py."""
 
+import gc
 import time
+import weakref
 
 import pytest
 import torch
@@ -97,7 +99,7 @@ UNLOADER = """
     import sys
     from ai_models import local
     cache = {"model": object()}
-    local.on_unload(cache.clear)
+    local.on_unload(cache)
     local.hold_lock()
     local.unload()
     print("unloaded", len(cache), flush=True)
@@ -121,6 +123,39 @@ def test_unload_releases_the_lock_at_once(tmp_path):
     finally:
         first.kill()
         first.wait(timeout=5)
+
+
+class Cycle:
+    """An object in a reference cycle: only a garbage collection frees it once unreferenced."""
+
+    def __init__(self):
+        self.me = self
+
+
+def unload_frees_cycle(cache: dict) -> bool:
+    """Whether `local.unload` freed an unreferenced `Cycle`, with automatic collection off, with `cache` registered."""
+    local.on_unload(cache)
+    cycle = Cycle()
+    ref = weakref.ref(cycle)
+    del cycle
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        local.unload()
+        return ref() is None
+    finally:
+        if enabled:
+            gc.enable()
+
+
+def test_unload_collects_only_when_something_was_held():
+    """Guards fast teardowns of tests that load no model: `unload` collects garbage (and empties the CUDA
+    allocator cache) when a registered cache held an entry, and skips both when nothing was held. This process
+    never holds the lock (the lock cases run in child processes)."""
+    assert not unload_frees_cycle({})
+    held = {"model": object()}
+    assert unload_frees_cycle(held)
+    assert held == {}
 
 
 IMPATIENT = """

@@ -42,12 +42,12 @@ import threading
 import time
 import urllib.request
 import wave
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import plugin_settings
 from plugin_settings import DiffusersModel, DiffusersRole, ProviderKind
@@ -62,7 +62,6 @@ from .errors import AIModelsError, ConfigError
 _pipes: dict[str, Any] = {}
 _lock = None  # the FileLock this process holds once it loads a model
 _load_lock = threading.RLock()  # one thread at a time takes the FileLock and fills _pipes
-_unloaders: list[Callable[[], None]] = []  # the functions that empty each in-process model cache (`on_unload`)
 LOCK_FILE = "ai-models-local.lock"
 PID_FILE = "ai-models-local.pid"
 GB = 1e9
@@ -217,23 +216,37 @@ def release_lock() -> None:
         _lock = None
 
 
-def on_unload(clear: Callable[[], None]) -> Callable[[], None]:
-    """Register `clear`, a function that empties an in-process model cache, for `unload`; return it. Each module
-    that keeps loaded models registers one at import."""
-    _unloaders.append(clear)
-    return clear
+class Cache(Protocol):
+    """An in-process model cache: its length is the number of entries it holds, `clear` empties it."""
+
+    def __len__(self) -> int: ...
+
+    def clear(self) -> None: ...
+
+
+_caches: list[Cache] = []  # every in-process model cache (`on_unload`)
+
+
+def on_unload(cache: Cache) -> Cache:
+    """Register `cache` (a dict, or any object with `__len__` and `clear`) for `unload`; return it. Each module
+    that keeps loaded models registers its cache at import."""
+    _caches.append(cache)
+    return cache
 
 
 def unload() -> None:
-    """Drop every model this process holds: run each function of `on_unload`, collect garbage, empty the CUDA
-    allocator cache when torch is imported (it is not imported here), empty `PID_FILE`, and release the lock of
-    `hold_lock`, so another process loads local models at once, without waiting for this one to exit."""
+    """Drop every model this process holds: empty each cache of `on_unload`, empty `PID_FILE`, and release the lock
+    of `hold_lock`, so another process loads local models at once, without waiting for this one to exit. When this
+    process held the lock or a cache held an entry, it also collects garbage and empties the CUDA allocator cache
+    when torch is imported (it is not imported here); otherwise there is nothing to free and it returns at once."""
     with _load_lock:
-        for clear in _unloaders:
-            clear()
-        gc.collect()
-        if (torch := sys.modules.get("torch")) is not None:
-            torch.cuda.empty_cache()  # a no-op when CUDA was never initialized
+        held = _lock is not None or any(len(cache) for cache in _caches)
+        for cache in _caches:
+            cache.clear()
+        if held:
+            gc.collect()
+            if (torch := sys.modules.get("torch")) is not None:
+                torch.cuda.empty_cache()  # a no-op when CUDA was never initialized
         if _lock is not None:
             pid_file = Path(tempfile.gettempdir()) / PID_FILE
             if read_pid(pid_file) == str(os.getpid()):
@@ -244,7 +257,7 @@ def unload() -> None:
         release_lock()
 
 
-on_unload(_pipes.clear)
+on_unload(_pipes)
 
 
 def weight_bytes(modules: Iterable[Any]) -> int:

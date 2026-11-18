@@ -44,7 +44,7 @@ class Loaded:
 
 _models: dict[Path, Loaded] = {}
 _lock = threading.Lock()  # one load or synthesis at a time when callers run in several threads
-local.on_unload(_models.clear)
+local.on_unload(_models)
 
 
 def fetch(spec: ChatterboxProvider, entry: ChatterboxModel, model: str) -> Path:

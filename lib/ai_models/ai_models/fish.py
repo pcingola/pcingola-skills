@@ -61,12 +61,8 @@ takes = Takes()  # the first take of each voice
 _lock = threading.RLock()  # one load or synthesis at a time when callers run in several threads
 
 
-def _clear() -> None:
-    _models.clear()
-    takes.clear()
-
-
-local.on_unload(_clear)
+local.on_unload(_models)
+local.on_unload(takes)
 
 
 def checkpoint(repo: str) -> Path:
