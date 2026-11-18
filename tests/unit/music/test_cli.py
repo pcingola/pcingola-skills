@@ -53,7 +53,8 @@ def test_refusals_before_any_model_call(music, tmp_path):
 
 
 def test_sidecar_and_audio_ext():
-    """The sidecar appends to the full name (`a.mp3.json`), which analyze and short-video read."""
+    """cli.sidecar appends to the full name (`a.mp3.json`), which analyze and short-video read; cli.audio_ext
+    gives `.wav` for RIFF bytes and `.mp3` for ID3 bytes."""
     assert cli.sidecar(Path("/x/a.mp3"), ".json") == Path("/x/a.mp3.json")
     assert cli.audio_ext(b"RIFF....WAVE") == ".wav"
     assert cli.audio_ext(b"ID3\x04") == ".mp3"

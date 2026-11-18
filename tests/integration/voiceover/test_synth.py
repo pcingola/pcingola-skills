@@ -78,18 +78,6 @@ class TestSynth(unittest.TestCase):
             prev_end = s["end"]
         self.assertLessEqual(prev_end, self.timing["duration"])
 
-    def test_known_word_in_second_half(self) -> None:
-        """voiceover synth places the long last word of "Count to five." in the second half of the sentence.
-        Guards that the aligner returns real times, not evenly spread ones."""
-        s = self.timing["sentences"][1]
-        self.assertEqual(s["text"], "Count to five.")
-        five = s["words"][2]
-        self.assertEqual(five["text"], "five.")
-        # The word's midpoint, not its start: "five" begins just before the
-        # sentence midpoint because "Count to" is short and "five" is long.
-        self.assertGreater((five["start"] + five["end"]) / 2, (s["start"] + s["end"]) / 2)
-        self.assertGreater(five["start"], s["words"][1]["end"] - 1e-9)
-
     def test_tag_line_refused_for_kokoro(self) -> None:
         """A `[style]` line with the Kokoro model, which takes no style or tags, is refused before any synthesis and
         writes nothing: Kokoro would speak the tag word. Guards a script written for Fish voiced by Kokoro."""

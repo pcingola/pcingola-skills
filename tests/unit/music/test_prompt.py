@@ -10,8 +10,9 @@ def test_compose():
         "lo-fi hip hop. Tempo: 80 BPM. Instrumental only, no vocals."
 
 
-def test_local_prompt_and_lyrics():
-    """ACE-Step gets the tempo as a tag and `[instrumental]` for no vocals."""
+def test_local_prompt_tags():
+    """prompt.tags turns an ACE-Step prompt into tags: the final period dropped and the tempo appended as
+    `N bpm`; an empty prompt gives the tempo tag alone."""
     assert tags("synthwave, dreamy.", 110) == "synthwave, dreamy, 110 bpm"
     assert tags("", 90) == "90 bpm"
 

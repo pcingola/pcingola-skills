@@ -34,7 +34,8 @@ def test_small_file_sent_as_is(tmp_path):
 
 @pytest.mark.parametrize("name, formats", [("a.m4a", None), ("a.flac", describe.OPENAI_AUDIO)])
 def test_transcoded_to_mp3(tmp_path, name, formats):
-    """M4A always, and FLAC for a provider that takes WAV and MP3 only, go as MP3."""
+    """`audio_payload` transcodes an M4A always, and a FLAC for a provider that takes WAV and MP3 only
+    (`OPENAI_AUDIO`), to MP3 sent as `audio/mpeg`."""
     f = tmp_path / name
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=f=440:d=1", str(f)], check=True, timeout=25)
     data, mime = describe.audio_payload(f, formats)
