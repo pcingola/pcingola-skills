@@ -1,8 +1,11 @@
 """Helpers for pptx integration tests."""
 
+import contextlib
+import io
 import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
@@ -21,6 +24,30 @@ PPTX_TOOL = str(PROJECT_DIR / "plugins" / "docs" / "skills" / "pptx" / "scripts"
 
 def run_cli(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run([PPTX_TOOL, *args], capture_output=True, text=True, cwd=PROJECT_DIR, timeout=25)
+
+
+@dataclass(frozen=True)
+class CliResult:
+    """Exit code and captured output of one in-process CLI call."""
+
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+def cli(*argv: str) -> CliResult:
+    """Run the pptx CLI's `main(argv)` in process, capturing stdout and stderr.
+
+    For tests whose subject is CLI behaviour: argument parsing, defaults, the
+    output format and the exit code. Tests of a command's logic call its core
+    function instead.
+    """
+    from pptx_tool.pptx import main
+
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = main(list(argv))
+    return CliResult(code, out.getvalue(), err.getvalue())
 
 
 def has_libreoffice() -> bool:
