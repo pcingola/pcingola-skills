@@ -26,11 +26,13 @@ from pathlib import Path
 from .cmd_add_chart import run_add_chart
 from .cmd_add_images import run_add_images
 from .cmd_add_notes import run_add_notes
-from .cmd_add_slide import add_slides_to_file
+from .cmd_add_slide import add_slides_to_file, print_added_slides
 from .cmd_add_table import run_add_table
 from .cmd_add_text import run_add_text
 from .cmd_copy_slide import run_copy_slide
 from .cmd_delete_slide import run_delete_slide
+from .exceptions import PptxError
+from .pptx import print_error
 
 
 def _load_spec(spec_arg: str) -> object:
@@ -67,37 +69,37 @@ def _slide_keyed(op: dict, action: str) -> dict:
     return {f"slide-{int(slide)}": data}
 
 
-def _run_add_text(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> None:
+def _run_add_text(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
     data_path = _write_tmp_json(_slide_keyed(op, "add-text"), tmp_root, f"text-{i}.json")
-    run_add_text(argparse.Namespace(input=str(current), text_data=str(data_path), output=str(out)))
+    return run_add_text(argparse.Namespace(input=str(current), text_data=str(data_path), output=str(out)))
 
 
-def _run_add_table(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> None:
+def _run_add_table(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
     data_path = _write_tmp_json(_slide_keyed(op, "add-table"), tmp_root, f"table-{i}.json")
-    run_add_table(argparse.Namespace(input=str(current), table_data=str(data_path), output=str(out)))
+    return run_add_table(argparse.Namespace(input=str(current), table_data=str(data_path), output=str(out)))
 
 
-def _run_add_notes(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> None:
+def _run_add_notes(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
     data_path = _write_tmp_json(_slide_keyed(op, "add-notes"), tmp_root, f"notes-{i}.json")
-    run_add_notes(argparse.Namespace(input=str(current), notes_data=str(data_path), output=str(out)))
+    return run_add_notes(argparse.Namespace(input=str(current), notes_data=str(data_path), output=str(out)))
 
 
-def _run_add_chart(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> None:
+def _run_add_chart(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
     data_path = _write_tmp_json(_require(op, "data", "add-chart"), tmp_root, f"chart-{i}.json")
-    run_add_chart(argparse.Namespace(
+    return run_add_chart(argparse.Namespace(
         input=str(current), output=str(out),
         slide=int(_require(op, "slide", "add-chart")),
         chart_data=str(data_path), index=int(op.get("index", 0)),
     ))
 
 
-def _run_add_images(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> None:
+def _run_add_images(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
     images = op.get("images", op.get("image"))
     if images is None:
         raise ValueError("'add-images' operation requires 'images'")
     if isinstance(images, list):
         images = ",".join(str(p) for p in images)
-    run_add_images(argparse.Namespace(
+    return run_add_images(argparse.Namespace(
         input=str(current), output=str(out),
         slide=int(_require(op, "slide", "add-images")),
         images=str(images),
@@ -106,13 +108,13 @@ def _run_add_images(op: dict, current: Path, out: Path, tmp_root: Path, i: int) 
     ))
 
 
-def _run_copy_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> None:
+def _run_copy_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
     """Copy slides from another deck into this one. The current deck is the target."""
     indices = _require(op, "source_indices", "copy-slide")
     if isinstance(indices, (list, tuple)):
         indices = ",".join(str(x) for x in indices)
     position = op.get("position")
-    run_copy_slide(argparse.Namespace(
+    return run_copy_slide(argparse.Namespace(
         source=str(_require(op, "source", "copy-slide")),
         target=str(current), output=str(out),
         source_indices=str(indices),
@@ -120,23 +122,23 @@ def _run_copy_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) 
     ))
 
 
-def _run_add_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> None:
+def _run_add_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
     layouts = _require(op, "layouts", "add-slide")
     if isinstance(layouts, (list, tuple)):
         names = [str(x) for x in layouts]
     else:
         names = [n.strip() for n in str(layouts).split(",") if n.strip()]
     position = op.get("position")
-    add_slides_to_file(current, out, names, None if position is None else int(position))
+    print_added_slides(add_slides_to_file(current, out, names, None if position is None else int(position)))
 
 
-def _run_delete_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> None:
+def _run_delete_slide(op: dict, current: Path, out: Path, tmp_root: Path, i: int) -> int | None:
     indices = op.get("indices", op.get("slide"))
     if indices is None:
         raise ValueError("'delete-slide' operation requires 'indices'")
     if isinstance(indices, (list, tuple)):
         indices = ",".join(str(x) for x in indices)
-    run_delete_slide(argparse.Namespace(
+    return run_delete_slide(argparse.Namespace(
         input=str(current), output=str(out), indices=str(indices)))
 
 
@@ -175,14 +177,16 @@ def apply_operations(input_path: Path, output_path: Path, operations: list[dict]
                 )
             step_out = tmp_root / f"step-{i}.pptx"
             print(f"[{i}] {action}")
+            # A command's error is printed as the command prints it. Inside `edit`
+            # that is a failed step, not a failed process: say which one and abort
+            # before anything reaches output_path.
             try:
-                runner(op, current, step_out, tmp_root, i)
-            except SystemExit as exc:
-                # The commands exit(1) on their own errors. Inside `edit` that is
-                # a failed step, not a failed process — say which one and abort
-                # before anything reaches output_path.
-                if exc.code:
-                    raise RuntimeError(f"operation {i} ('{action}') failed") from None
+                code = runner(op, current, step_out, tmp_root, i)
+            except PptxError as exc:
+                print_error(action, exc)
+                code = 1
+            if code:
+                raise RuntimeError(f"operation {i} ('{action}') failed")
             if not step_out.exists():
                 raise RuntimeError(f"operation {i} ('{action}') produced no output file")
             current = step_out

@@ -5,8 +5,7 @@ Tables can be placed into OBJECT placeholders or at explicit positions.
 Supports header row styling, cell-level formatting, column widths, and cell merging.
 """
 
-import json
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
@@ -14,7 +13,9 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
-from .exceptions import ValidationError
+from .common import load_data_json, require_file
+from .exceptions import PptxError, ValidationError
+from .pptx import print_unexpected_error
 from .text_formatters import ParagraphProcessor
 
 # Shared run/paragraph styler — the same path add-text and add-shapes use, so a
@@ -30,17 +31,29 @@ ALIGNMENT_MAP = {
 }
 
 
+@dataclass(frozen=True)
+class TablesAdded:
+    """What `add_tables` did: the number of tables added and warning lines, in order."""
+    tables_added: int
+    warnings: list[str]
+
+
 class PresentationTableAdder:
     """Adds tables to presentations from JSON definitions."""
 
-    def add_tables(self, input_path: str, table_data_path: str, output_path: str) -> None:
-        """Add tables from JSON to a PowerPoint presentation."""
-        prs = Presentation(input_path)
-        table_data = self._load_table_data(table_data_path)
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    def add_tables(self, input_path: Path, table_data: dict, output_path: Path) -> TablesAdded:
+        """Add the tables of `table_data` (slide-N keys) to the deck and save it to output_path.
+
+        Invalid data raises ValidationError with one detail line per problem.
+        """
+        require_file(input_path, f"Input file '{input_path}' not found")
+        prs = Presentation(str(input_path))
         self._validate_table_data(prs, table_data)
 
-        stats = {"tables_added": 0}
-
+        tables_added = 0
         for slide_key, tables in table_data.items():
             slide_index = int(slide_key.split("-")[1])
             slide = prs.slides[slide_index]
@@ -48,25 +61,10 @@ class PresentationTableAdder:
             table_list = tables if isinstance(tables, list) else [tables]
             for table_def in table_list:
                 self._add_table(slide, table_def)
-                stats["tables_added"] += 1
+                tables_added += 1
 
-        prs.save(output_path)
-        print(f"Saved presentation to: {output_path}")
-        print(f"Tables added: {stats['tables_added']}")
-
-    def _load_table_data(self, json_path: str) -> dict:
-        """Load table data JSON with duplicate key checking."""
-        with open(json_path, "r") as f:
-            return json.load(f, object_pairs_hook=self._check_duplicate_keys)
-
-    @staticmethod
-    def _check_duplicate_keys(pairs: list[tuple]) -> dict:
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValidationError(f"Duplicate key found in JSON: '{key}'")
-            result[key] = value
-        return result
+        prs.save(str(output_path))
+        return TablesAdded(tables_added, list(self.warnings))
 
     def _validate_table_data(self, prs, table_data: dict) -> None:
         """Validate table data against the presentation."""
@@ -97,10 +95,10 @@ class PresentationTableAdder:
                     errors.append(f"{prefix}: 'rows' must be a non-empty list")
 
         if errors:
-            print("ERROR: Invalid table data:")
-            for error in errors:
-                print(f"  - {error}")
-            raise ValidationError(f"Found {len(errors)} validation error(s)")
+            raise ValidationError(
+                f"Found {len(errors)} validation error(s)",
+                ["ERROR: Invalid table data:", *(f"  - {error}" for error in errors)],
+            )
 
     def _add_table(self, slide, table_def: dict) -> None:
         """Add a single table to a slide."""
@@ -193,7 +191,7 @@ class PresentationTableAdder:
             for shape in slide.placeholders:
                 if shape.placeholder_format.idx == placeholder_idx:
                     return (shape.left, shape.top, shape.width, shape.height)
-            print(f"  Warning: Placeholder index {placeholder_idx} not found, using defaults")
+            self.warnings.append(f"  Warning: Placeholder index {placeholder_idx} not found, using defaults")
 
         # Default position (centered, below typical title area)
         return (Inches(0.5), Inches(1.5), Inches(9.0), Inches(5.0))
@@ -383,28 +381,21 @@ def _parse_color(color_hex: str) -> RGBColor:
     return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
-def run_add_table(args) -> None:
+def run_add_table(args) -> int:
     """Entry point from CLI dispatcher."""
     input_pptx = Path(args.input)
-    table_data_json = Path(args.table_data)
     output_pptx = Path(args.output)
-
-    if not input_pptx.exists():
-        print(f"Error: Input file '{input_pptx}' not found")
-        sys.exit(1)
-
-    if not table_data_json.exists():
-        print(f"Error: Table data JSON file '{table_data_json}' not found")
-        sys.exit(1)
-
+    # The CLI reports a missing input before a missing or malformed table data file.
+    require_file(input_pptx, f"Input file '{input_pptx}' not found")
     try:
-        adder = PresentationTableAdder()
-        adder.add_tables(str(input_pptx), str(table_data_json), str(output_pptx))
-    except ValidationError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        table_data = load_data_json(Path(args.table_data), "Table data")
+        result = PresentationTableAdder().add_tables(input_pptx, table_data, output_pptx)
+    except PptxError:
+        raise
     except Exception as e:
-        print(f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        return print_unexpected_error(e)
+    for line in result.warnings:
+        print(line)
+    print(f"Saved presentation to: {output_pptx}")
+    print(f"Tables added: {result.tables_added}")
+    return 0

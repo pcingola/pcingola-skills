@@ -4,9 +4,6 @@ Focus is the command's own logic: the duplicate-key guard, the slide-range
 and value-type validation rules, and that notes text lands correctly (split
 into paragraphs on newlines) without disturbing slide content.
 """
-import contextlib
-import io
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,24 +13,25 @@ from pptx.enum.text import PP_ALIGN
 
 from pptx_tool.cmd_add_notes import PresentationNotesSetter
 from pptx_tool.cmd_new_deck import create_deck
+from pptx_tool.common import unique_keys
 from pptx_tool.exceptions import ValidationError
 
 
 class TestDuplicateKeyGuard(unittest.TestCase):
 
     def test_duplicate_key_rejected(self) -> None:
-        """cmd_add_notes.PresentationNotesSetter._check_duplicate_keys raises ValidationError when
+        """common.unique_keys, the object_pairs_hook of the notes JSON, raises ValidationError when
         the notes JSON repeats a slide key. Guards against json.load silently keeping only the
         last value of a duplicate key."""
         pairs = [("slide-0", "a"), ("slide-0", "b")]
         with self.assertRaises(ValidationError):
-            PresentationNotesSetter._check_duplicate_keys(pairs)
+            unique_keys(pairs)
 
     def test_unique_keys_ok(self) -> None:
-        """PresentationNotesSetter._check_duplicate_keys returns the pairs as a dict when the keys
+        """common.unique_keys returns the pairs as a dict when the keys
         are unique. Guards that the object_pairs_hook keeps every entry of a valid notes file."""
         pairs = [("slide-0", "a"), ("slide-1", "b")]
-        result = PresentationNotesSetter._check_duplicate_keys(pairs)
+        result = unique_keys(pairs)
         self.assertEqual(result, {"slide-0": "a", "slide-1": "b"})
 
 
@@ -48,10 +46,10 @@ class TestValidation(unittest.TestCase):
         self.prs = Presentation(deck)
         self.setter = PresentationNotesSetter()
 
-    def _err(self, data: dict) -> str:
+    def _err(self, data: dict) -> ValidationError:
         with self.assertRaises(ValidationError) as ctx:
             self.setter._validate_notes_data(self.prs, data)
-        return str(ctx.exception)
+        return ctx.exception
 
     def test_non_slide_key_rejected(self) -> None:
         """PresentationNotesSetter._validate_notes_data rejects a key that does not start with
@@ -69,14 +67,12 @@ class TestValidation(unittest.TestCase):
         self._err({"slide--1": "text"})
 
     def test_non_string_value_error_names_type(self) -> None:
-        """PresentationNotesSetter._validate_notes_data rejects a non-string value and prints that
-        it must be a string with the type name. Guards the error message for notes given as
+        """PresentationNotesSetter._validate_notes_data rejects a non-string value with a detail line
+        saying it must be a string, with the type name. Guards the error message for notes given as
         numbers or lists."""
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            self._err({"slide-0": 42})
-        self.assertIn("must be a string", buf.getvalue())
-        self.assertIn("int", buf.getvalue())
+        details = "\n".join(self._err({"slide-0": 42}).details)
+        self.assertIn("must be a string", details)
+        self.assertIn("int", details)
 
 
 class TestApply(unittest.TestCase):
@@ -89,12 +85,9 @@ class TestApply(unittest.TestCase):
         create_deck(self.deck, slides=3, size="16:9")
 
     def _build(self, notes: dict) -> Presentation:
-        data_path = str(Path(self.tmp.name) / "notes.json")
-        out = str(Path(self.tmp.name) / "out.pptx")
-        with open(data_path, "w") as f:
-            json.dump(notes, f)
-        PresentationNotesSetter().add_notes(self.deck, data_path, out)
-        return Presentation(out)
+        out = Path(self.tmp.name) / "out.pptx"
+        PresentationNotesSetter().add_notes(Path(self.deck), notes, out)
+        return Presentation(str(out))
 
     def test_multi_paragraph_notes_split_on_newline(self) -> None:
         """PresentationNotesSetter.add_notes splits notes text on newlines into separate paragraphs.

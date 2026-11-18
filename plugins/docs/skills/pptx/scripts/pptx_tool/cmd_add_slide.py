@@ -5,13 +5,15 @@ template) is filled this way: each new slide gets the layout's placeholders,
 empty, ready for `add-text`, `add-table`, `add-chart` and `add-images`.
 """
 
-import sys
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
 
 from .cmd_select_slides import _next_available_slide_partname
+from .common import require_file
+from .exceptions import PptxError
 
 
 def _layouts_by_name(prs) -> dict:
@@ -49,35 +51,49 @@ def add_slides(prs, layout_names: list[str], position: int | None) -> list[int]:
     return landed
 
 
-def run_add_slide(args) -> None:
-    """Entry point from CLI dispatcher."""
-    input_path = Path(args.input)
-    output_path = Path(args.output)
-    if not input_path.exists():
-        print(f"Error: Input file not found: {input_path}")
-        sys.exit(1)
-    names = [n.strip() for n in args.layouts.split(",") if n.strip()]
-    add_slides_to_file(input_path, output_path, names, args.position)
+@dataclass(frozen=True)
+class AddedSlide:
+    """One slide `add-slide` added: its 0-based index and its layout name."""
+    index: int
+    layout: str
 
 
-def add_slides_to_file(input_path: Path, output_path: Path, names: list[str], position: int | None) -> None:
+@dataclass(frozen=True)
+class AddedSlides:
+    """What `add_slides_to_file` did: the new slides in order, the output path and its slide count."""
+    slides: list[AddedSlide]
+    output_path: Path
+    total: int
+
+
+def add_slides_to_file(input_path: Path, output_path: Path, names: list[str], position: int | None) -> AddedSlides:
     """Add one slide per layout name to the deck at input_path and save it to output_path. The edit
     command passes its layout list here, so a layout name may contain a comma."""
+    require_file(input_path, f"Input file not found: {input_path}")
     if not names:
-        print("Error: No layout name given")
-        sys.exit(1)
+        raise PptxError("No layout name given")
 
     prs = Presentation(str(input_path))
     try:
         landed = add_slides(prs, names, position)
     except ValueError as exc:
-        print(f"Error: {exc}")
-        sys.exit(1)
-    for name, idx in zip(names, landed):
-        print(f"  Added slide {idx}: {name}")
+        raise PptxError(str(exc)) from None
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', message='Duplicate name:')
         prs.save(str(output_path))
-    print(f"Saved to: {output_path} ({len(prs.slides)} slides)")
+    return AddedSlides([AddedSlide(i, n) for n, i in zip(names, landed)], output_path, len(prs.slides))
+
+
+def print_added_slides(result: AddedSlides) -> None:
+    """Print the add-slide report: one line per new slide, then the saved path and slide count."""
+    for slide in result.slides:
+        print(f"  Added slide {slide.index}: {slide.layout}")
+    print(f"Saved to: {result.output_path} ({result.total} slides)")
+
+
+def run_add_slide(args) -> None:
+    """Entry point from CLI dispatcher."""
+    names = [n.strip() for n in args.layouts.split(",") if n.strip()]
+    print_added_slides(add_slides_to_file(Path(args.input), Path(args.output), names, args.position))

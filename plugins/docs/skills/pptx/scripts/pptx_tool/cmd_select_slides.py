@@ -14,6 +14,9 @@ from pptx.opc.package import OpcPackage, Part
 from pptx.opc.packuri import PackURI
 from pptx.oxml.ns import qn
 
+from .common import parse_indices, require_file
+from .exceptions import PptxError
+
 # Relationships namespace used for r:embed / r:link / r:id references in slide XML.
 _R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
@@ -356,11 +359,8 @@ def create_presentation_from_template(template_path: Path, output_path: Path, se
 
 
 def parse_sequence(sequence_str: str) -> list[int]:
-    """Parse comma-separated indices into integer list."""
-    try:
-        return [int(x.strip()) for x in sequence_str.split(",")]
-    except ValueError:
-        raise ValueError("Invalid sequence format. Use comma-separated integers (e.g., 0,34,34,50,52)")
+    """Parse comma-separated indices into integer list; InvalidIndicesError is a ValueError."""
+    return parse_indices(sequence_str, "Invalid sequence format. Use comma-separated integers (e.g., 0,34,34,50,52)")
 
 
 def remove_slide(presentation, index: int) -> None:
@@ -370,26 +370,36 @@ def remove_slide(presentation, index: int) -> None:
     del presentation.slides._sldIdLst[index]
 
 
-def run_select_slides(args) -> None:
-    """Entry point from CLI dispatcher."""
+def _require_template(template_path: Path) -> None:
+    require_file(template_path, f"Template file not found: {template_path}")
+
+
+def select_slides(template_path: Path, output_path: Path, sequence: list[int]) -> int:
+    """Write the template's slides in `sequence` order (repeats allowed) to output_path; return the slide count."""
+    _require_template(template_path)
+    try:
+        return create_presentation_from_template(template_path, output_path, sequence)
+    except (ValueError, FileNotFoundError) as e:
+        raise PptxError(str(e)) from None
+
+
+def run_select_slides(args) -> int:
+    """Entry point from CLI dispatcher. Errors other than PptxError print as `Error processing presentation`."""
     try:
         template_path = Path(args.template)
         output_path = Path(args.output)
-
-        if not template_path.exists():
-            raise FileNotFoundError(f"Template file not found: {template_path}")
-
+        # The template check comes before the sequence parse, as the CLI reports the first of the two errors.
+        _require_template(template_path)
         sequence = parse_sequence(args.sequence)
         print(f"Creating presentation with {len(sequence)} slides...")
         for i, source_idx in enumerate(sequence):
             print(f"  [{i}] Slide {source_idx}")
-        final_count = create_presentation_from_template(template_path, output_path, sequence)
-        print(f"\nSaved to: {output_path}")
-        print(f"Final presentation: {final_count} slides")
-
-    except (ValueError, FileNotFoundError) as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        final_count = select_slides(template_path, output_path, sequence)
+    except PptxError:
+        raise
     except Exception as e:
         print(f"Error processing presentation: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
+    print(f"\nSaved to: {output_path}")
+    print(f"Final presentation: {final_count} slides")
+    return 0

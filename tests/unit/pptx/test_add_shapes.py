@@ -6,9 +6,6 @@ importantly — that a JSON spec is translated into the right shape properties
 (fill, border, radius, arrow head, Calibri default). The property assertions
 read the saved deck back so they verify the translation, not python-pptx.
 """
-import contextlib
-import io
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +16,7 @@ from pptx.util import Pt
 
 from pptx_tool.cmd_add_shapes import PresentationShapesAdder
 from pptx_tool.cmd_new_deck import create_deck
+from pptx_tool.common import unique_keys
 from pptx_tool.exceptions import ValidationError
 
 
@@ -34,18 +32,18 @@ def _make_png(dir_path: str, name: str = "logo.png", size: tuple = (200, 80)) ->
 class TestDuplicateKeyGuard(unittest.TestCase):
 
     def test_duplicate_key_rejected(self) -> None:
-        """cmd_add_shapes.PresentationShapesAdder._check_duplicate_keys raises ValidationError when
+        """common.unique_keys, the object_pairs_hook of the shapes JSON, raises ValidationError when
         the shapes JSON repeats a slide key. Guards against json.load silently keeping only the
         last list of a duplicate key."""
         pairs = [("slide-0", []), ("slide-0", [])]
         with self.assertRaises(ValidationError):
-            PresentationShapesAdder._check_duplicate_keys(pairs)
+            unique_keys(pairs)
 
     def test_unique_keys_ok(self) -> None:
-        """PresentationShapesAdder._check_duplicate_keys returns the pairs as a dict when the keys
+        """common.unique_keys returns the pairs as a dict when the keys
         are unique. Guards that the object_pairs_hook keeps every slide of a valid shapes file."""
         pairs = [("slide-0", []), ("slide-1", [])]
-        result = PresentationShapesAdder._check_duplicate_keys(pairs)
+        result = unique_keys(pairs)
         self.assertEqual(result, {"slide-0": [], "slide-1": []})
 
 
@@ -149,12 +147,10 @@ class TestTranslation(unittest.TestCase):
         create_deck(self.deck, slides=1, size="16:9")
 
     def _build(self, shapes: list) -> Presentation:
-        data_path = str(Path(self.tmp.name) / "shapes.json")
-        out = str(Path(self.tmp.name) / "out.pptx")
-        with open(data_path, "w") as f:
-            json.dump({"slide-0": shapes}, f)
-        PresentationShapesAdder().add_shapes(self.deck, data_path, out)
-        return Presentation(out)
+        """Add `shapes` to slide 0, keep the result in self.result and return the saved deck."""
+        out = Path(self.tmp.name) / "out.pptx"
+        self.result = PresentationShapesAdder().add_shapes(Path(self.deck), {"slide-0": shapes}, out)
+        return Presentation(str(out))
 
     def _first_shape(self, prs):
         return list(prs.slides[0].shapes)[0]
@@ -217,22 +213,20 @@ class TestTranslation(unittest.TestCase):
 
     def test_arrow_sets_line_ends(self) -> None:
         """PresentationShapesAdder.add_shapes maps arrow "end" to a:tailEnd only, "start" to a:headEnd
-        only and "both" to both; an unknown value prints a warning and adds neither. Guards the
+        only and "both" to both; an unknown value returns a warning and adds neither. Guards the
         ARROW_MAP directions (OOXML's tailEnd is the line's end point) and the unknown-value branch of
         _apply_arrow."""
         cases = {"end": (False, True), "start": (True, False), "both": (True, True), "up": (False, False)}
         for arrow, (head, tail) in cases.items():
             with self.subTest(arrow=arrow):
-                out = io.StringIO()
-                with contextlib.redirect_stdout(out):
-                    prs = self._build([{
-                        "type": "line", "x1": 1, "y1": 1, "x2": 3, "y2": 1,
-                        "line": {"color": "#C8C8CE", "weight": 1.0}, "arrow": arrow,
-                    }])
+                prs = self._build([{
+                    "type": "line", "x1": 1, "y1": 1, "x2": 3, "y2": 1,
+                    "line": {"color": "#C8C8CE", "weight": 1.0}, "arrow": arrow,
+                }])
                 xml = self._first_shape(prs)._element.xml
                 self.assertEqual("headEnd" in xml, head)
                 self.assertEqual("tailEnd" in xml, tail)
-                warned = "WARNING: Unknown arrow 'up' (use start/end/both)" in out.getvalue()
+                warned = "  WARNING: Unknown arrow 'up' (use start/end/both)" in self.result.warnings
                 self.assertEqual(warned, arrow == "up")
 
     def test_image_preserves_aspect_ratio_when_height_omitted(self) -> None:

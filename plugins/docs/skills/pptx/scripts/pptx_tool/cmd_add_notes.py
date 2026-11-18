@@ -6,21 +6,26 @@ notes never touches slide content (shapes, text, images) -- only the slide's
 notes page. Works on both blank-canvas decks and template-based decks.
 """
 
-import json
-import sys
 from pathlib import Path
 
 from pptx import Presentation
 
-from .exceptions import ValidationError
+from .common import load_data_json, require_file
+from .exceptions import PptxError, ValidationError
+from .pptx import print_unexpected_error
 
 
 class PresentationNotesSetter:
     """Sets speaker notes text on slides from a JSON definition."""
 
-    def add_notes(self, input_path: str, notes_data_path: str, output_path: str) -> None:
-        prs = Presentation(input_path)
-        notes_data = self._load_notes_data(notes_data_path)
+    def add_notes(self, input_path: Path, notes_data: dict, output_path: Path) -> list[str]:
+        """Set the notes of each slide-N key of `notes_data` and save the deck to output_path.
+
+        Returns the slide keys set, in slide order. Invalid data raises ValidationError with one
+        detail line per problem.
+        """
+        require_file(input_path, f"Input file '{input_path}' not found")
+        prs = Presentation(str(input_path))
         self._validate_notes_data(prs, notes_data)
 
         for slide_key, text in notes_data.items():
@@ -28,23 +33,8 @@ class PresentationNotesSetter:
             slide = prs.slides[slide_index]
             self._set_notes(slide, text)
 
-        prs.save(output_path)
-        print(f"Saved presentation to: {output_path}")
-        for slide_key in sorted(notes_data, key=lambda k: int(k.split("-")[1])):
-            print(f"  {slide_key}: notes set")
-
-    def _load_notes_data(self, json_path: str) -> dict:
-        with open(json_path, "r") as f:
-            return json.load(f, object_pairs_hook=self._check_duplicate_keys)
-
-    @staticmethod
-    def _check_duplicate_keys(pairs: list[tuple]) -> dict:
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValidationError(f"Duplicate key found in JSON: '{key}'")
-            result[key] = value
-        return result
+        prs.save(str(output_path))
+        return sorted(notes_data, key=lambda k: int(k.split("-")[1]))
 
     def _validate_notes_data(self, prs, notes_data: dict) -> None:
         errors = []
@@ -68,10 +58,10 @@ class PresentationNotesSetter:
                 )
 
         if errors:
-            print("ERROR: Invalid notes data:")
-            for error in errors:
-                print(f"  - {error}")
-            raise ValidationError(f"Found {len(errors)} validation error(s)")
+            raise ValidationError(
+                f"Found {len(errors)} validation error(s)",
+                ["ERROR: Invalid notes data:", *(f"  - {error}" for error in errors)],
+            )
 
     def _set_notes(self, slide, text: str) -> None:
         tf = slide.notes_slide.notes_text_frame
@@ -89,28 +79,20 @@ class PresentationNotesSetter:
             paragraph.text = line
 
 
-def run_add_notes(args) -> None:
+def run_add_notes(args) -> int:
     """Entry point from CLI dispatcher."""
     input_pptx = Path(args.input)
-    notes_data_json = Path(args.notes_data)
     output_pptx = Path(args.output)
-
-    if not input_pptx.exists():
-        print(f"Error: Input file '{input_pptx}' not found")
-        sys.exit(1)
-
-    if not notes_data_json.exists():
-        print(f"Error: Notes data JSON file '{notes_data_json}' not found")
-        sys.exit(1)
-
+    # The CLI reports a missing input before a missing or malformed notes data file.
+    require_file(input_pptx, f"Input file '{input_pptx}' not found")
     try:
-        setter = PresentationNotesSetter()
-        setter.add_notes(str(input_pptx), str(notes_data_json), str(output_pptx))
-    except ValidationError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        notes_data = load_data_json(Path(args.notes_data), "Notes data")
+        slide_keys = PresentationNotesSetter().add_notes(input_pptx, notes_data, output_pptx)
+    except PptxError:
+        raise
     except Exception as e:
-        print(f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        return print_unexpected_error(e)
+    print(f"Saved presentation to: {output_pptx}")
+    for slide_key in slide_keys:
+        print(f"  {slide_key}: notes set")
+    return 0

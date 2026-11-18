@@ -4,14 +4,15 @@
 `main(argv)` parses the arguments, imports only the module of the command that
 runs, calls its `run_<command>(args)` and returns the exit code.
 
-Error output of `PptxError`: `main` prints `Error: <message>` followed by a newline
-and returns 1. The stream is stderr, except for the commands in
-`STDOUT_ERROR_COMMANDS`, which print their errors to stdout. A `run_*` function
-that prints an error in another format catches the exception itself.
+Error output of `PptxError`: `main` prints the exception's `details` lines, then
+`Error: <message>`, and returns 1 (`print_error`). The stream is stderr, except for
+the commands in `STDOUT_ERROR_COMMANDS`, which print their errors to stdout. A
+`run_*` function that prints an error in another format catches the exception itself.
 """
 import argparse
 import importlib
 import sys
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +58,24 @@ STDOUT_ERROR_COMMANDS = frozenset({
     'add-notes', 'add-shapes', 'add-slide', 'add-table', 'add-text', 'copy-slide',
     'delete-slide', 'extract-shapes', 'get', 'new-deck',
 })
+
+
+def print_error(command: str, exc: PptxError) -> None:
+    """Print a PptxError of `command` as the CLI does: its details, then `Error: <message>`."""
+    stream = sys.stdout if command in STDOUT_ERROR_COMMANDS else sys.stderr
+    for line in exc.details:
+        print(line, file=stream)
+    print(f'Error: {exc}', file=stream)
+
+
+def print_unexpected_error(exc: Exception) -> int:
+    """Print `Unexpected error: <exc>` to stdout and the traceback to stderr; return exit code 1.
+
+    The output of the write commands that load a data JSON for an exception that is not a PptxError.
+    """
+    print(f'Unexpected error: {exc}')
+    traceback.print_exception(exc)
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -250,8 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _command(args.command)(args) or 0
     except PptxError as exc:
-        stream = sys.stdout if args.command in STDOUT_ERROR_COMMANDS else sys.stderr
-        print(f'Error: {exc}', file=stream)
+        print_error(args.command, exc)
         return 1
     except SystemExit as exc:
         return _exit_code(exc)

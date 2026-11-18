@@ -5,17 +5,38 @@ All text shapes from the inventory are cleared unless "paragraphs" is specified.
 Font sizes are automatically reduced (minimum 12pt) if text would overflow.
 """
 
-import json
-import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from .cmd_extract_shapes import ExtractedShapesData, extract_text
-from .exceptions import TextAdditionError, TextOverflowError, ValidationError
+from .common import load_data_json, require_file
+from .exceptions import PptxError, TextAdditionError, TextOverflowError, ValidationError
+from .pptx import print_unexpected_error
 from .text_fitting import FittingResult, TextFitter, MIN_FONT_SIZE, paragraph_base_sizes
 from .text_formatters import ParagraphProcessor
 from .text_validators import TextAdditionValidator, WarningCollector
 from pptx import Presentation
+
+
+@dataclass
+class ShapeStats:
+    """Shape counts of one add-text run: shapes walked, text frames cleared, shapes given text."""
+    processed: int = 0
+    cleared: int = 0
+    added: int = 0
+
+
+@dataclass(frozen=True)
+class TextAdded:
+    """What `add_text` did, in the order the CLI reports it: warnings while writing, formatting
+    warnings of the result, font size adjustments, the output path, slide count and shape counts."""
+    warnings: list[str]
+    formatting_warnings: list[str]
+    adjustments: list[FittingResult]
+    output_path: Path
+    slide_count: int
+    stats: ShapeStats
 
 
 class PresentationTextAdder:
@@ -25,12 +46,17 @@ class PresentationTextAdder:
         self.processor = ParagraphProcessor()
         self.warning_collector = WarningCollector()
         self.text_fitter = TextFitter()
+        self.warnings: list[str] = []
 
-    def add_text(self, input_path: str, text_data_path: str, output_path: str) -> None:
-        """Add text from JSON to PowerPoint presentation with auto-fitting."""
-        prs = Presentation(input_path)
-        extracted_shapes_data = extract_text(Path(input_path), prs)
-        text_data = self._load_text_data(text_data_path)
+    def add_text(self, input_path: Path, text_data: dict, output_path: Path) -> TextAdded:
+        """Add text from the text data JSON (`text_data`) to the deck with auto-fitting and save it.
+
+        Invalid data raises ValidationError, and text that cannot fit raises TextOverflowError,
+        each with detail lines.
+        """
+        require_file(input_path, f"Input file '{input_path}' not found")
+        prs = Presentation(str(input_path))
+        extracted_shapes_data = extract_text(input_path, prs)
 
         self._validate_text_data(extracted_shapes_data, text_data)
 
@@ -40,35 +66,21 @@ class PresentationTextAdder:
         # Check for unresolvable overflow
         failed_fittings = [r for r in fitting_results.values() if not r.fits]
         if failed_fittings:
-            self._report_overflow_failures(failed_fittings, extracted_shapes_data)
-            raise TextOverflowError(f"Text overflow cannot be resolved for {len(failed_fittings)} shape(s)")
+            raise TextOverflowError(
+                f"Text overflow cannot be resolved for {len(failed_fittings)} shape(s)",
+                self._overflow_report(failed_fittings, extracted_shapes_data),
+            )
 
         # Apply text with adjusted font sizes
         stats = self._process_shapes(prs, extracted_shapes_data, text_data, fitting_results)
 
         # Post-validation safety check
-        self._check_results(prs)
+        formatting_warnings = self._check_results(prs)
 
-        prs.save(output_path)
+        prs.save(str(output_path))
 
-        # Report adjustments and results
         adjustments = [r for r in fitting_results.values() if r.adjusted]
-        self._report_results(output_path, len(prs.slides), stats, adjustments)
-
-    def _load_text_data(self, json_path: str) -> dict:
-        """Load and validate JSON structure."""
-        with open(json_path, "r") as f:
-            return json.load(f, object_pairs_hook=self._check_duplicate_keys)
-
-    @staticmethod
-    def _check_duplicate_keys(pairs: list[tuple]) -> dict:
-        """Check for duplicate keys when loading JSON."""
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValidationError(f"Duplicate key found in JSON: '{key}'")
-            result[key] = value
-        return result
+        return TextAdded(list(self.warnings), formatting_warnings, adjustments, output_path, len(prs.slides), stats)
 
     def _validate_text_data(self, extracted_shapes_data: ExtractedShapesData, text_data: dict) -> None:
         """Validate text data against extracted shapes data."""
@@ -76,11 +88,14 @@ class PresentationTextAdder:
         errors = validator.validate(text_data)
 
         if errors:
-            print("ERROR: Invalid shapes in text data JSON:")
-            for error in errors:
-                print(f"  - {error}")
-            print("\nPlease check the inventory and update your text data JSON.")
-            raise ValidationError(f"Found {len(errors)} validation error(s)")
+            raise ValidationError(
+                f"Found {len(errors)} validation error(s)",
+                [
+                    "ERROR: Invalid shapes in text data JSON:",
+                    *(f"  - {error}" for error in errors),
+                    "\nPlease check the inventory and update your text data JSON.",
+                ],
+            )
 
     def _calculate_all_fittings(self, extracted_shapes_data: ExtractedShapesData, text_data: dict) -> dict[str, FittingResult]:
         """Pre-calculate fitting for all shapes with text data."""
@@ -112,26 +127,27 @@ class PresentationTextAdder:
 
         return fitting_results
 
-    def _report_overflow_failures(self, failed_fittings: list[FittingResult], extracted_shapes_data: ExtractedShapesData) -> None:
-        """Report detailed information about shapes that cannot fit."""
-        print("\nERROR: Text overflow cannot be resolved for the following shapes:\n")
+    def _overflow_report(self, failed_fittings: list[FittingResult], extracted_shapes_data: ExtractedShapesData) -> list[str]:
+        """Lines that describe the shapes that cannot fit, printed before the overflow error."""
+        lines = ["\nERROR: Text overflow cannot be resolved for the following shapes:\n"]
 
         for result in failed_fittings:
             shape_data = extracted_shapes_data[result.slide_key][result.shape_key]
             shape_height = shape_data.height
 
-            print(f"  {result.slide_key}/{result.shape_key}:")
-            print(f"    - Shape height: {shape_height:.2f}\"")
-            print(f"    - Reduction applied: {result.reduction}pt")
+            lines.append(f"  {result.slide_key}/{result.shape_key}:")
+            lines.append(f"    - Shape height: {shape_height:.2f}\"")
+            lines.append(f"    - Reduction applied: {result.reduction}pt")
             if result.overflow_inches:
-                print(f"    - Overflow at minimum font sizes: {result.overflow_inches:.2f}\"")
+                lines.append(f"    - Overflow at minimum font sizes: {result.overflow_inches:.2f}\"")
                 reduction_pct = int((result.overflow_inches / (shape_height + result.overflow_inches)) * 100)
-                print(f"    - Suggestion: Reduce content by ~{reduction_pct}% or use a larger placeholder")
-            print()
+                lines.append(f"    - Suggestion: Reduce content by ~{reduction_pct}% or use a larger placeholder")
+            lines.append("")
+        return lines
 
-    def _process_shapes(self, prs, extracted_shapes_data: ExtractedShapesData, text_data: dict, fitting_results: dict[str, FittingResult]) -> dict:
+    def _process_shapes(self, prs, extracted_shapes_data: ExtractedShapesData, text_data: dict, fitting_results: dict[str, FittingResult]) -> ShapeStats:
         """Process all shapes and add text with fitted font sizes."""
-        stats = {"processed": 0, "cleared": 0, "added": 0}
+        stats = ShapeStats()
 
         for slide_key, shapes_dict in extracted_shapes_data.items():
             if not slide_key.startswith("slide-"):
@@ -139,15 +155,15 @@ class PresentationTextAdder:
 
             slide_index = int(slide_key.split("-")[1])
             if slide_index >= len(prs.slides):
-                print(f"Warning: Slide {slide_index} not found")
+                self.warnings.append(f"Warning: Slide {slide_index} not found")
                 continue
 
             for shape_key, shape_data in shapes_dict.items():
-                stats["processed"] += 1
+                stats.processed += 1
 
                 shape = shape_data.shape
                 if not shape:
-                    print(f"Warning: {shape_key} has no shape reference")
+                    self.warnings.append(f"Warning: {shape_key} has no shape reference")
                     continue
 
                 # The inventory includes GraphicFrame tables, which have no
@@ -159,13 +175,13 @@ class PresentationTextAdder:
 
                 text_frame = shape.text_frame
                 text_frame.clear()
-                stats["cleared"] += 1
+                stats.cleared += 1
 
                 shape_text_data = text_data.get(slide_key, {}).get(shape_key, {})
                 if "paragraphs" not in shape_text_data:
                     continue
 
-                stats["added"] += 1
+                stats.added += 1
 
                 # Get fitting result for this shape
                 fitting_key = f"{slide_key}/{shape_key}"
@@ -215,60 +231,57 @@ class PresentationTextAdder:
 
             self.processor.apply_properties(paragraph, para_data, override_font_size)
 
-    def _check_results(self, prs) -> None:
-        """Post-validation safety check for overflow and warnings."""
+    def _check_results(self, prs) -> list[str]:
+        """Post-validation safety check: the formatting warnings of the deck as it will be saved."""
         with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as tmp:
             tmp_path = Path(tmp.name)
             prs.save(str(tmp_path))
 
         try:
             updated_shapes_data = extract_text(tmp_path)
-            warnings = self.warning_collector.collect_warnings(updated_shapes_data)
+            return self.warning_collector.collect_warnings(updated_shapes_data)
         finally:
             tmp_path.unlink()
 
-        if warnings:
-            print("\nFormatting warnings detected:")
-            for warning in warnings:
-                print(f"  - {warning}")
 
-    def _report_results(self, output_path: str, slide_count: int, stats: dict, adjustments: list[FittingResult]) -> None:
-        """Report processing results including font size adjustments."""
-        if adjustments:
-            print("\nFont size adjustments made:")
-            for result in adjustments:
-                print(f"  - {result}")
-            print()
+def print_text_added(result: TextAdded) -> None:
+    """Print the add-text report."""
+    for line in result.warnings:
+        print(line)
+    if result.formatting_warnings:
+        print("\nFormatting warnings detected:")
+        for warning in result.formatting_warnings:
+            print(f"  - {warning}")
+    if result.adjustments:
+        print("\nFont size adjustments made:")
+        for adjustment in result.adjustments:
+            print(f"  - {adjustment}")
+        print()
 
-        print(f"Saved updated presentation to: {output_path}")
-        print(f"Processed {slide_count} slides")
-        print(f"  - Shapes processed: {stats['processed']}")
-        print(f"  - Shapes cleared: {stats['cleared']}")
-        print(f"  - Shapes with text added: {stats['added']}")
+    print(f"Saved updated presentation to: {result.output_path}")
+    print(f"Processed {result.slide_count} slides")
+    print(f"  - Shapes processed: {result.stats.processed}")
+    print(f"  - Shapes cleared: {result.stats.cleared}")
+    print(f"  - Shapes with text added: {result.stats.added}")
 
 
-def run_add_text(args) -> None:
-    """Entry point from CLI dispatcher."""
+def run_add_text(args) -> int:
+    """Entry point from CLI dispatcher. A TextAdditionError prints as `Error adding text: <message>`."""
     input_pptx = Path(args.input)
-    text_data_json = Path(args.text_data)
     output_pptx = Path(args.output)
-
-    if not input_pptx.exists():
-        print(f"Error: Input file '{input_pptx}' not found")
-        sys.exit(1)
-
-    if not text_data_json.exists():
-        print(f"Error: Text data JSON file '{text_data_json}' not found")
-        sys.exit(1)
-
+    # The CLI reports a missing input before a missing or malformed text data file.
+    require_file(input_pptx, f"Input file '{input_pptx}' not found")
     try:
-        text_adder = PresentationTextAdder()
-        text_adder.add_text(str(input_pptx), str(text_data_json), str(output_pptx))
+        text_data = load_data_json(Path(args.text_data), "Text data")
+        result = PresentationTextAdder().add_text(input_pptx, text_data, output_pptx)
     except TextAdditionError as e:
+        for line in e.details:
+            print(line)
         print(f"Error adding text: {e}")
-        sys.exit(1)
+        return 1
+    except PptxError:
+        raise
     except Exception as e:
-        print(f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        return print_unexpected_error(e)
+    print_text_added(result)
+    return 0

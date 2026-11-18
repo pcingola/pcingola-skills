@@ -6,8 +6,7 @@ textbox, line, image. All coordinates are in inches. The `image` type places a
 real, editable picture object (from a PNG/JPG file) — not a flattened slide.
 """
 
-import json
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
@@ -19,7 +18,9 @@ from pptx.util import Inches
 
 from PIL import Image as PILImage
 
-from .exceptions import ValidationError
+from .common import load_data_json, require_file
+from .exceptions import PptxError, ValidationError
+from .pptx import print_unexpected_error
 from .measure import text_width
 from .text_formatters import ParagraphProcessor, ShapeFormatter
 
@@ -68,12 +69,26 @@ ARROW_MAP = {
 }
 
 
+@dataclass(frozen=True)
+class ShapesAdded:
+    """What `add_shapes` did: shapes added per slide key (in slide order) and warning lines, in order."""
+    per_slide: dict[str, int]
+    warnings: list[str]
+
+
 class PresentationShapesAdder:
     """Adds free native shapes and file-backed pictures to presentations from JSON definitions."""
 
-    def add_shapes(self, input_path: str, shape_data_path: str, output_path: str) -> None:
-        prs = Presentation(input_path)
-        shape_data = self._load_shape_data(shape_data_path)
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    def add_shapes(self, input_path: Path, shape_data: dict, output_path: Path) -> ShapesAdded:
+        """Draw the shapes of `shape_data` (slide-N keys) on the deck and save it to output_path.
+
+        Invalid data raises ValidationError with one detail line per problem.
+        """
+        require_file(input_path, f"Input file '{input_path}' not found")
+        prs = Presentation(str(input_path))
         self._validate_shape_data(prs, shape_data)
 
         per_slide = {}
@@ -87,23 +102,9 @@ class PresentationShapesAdder:
                 self._add_shape(slide, shape_spec)
             per_slide[slide_key] = len(shape_list)
 
-        prs.save(output_path)
-        print(f"Saved presentation to: {output_path}")
-        for slide_key in sorted(per_slide, key=lambda k: int(k.split("-")[1])):
-            print(f"  {slide_key}: {per_slide[slide_key]} shape(s) added")
-
-    def _load_shape_data(self, json_path: str) -> dict:
-        with open(json_path, "r") as f:
-            return json.load(f, object_pairs_hook=self._check_duplicate_keys)
-
-    @staticmethod
-    def _check_duplicate_keys(pairs: list[tuple]) -> dict:
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValidationError(f"Duplicate key found in JSON: '{key}'")
-            result[key] = value
-        return result
+        prs.save(str(output_path))
+        ordered = {k: per_slide[k] for k in sorted(per_slide, key=lambda k: int(k.split("-")[1]))}
+        return ShapesAdded(ordered, list(self.warnings))
 
     def _validate_shape_data(self, prs, shape_data: dict) -> None:
         errors = []
@@ -169,10 +170,10 @@ class PresentationShapesAdder:
                         errors.append(f"{prefix} ({stype}): missing coords {missing}")
 
         if errors:
-            print("ERROR: Invalid shape data:")
-            for error in errors:
-                print(f"  - {error}")
-            raise ValidationError(f"Found {len(errors)} validation error(s)")
+            raise ValidationError(
+                f"Found {len(errors)} validation error(s)",
+                ["ERROR: Invalid shape data:", *(f"  - {error}" for error in errors)],
+            )
 
     def _add_shape(self, slide, spec: dict) -> None:
         stype = spec["type"]
@@ -248,7 +249,7 @@ class PresentationShapesAdder:
 
         arrow = spec.get("arrow")
         if arrow:
-            _apply_arrow(connector, arrow)
+            _apply_arrow(connector, arrow, self.warnings)
 
     def _add_chip_row(self, slide, spec: dict) -> None:
         """Expand a chip_row into a packed row of rounded_rect pill shapes.
@@ -446,11 +447,11 @@ def _apply_shadow(shape, shadow_on) -> None:
         pass
 
 
-def _apply_arrow(connector, arrow: str) -> None:
-    """Append triangle line-end(s) to the connector's <a:ln> element."""
+def _apply_arrow(connector, arrow: str, warnings: list[str]) -> None:
+    """Append triangle line-end(s) to the connector's <a:ln> element; an unknown arrow appends a warning."""
     tags = ARROW_MAP.get(str(arrow).lower())
     if not tags:
-        print(f"  WARNING: Unknown arrow '{arrow}' (use start/end/both)")
+        warnings.append(f"  WARNING: Unknown arrow '{arrow}' (use start/end/both)")
         return
     ln = connector.line._get_or_add_ln()
     for tag in tags:
@@ -492,28 +493,22 @@ def _apply_text(shape, text_def: dict) -> None:
         ShapeFormatter.apply_text_frame_properties(shape, tf_props)
 
 
-def run_add_shapes(args) -> None:
+def run_add_shapes(args) -> int:
     """Entry point from CLI dispatcher."""
     input_pptx = Path(args.input)
-    shape_data_json = Path(args.shape_data)
     output_pptx = Path(args.output)
-
-    if not input_pptx.exists():
-        print(f"Error: Input file '{input_pptx}' not found")
-        sys.exit(1)
-
-    if not shape_data_json.exists():
-        print(f"Error: Shape data JSON file '{shape_data_json}' not found")
-        sys.exit(1)
-
+    # The CLI reports a missing input before a missing or malformed shape data file.
+    require_file(input_pptx, f"Input file '{input_pptx}' not found")
     try:
-        adder = PresentationShapesAdder()
-        adder.add_shapes(str(input_pptx), str(shape_data_json), str(output_pptx))
-    except ValidationError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        shape_data = load_data_json(Path(args.shape_data), "Shape data")
+        result = PresentationShapesAdder().add_shapes(input_pptx, shape_data, output_pptx)
+    except PptxError:
+        raise
     except Exception as e:
-        print(f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        return print_unexpected_error(e)
+    for line in result.warnings:
+        print(line)
+    print(f"Saved presentation to: {output_pptx}")
+    for slide_key, count in result.per_slide.items():
+        print(f"  {slide_key}: {count} shape(s) added")
+    return 0

@@ -4,13 +4,14 @@ Produces a plain white deck (default python-pptx template, Calibri) with N blank
 slides (layout index 6). Intended as a canvas for `add-shapes`.
 """
 
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from pptx import Presentation
 from pptx.util import Inches
 
-from .exceptions import ValidationError
+from .exceptions import PptxError, ValidationError
+from .pptx import print_unexpected_error
 
 
 # name -> (width_in, height_in)
@@ -20,7 +21,17 @@ SIZE_MAP = {
 }
 
 
-def create_deck(output_path: str, slides: int, size: str) -> None:
+@dataclass(frozen=True)
+class NewDeck:
+    """A deck written by `create_deck`: its path, slide count, aspect ratio name and size in inches."""
+    output_path: Path
+    slides: int
+    size: str
+    width_in: float
+    height_in: float
+
+
+def create_deck(output_path: Path | str, slides: int, size: str) -> NewDeck:
     """Create a blank deck with `slides` blank slides at the given aspect ratio."""
     if slides < 1:
         raise ValidationError(f"--slides must be >= 1 (got {slides})")
@@ -39,22 +50,20 @@ def create_deck(output_path: str, slides: int, size: str) -> None:
     for _ in range(slides):
         prs.slides.add_slide(blank_layout)
 
-    prs.save(output_path)
-
-    print(f"Saved presentation to: {output_path}")
-    print(f"Slides: {slides}")
-    print(f"Size: {size} ({width_in} x {height_in} in)")
+    prs.save(str(output_path))
+    return NewDeck(Path(output_path), slides, size, width_in, height_in)
 
 
-def run_new_deck(args) -> None:
+def run_new_deck(args) -> int:
     """Entry point from CLI dispatcher."""
+    output = str(Path(args.output))
     try:
-        create_deck(str(Path(args.output)), args.slides, args.size)
-    except ValidationError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        deck = create_deck(output, args.slides, args.size)
+    except PptxError:
+        raise
     except Exception as e:
-        print(f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        return print_unexpected_error(e)
+    print(f"Saved presentation to: {output}")
+    print(f"Slides: {deck.slides}")
+    print(f"Size: {deck.size} ({deck.width_in} x {deck.height_in} in)")
+    return 0

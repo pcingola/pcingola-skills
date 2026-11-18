@@ -6,7 +6,6 @@ PowerPoint, and they cannot drift from an image regenerated at another time.
 """
 
 import json
-import sys
 from pathlib import Path
 
 from pptx import Presentation
@@ -14,7 +13,8 @@ from pptx.chart.data import ChartData
 from pptx.enum.chart import XL_CHART_TYPE, XL_LABEL_POSITION
 from pptx.util import Length, Pt
 
-from .common import CHART_COLORS
+from .common import CHART_COLORS, require_file
+from .exceptions import PptxError
 from .placeholders import find_object_placeholders, remove_shape
 
 CHART_TYPE_COLUMN_CLUSTERED = 51
@@ -116,47 +116,45 @@ def add_chart_to_slide(slide: object, placeholder: object, chart_config: dict) -
         apply_column_chart_formatting(chart, data)
 
 
+def add_chart(input_path: Path, output_path: Path, slide_index: int, chart_config: dict, index: int = 0) -> None:
+    """Replace the OBJECT placeholder at `index` on one slide with the chart `chart_config`
+    (the chart data JSON) and save the deck to output_path."""
+    require_file(input_path, f"Input file not found: {input_path}")
+    prs = Presentation(str(input_path))
+    if not 0 <= slide_index < len(prs.slides):
+        raise PptxError(f"Slide index {slide_index} out of range (0-{len(prs.slides) - 1})")
+
+    slide = prs.slides[slide_index]
+    placeholders = find_object_placeholders(slide)
+    if not placeholders:
+        raise PptxError(f"No OBJECT placeholders found on slide {slide_index}")
+    if index >= len(placeholders):
+        raise PptxError(
+            f"Placeholder index {index} out of range. "
+            f"Found {len(placeholders)} OBJECT placeholder(s)."
+        )
+
+    try:
+        add_chart_to_slide(slide, placeholders[index], chart_config)
+    except (ValueError, RuntimeError) as exc:
+        raise PptxError(str(exc)) from None
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(output_path))
+
+
 def run_add_chart(args) -> None:
     """Entry point from CLI dispatcher."""
     input_path = Path(args.input)
     output_path = Path(args.output)
     data_path = Path(args.chart_data)
 
-    if not input_path.exists():
-        print(f"Error: Input file not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
-    if not data_path.exists():
-        print(f"Error: chart data JSON not found: {data_path}", file=sys.stderr)
-        sys.exit(1)
-
+    # The CLI reports a missing input before a missing or malformed chart data file.
+    require_file(input_path, f"Input file not found: {input_path}")
+    require_file(data_path, f"chart data JSON not found: {data_path}")
     with open(data_path, encoding="utf-8") as f:
         chart_config = json.load(f)
 
-    prs = Presentation(str(input_path))
-    if not 0 <= args.slide < len(prs.slides):
-        print(f"Error: Slide index {args.slide} out of range (0-{len(prs.slides) - 1})", file=sys.stderr)
-        sys.exit(1)
-
-    slide = prs.slides[args.slide]
-    placeholders = find_object_placeholders(slide)
-    if not placeholders:
-        print(f"Error: No OBJECT placeholders found on slide {args.slide}", file=sys.stderr)
-        sys.exit(1)
-    if args.index >= len(placeholders):
-        print(
-            f"Error: Placeholder index {args.index} out of range. "
-            f"Found {len(placeholders)} OBJECT placeholder(s).",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    try:
-        add_chart_to_slide(slide, placeholders[args.index], chart_config)
-    except (ValueError, RuntimeError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    prs.save(str(output_path))
+    add_chart(input_path, output_path, args.slide, chart_config, args.index)
     print(f"Inserted chart into slide {args.slide}, placeholder {args.index}")
     print(f"Saved to: {output_path}")
