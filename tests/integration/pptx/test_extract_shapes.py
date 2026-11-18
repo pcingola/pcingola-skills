@@ -8,7 +8,7 @@ from pptx_tool.cmd_show_shapes import show_shapes
 from pptx_tool.exceptions import PptxError
 
 from tests.integration.pptx import (
-    cleanup_dir, create_multilayout_pptx, create_test_pptx, fresh_dir, write_readme,
+    cleanup_dir, cli, create_multilayout_pptx, create_test_pptx, fresh_dir, write_readme,
 )
 
 DIR = fresh_dir("test_extract_shapes")
@@ -89,6 +89,26 @@ class TestExtractShapes(unittest.TestCase):
         data = json.loads(out.read_text())
         for slide in data.values():
             self.assertNotIn("notes", slide)
+
+    def test_cli_forwards_issues_only_and_slide(self) -> None:
+        """extract-shapes on the command line with --issues-only --slide 0 writes nothing, since
+        slide 0 has no issue, and with --issues-only --slide 3 writes only slide-3 with only its
+        overlong text box. Guards that --issues-only and --slide reach extract_shapes."""
+        clean = DIR / "cli_slide0_issues.json"
+        r = cli("extract-shapes", str(self.multilayout), str(clean), "--issues-only", "--slide", "0")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("No issues discovered", r.stdout)
+        self.assertFalse(clean.exists())
+
+        out = DIR / "cli_slide3_issues.json"
+        r = cli("extract-shapes", str(self.multilayout), str(out), "--issues-only", "--slide", "3")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        data = json.loads(out.read_text())
+        self.assertEqual(list(data), ["slide-3"])
+        texts = [p.get("text", "") for shape in data["slide-3"].values()
+                 for p in shape.get("paragraphs", [])]
+        self.assertTrue(texts, "slide-3 has no shapes")
+        self.assertTrue(all(t.startswith("overflowing") for t in texts), texts)
 
     def test_show_shapes_reads_the_augmented_json(self) -> None:
         """show_shapes reads extract_shapes output that has slide-level notes keys and includes the

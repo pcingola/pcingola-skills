@@ -52,13 +52,22 @@ class TestCopySlide(unittest.TestCase):
 
     def test_copy_at_position_zero(self) -> None:
         """copy_slides with position 0 inserts the copied slide before the target's first slide.
-        Guards the past bug where --position was parsed and ignored, so slides were always
-        appended."""
+        Guards the core's insertion at a given position."""
         out = DIR / "copy_pos0.pptx"
         copy_slides(self.source, self.target, out, [2], position=0)
         prs = Presentation(str(out))
         self.assertEqual(len(prs.slides), 3)
         titles = [s.shapes.title.text for s in prs.slides]
+        self.assertEqual(titles, ["Slide 2 Title", "Slide 0 Title", "Slide 1 Title"])
+
+    def test_cli_forwards_position(self) -> None:
+        """copy-slide on the command line with --position 0 writes the copied slide first. Guards
+        that --position reaches copy_slides: the past bug where --position was parsed and ignored,
+        so slides were always appended."""
+        out = DIR / "copy_pos0_cli.pptx"
+        r = cli("copy-slide", str(self.source), str(self.target), str(out), "2", "--position", "0")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        titles = [s.shapes.title.text for s in Presentation(str(out)).slides]
         self.assertEqual(titles, ["Slide 2 Title", "Slide 0 Title", "Slide 1 Title"])
 
     def test_copy_at_middle_position(self) -> None:

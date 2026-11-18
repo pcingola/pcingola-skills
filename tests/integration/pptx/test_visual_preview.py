@@ -9,11 +9,11 @@ from pathlib import Path
 
 from PIL import Image
 
-from pptx_tool.cmd_visual_preview import default_output_base, grid_output_paths, visual_preview
+from pptx_tool.cmd_visual_preview import default_output_base, grid_output_paths
 from pptx_tool.thumbnail_grid import BORDER_WIDTH, PADDING, THUMBNAIL_WIDTH, Thumbnail, ThumbnailGridGenerator
 from tests.prereq import requires
 from tests.integration.pptx import (
-    cleanup_dir, create_test_pptx, fresh_dir, has_libreoffice, write_readme,
+    cleanup_dir, cli, create_test_pptx, fresh_dir, has_libreoffice, write_readme,
 )
 
 DIR = fresh_dir("test_visual_preview")
@@ -76,13 +76,14 @@ class TestVisualPreviewEndToEnd(unittest.TestCase):
         cleanup_dir(cls.dir)
 
     def test_default_preview_with_libreoffice(self) -> None:
-        """visual_preview without an output prefix and with 3 columns renders the 4-slide deck and
-        writes one grid, <stem>_thumbnails.jpg next to the input, 3 columns wide. Guards the
-        integration with LibreOffice and pdftoppm, the default output name, and that the column
-        count reaches the grid."""
-        outputs = visual_preview(self.source, columns=3)
+        """visual-preview --cols 3 on the command line, without an output prefix, renders the
+        4-slide deck and writes one grid, <stem>_thumbnails.jpg next to the input, 3 columns wide.
+        Guards the integration with LibreOffice and pdftoppm, the default output name, and that
+        --cols reaches visual_preview and the grid."""
+        r = cli("visual-preview", str(self.source), "--cols", "3")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         expected = self.dir / "test_thumbnails.jpg"
-        self.assertEqual(outputs, [expected])
+        self.assertEqual(sorted(self.dir.glob("*.jpg")), [expected])
         self.assertTrue(expected.is_file())
         with Image.open(expected) as im:
             self.assertEqual(im.width, _grid_width(3))

@@ -4,6 +4,7 @@ Runs on the synthetic multi-layout fixture. The tests call the core function `ad
 the test of the chart data file check calls the CLI in process, because the CLI layer loads
 that file. The result must be a real CHART shape carrying its data, not a picture of one.
 """
+import json
 import unittest
 from pathlib import Path
 
@@ -119,6 +120,24 @@ class TestAddChart(unittest.TestCase):
             if s.is_placeholder and s.placeholder_format.type == 7
         ]
         self.assertEqual(len(remaining), 1)
+
+    def test_cli_forwards_index(self) -> None:
+        """add-chart on the command line with --index 1 fills the right OBJECT placeholder of the
+        two-column slide and leaves the left one in place. Guards that --index reaches add_chart."""
+        data = DIR / "column.json"
+        data.write_text(json.dumps(COLUMN_CHART))
+        out = DIR / "second_cli.pptx"
+        r = cli("add-chart", str(self.source), str(out), str(TWO_OBJECT_SLIDE), str(data),
+                "--index", "1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        slide = Presentation(str(out)).slides[TWO_OBJECT_SLIDE]
+        charts = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.CHART]
+        remaining = [
+            s for s in slide.shapes
+            if s.is_placeholder and s.placeholder_format.type == 7  # OBJECT
+        ]
+        self.assertEqual((len(charts), len(remaining)), (1, 1))
+        self.assertLess(remaining[0].left, charts[0].left, "the chart filled the first placeholder")
 
     def test_slide_out_of_range_errors(self) -> None:
         """add_chart raises PptxError with "out of range" for slide 999. Guards the slide range check."""

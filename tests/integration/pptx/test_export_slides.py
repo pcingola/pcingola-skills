@@ -16,7 +16,7 @@ from pptx_tool.pptx import build_parser
 from pptx_tool.slide_render import ImageFormat, pdftoppm_command, rendered_images
 from tests.prereq import requires
 from tests.integration.pptx import (
-    cleanup_dir, create_test_pptx, fresh_dir, has_libreoffice, write_readme,
+    cleanup_dir, cli, create_test_pptx, fresh_dir, has_libreoffice, write_readme,
 )
 
 DIR = fresh_dir("test_export_slides")
@@ -123,14 +123,16 @@ class TestExportSlidesEndToEnd(unittest.TestCase):
         cleanup_dir(cls.dir)
 
     def test_renders_each_slide_with_libreoffice(self) -> None:
-        """export_slides on a 3-slide 10 in deck, as JPEG at 72 dpi into a missing nested directory,
-        creates the directory and writes slide_01.jpg .. slide_03.jpg, non-empty JPEGs 720 px wide.
-        Guards the integration with LibreOffice and pdftoppm: one image per slide, the directory
-        creation, and that the format and dpi reach pdftoppm."""
+        """export-slides --format jpg --dpi 72 on the command line, on a 3-slide 10 in deck into a
+        missing nested directory, creates the directory and writes slide_01.jpg .. slide_03.jpg,
+        non-empty JPEGs 720 px wide. Guards the integration with LibreOffice and pdftoppm, one image
+        per slide, the directory creation, and that --format and --dpi reach export_slides and
+        pdftoppm."""
         out = self.dir / "nested" / "deeper"
-        exported = export_slides(self.source, out, dpi=72, fmt=ImageFormat.JPG)
+        r = cli("export-slides", str(self.source), str(out), "--format", "jpg", "--dpi", "72")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertTrue(out.is_dir())
-        self.assertEqual(exported, [out / f"slide_0{n}.jpg" for n in (1, 2, 3)])
+        exported = [out / f"slide_0{n}.jpg" for n in (1, 2, 3)]
         self.assertEqual(sorted(out.glob("slide_*")), exported)
         for img in exported:
             self.assertGreater(img.stat().st_size, 0, f"{img.name} is empty")

@@ -74,6 +74,24 @@ class TestAddImages(unittest.TestCase):
             "Expected:\n"
             "  Slide 2 ('Picture Slide'): RED in placeholder 0, BLUE in placeholder 1")
 
+    def test_cli_forwards_type_and_index(self) -> None:
+        """add-images on the command line with --type OBJECT --index 1 puts the image on the right
+        OBJECT placeholder of the two-column slide and leaves the left one in place. Guards that
+        --type and --index reach add_images, in that order: the default PICTURE type finds no
+        placeholder on this slide, and index 0 fills the left one."""
+        out = DIR / "img_object_cli.pptx"
+        r = cli("add-images", str(self.with_placeholders), str(out), "2", str(self.test_image),
+                "--type", "OBJECT", "--index", "1")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        slide = Presentation(str(out)).slides[2]
+        pictures = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE]
+        remaining = [
+            s for s in slide.shapes
+            if s.is_placeholder and s.placeholder_format.type == 7  # OBJECT
+        ]
+        self.assertEqual((len(pictures), len(remaining)), (1, 1))
+        self.assertLess(remaining[0].left, pictures[0].left, "the image filled the first placeholder")
+
     def test_add_image_to_simple(self) -> None:
         """add_images raises PptxError on a slide without PICTURE placeholders and writes no output.
         Guards the error for a missing placeholder instead of a silent no-op."""

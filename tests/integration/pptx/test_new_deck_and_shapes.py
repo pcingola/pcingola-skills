@@ -1,6 +1,7 @@
-"""Integration tests for the new-deck and add-shapes commands.
+"""Integration tests for the new-deck and add-shapes commands, and the add-slide CLI options.
 
 The new-deck tests check the CLI defaults and options, so they call the CLI in process.
+The add-slide test checks that --position reaches the core function, so it calls the CLI too.
 The add-shapes tests call the core function. Together they are the blank-canvas path that
 references/blank-canvas.md documents: `new-deck` produces the canvas `add-shapes` draws on.
 """
@@ -14,7 +15,7 @@ from pptx_tool.cmd_add_shapes import PresentationShapesAdder
 from pptx_tool.cmd_new_deck import create_deck
 from pptx_tool.exceptions import PptxError
 from tests.integration.pptx import (
-    cli, create_test_image, fresh_dir, stamp_description, write_readme,
+    cli, create_test_image, create_test_pptx, fresh_dir, stamp_description, write_readme,
 )
 
 DIR = fresh_dir("test_new_deck_and_shapes")
@@ -55,6 +56,20 @@ class TestNewDeck(unittest.TestCase):
         prs = Presentation(str(out))
         self.assertEqual(len(prs.slides), 3)
         self.assertAlmostEqual(prs.slide_width / EMU_PER_INCH, 10.0, places=2)
+
+
+class TestAddSlideCli(unittest.TestCase):
+
+    def test_cli_forwards_position(self) -> None:
+        """add-slide on the command line with --position 0 inserts the Blank slide before the deck's
+        two Title and Content slides. Guards that --position reaches add_slides_to_file; without it
+        the slide is appended."""
+        src = create_test_pptx(DIR, name="two_slides.pptx", num_slides=2)
+        out = DIR / "add_slide_pos0.pptx"
+        r = cli("add-slide", str(src), str(out), "Blank", "--position", "0")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        layouts = [s.slide_layout.name for s in Presentation(str(out)).slides]
+        self.assertEqual(layouts, ["Blank", "Title and Content", "Title and Content"])
 
 
 class TestAddShapes(unittest.TestCase):
