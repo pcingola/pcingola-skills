@@ -9,10 +9,11 @@ from pptx import Presentation
 
 from pptx_tool.cmd_add_slide import add_slides
 from pptx_tool.cmd_add_text import PresentationTextAdder
+from pptx_tool.cmd_export_slides import export_slides
 from pptx_tool.text_fitting import TextFitter, paragraph_base_sizes
 from tests.prereq import requires
 from tests.integration.pptx import (
-    PROJECT_DIR, cleanup_dir, fresh_dir, has_libreoffice, run_cli, write_readme,
+    PROJECT_DIR, cleanup_dir, fresh_dir, has_libreoffice, write_readme,
 )
 
 DIR = fresh_dir("test_fit_render")
@@ -68,9 +69,8 @@ class TestFitRender(unittest.TestCase):
         prs, body = _deck(n)
         deck = DIR / f"{name}.pptx"
         prs.save(str(deck))
-        r = run_cli("export-slides", str(deck), str(DIR / name), "--dpi", str(DPI))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        with Image.open(DIR / name / "slide_01.png") as im:
+        [image] = export_slides(deck, DIR / name, dpi=DPI)
+        with Image.open(image) as im:
             gray = im.convert("L")
         x0 = int(body.left / EMU_PER_INCH * DPI) + 2
         x1 = int((body.left + body.width) / EMU_PER_INCH * DPI) - 2
