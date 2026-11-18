@@ -4,7 +4,7 @@ short-video.sh sources plugins/media/lib/uv_env.sh, whose `plugin_env` sets
 PLUGIN_ENV_DIR. Under pytest that variable is unset. The tests ask a bash
 child for the wrapper's PLUGIN_ENV_DIR, place the node directory and the Manim
 environment in it with `config.env_dirs`, and pass the node directory to
-`scenes` explicitly; Manim renders run through the wrapper.
+`scenes` explicitly; Manim renders get the Manim environment as an argument.
 """
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from pathlib import Path
 
 from short_video_tool import config
 
-WRAPPER = config.SCRIPTS_DIR / "short-video.sh"
 UV_ENV = config.SCRIPTS_DIR.parents[2] / "lib" / "uv_env.sh"
 
 
@@ -34,7 +33,3 @@ NODE_DIR = _DIRS.node_dir
 # The Manim environment the wrapper's render uses.
 MANIM_VENV = _DIRS.manim_env
 
-
-def run(*args: str | Path, timeout: float = 25) -> subprocess.CompletedProcess:
-    """Run short-video.sh with `args`, for at most `timeout` seconds (below the 30 s test timeout)."""
-    return subprocess.run([str(WRAPPER), *map(str, args)], capture_output=True, text=True, timeout=timeout)
