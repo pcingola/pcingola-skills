@@ -840,13 +840,16 @@ def extract_text(pptx_path: Path, prs: Presentation = None) -> ExtractedShapesDa
         slide_key = f"slide-{slide_idx}"
 
         # Build z-order lookup: shape element → z-order index (position in spTree)
-        z_order_map: dict[int, int] = {}
-        for z_idx, shape in enumerate(slide.shapes):
-            z_order_map[id(shape._element)] = z_idx
+        # Keys are the shapes kept alive in the list: an id() of a freed proxy
+        # can be reused by another object, which made z_order depend on memory layout.
+        top_shapes = list(slide.shapes)
+        z_order_map: dict[int, int] = {
+            id(shape._element): z_idx for z_idx, shape in enumerate(top_shapes)
+        }
 
         # Collect all text shapes with absolute positions
         shape_positions = []
-        for shape in slide.shapes:
+        for shape in top_shapes:
             shape_positions.extend(collect_shapes_with_absolute_positions(shape))
 
         if not shape_positions:
