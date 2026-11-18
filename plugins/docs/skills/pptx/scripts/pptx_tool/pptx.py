@@ -283,5 +283,3 @@ def main(argv: list[str] | None = None) -> int:
     except PptxError as exc:
         print_error(args.command, exc)
         return 1
-    except SystemExit as exc:
-        return _exit_code(exc)

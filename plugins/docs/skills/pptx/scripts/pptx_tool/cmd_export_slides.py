@@ -1,81 +1,52 @@
 """Export each slide in a PPTX as an individual image file."""
 
 import shutil
-import subprocess
-import sys
 import tempfile
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from .slide_render import ImageFormat, render_slides, require_powerpoint
 
-CONVERSION_DPI = 150
-
-
-def _libreoffice_to_pdf(pptx_path: Path, temp_dir: Path) -> Path:
-    from . import find_libreoffice
-    lo = find_libreoffice()
-    if not lo:
-        raise RuntimeError(
-            "LibreOffice is required but not found. "
-            "Install: brew install libreoffice (macOS) or apt-get install libreoffice (Linux)"
-        )
-    result = subprocess.run(
-        [lo, "--headless", "--convert-to", "pdf", "--outdir", str(temp_dir), str(pptx_path)],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"LibreOffice conversion failed: {result.stderr}")
-    pdf = temp_dir / f"{pptx_path.stem}.pdf"
-    if not pdf.exists():
-        raise RuntimeError(f"Expected PDF not found: {pdf}")
-    return pdf
+DEFAULT_DPI = 150
 
 
-def _pdf_to_images(pdf_path: Path, temp_dir: Path, dpi: int, fmt: str) -> list[Path]:
-    if not shutil.which("pdftoppm"):
-        raise RuntimeError(
-            "pdftoppm (poppler) is required but not found. "
-            "Install: brew install poppler (macOS) or apt-get install poppler-utils (Linux)"
-        )
-    prefix = temp_dir / "slide"
-    flag = "-jpeg" if fmt == "jpg" else "-png"
-    result = subprocess.run(
-        ["pdftoppm", flag, "-r", str(dpi), str(pdf_path), str(prefix)],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"pdftoppm failed: {result.stderr}")
-    ext = "jpg" if fmt == "jpg" else "png"
-    images = sorted(temp_dir.glob(f"slide-*.{ext}"))
-    if not images:
-        raise RuntimeError("No images generated from PDF")
-    return images
+def export_image_name(slide_number: int, fmt: ImageFormat) -> str:
+    """File name of the exported image of slide `slide_number` (1-based): slide_NN.<ext>."""
+    return f"slide_{slide_number:02d}.{fmt.value}"
+
+
+def copy_exported_images(images: Sequence[Path], output_dir: Path, fmt: ImageFormat) -> list[Path]:
+    """Copy rendered images, in slide order, to `output_dir` as slide_01.<ext>, slide_02.<ext>, ...;
+    return the copies."""
+    exported = []
+    for number, image in enumerate(images, start=1):
+        dest = output_dir / export_image_name(number, fmt)
+        shutil.copy2(image, dest)
+        exported.append(dest)
+    return exported
+
+
+def export_slides(input_path: Path, output_dir: Path, dpi: int = DEFAULT_DPI,
+                  fmt: ImageFormat = ImageFormat.PNG,
+                  progress: Callable[[str], None] = lambda _: None) -> list[Path]:
+    """Render each slide of `input_path` and write it to `output_dir` (created if missing) as
+    slide_NN.<fmt> at `dpi`; return the written paths in slide order.
+
+    `progress` receives the progress message before rendering starts. An invalid input raises
+    PptxError; a missing or failing LibreOffice or pdftoppm raises RuntimeError.
+    """
+    require_powerpoint(input_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        progress(f"Converting {input_path} to images...")
+        images = render_slides(input_path, Path(tmp), dpi, fmt)
+        return copy_exported_images(images, output_dir, fmt)
 
 
 def run_export_slides(args) -> None:
-    input_path: Path = args.input
+    """Entry point from CLI dispatcher."""
     output_dir: Path = args.output
-    dpi: int = args.dpi
-    fmt: str = args.format
-
-    if not input_path.exists():
-        print(f"Error: Input file not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
-    if input_path.suffix.lower() not in (".pptx", ".ppt"):
-        print("Error: Input must be a PowerPoint file (.pptx or .ppt)", file=sys.stderr)
-        sys.exit(1)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        print(f"Converting {input_path} to images...")
-        pdf = _libreoffice_to_pdf(input_path, tmp_path)
-        images = _pdf_to_images(pdf, tmp_path, dpi, fmt)
-
-        for i, img in enumerate(images, start=1):
-            dest = output_dir / f"slide_{i:02d}.{fmt}"
-            shutil.copy2(img, dest)
-
-    print(f"Exported {len(images)} slide image(s) to: {output_dir}")
-    for i in range(1, len(images) + 1):
-        print(f"  {output_dir / f'slide_{i:02d}.{fmt}'}")
+    exported = export_slides(args.input, output_dir, args.dpi, ImageFormat(args.format), progress=print)
+    print(f"Exported {len(exported)} slide image(s) to: {output_dir}")
+    for path in exported:
+        print(f"  {path}")

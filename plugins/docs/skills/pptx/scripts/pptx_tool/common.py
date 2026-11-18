@@ -1,6 +1,7 @@
 """Constants and input helpers shared across pptx_tool modules."""
 
 import json
+import sys
 from pathlib import Path
 
 from pptx.dml.color import RGBColor
@@ -29,6 +30,11 @@ CHART_COLORS: tuple[RGBColor, ...] = (
     RGBColor(0x60, 0x60, 0x68),
 )
 
+
+
+def warn(message: str) -> None:
+    """Print `Warning: <message>` to stderr: how a core function reports a problem it recovers from."""
+    print(f"Warning: {message}", file=sys.stderr)
 
 
 def require_file(path: Path, message: str) -> None:
