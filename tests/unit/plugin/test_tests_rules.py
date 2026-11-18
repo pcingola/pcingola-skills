@@ -123,8 +123,6 @@ CLI_PROCESS_ALLOWLIST = {
     "tests/unit/second_opinion/conftest.py": "not converted yet",
     "tests/unit/second_opinion/test_review.py": "not converted yet",
     "tests/unit/second_opinion/test_routes.py": "not converted yet",
-    "tests/unit/short_video/test_critic.py": "not converted yet",
-    "tests/unit/short_video/test_particle_text.py": "not converted yet",
     "tests/unit/short_video/test_routes.py": "not converted yet",
     "tests/unit/voiceover/cli_run.py": "not converted yet",
     "tests/unit/voiceover/test_routes.py": "not converted yet",

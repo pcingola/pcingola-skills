@@ -6,17 +6,15 @@ from __future__ import annotations
 import base64
 import json
 import re
-import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from short_video_tool import config, particle_text
+from short_video_tool import config, particle_text, settings
 from short_video_tool.particle_text import LETTER_STEP, SUPERSAMPLE, ParticleText
-from tests.subproc import child_env
+from tests.integration.short_video import cli
 
 REPO = config.SCRIPTS_DIR.parents[4]
 REVEAL = REPO / "plugins/docs/skills/revealjs-slideshow/assets/reveal.js"
@@ -41,9 +39,15 @@ def to_texture(payload: dict, rgb: np.ndarray, x: np.ndarray, y: np.ndarray) -> 
     return ((x / payload["w"] + 0.5) * W).astype(int).clip(0, W - 1), ((0.5 - y / payload["h"]) * H).astype(int).clip(0, H - 1)
 
 
-def run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, "-m", "short_video_tool", "particle-text", *args],
-                          capture_output=True, text=True, env=child_env(), cwd=cwd, timeout=25)
+# The size report line of `Written.report`, which `particle-text` prints on stderr.
+REPORT = r"text \d+x\d+ px at the end distance, \d+% x \d+% of the 1080x1920 frame"
+
+
+@pytest.fixture
+def no_project():
+    """Read the skill's default settings again after a test whose `particle-text` call set a project."""
+    yield
+    settings.use_project(None)
 
 
 @pytest.mark.parametrize("font", [TTF, WOFF2], ids=["ttf", "woff2"])
@@ -132,22 +136,22 @@ def test_refusals(tmp_path: Path) -> None:
     assert particle_text.parse_frame("1080x1920") == (1080, 1920)
 
 
-def test_cli_out(tmp_path: Path) -> None:
+def test_cli_out(tmp_path: Path, no_project) -> None:
     """`particle-text LINE... --font F --frame WxH --out DIR` prints the two files it wrote, named from the text;
     without --scene or --out it is a one-line error. Guards the command line of SKILL.md."""
-    done = run_cli("Two", "lines", "--font", str(WOFF2), "--count", "800", "--frame", "1080x1920",
+    done = cli("particle-text", "Two", "lines", "--font", str(WOFF2), "--count", "800", "--frame", "1080x1920",
                    "--out", str(tmp_path))
     assert done.returncode == 0, done.stderr
     assert done.stdout.split() == [str(tmp_path / "two_lines_targets.js"), str(tmp_path / "two_lines_tex.png")]
     assert '"lines": 2' in (tmp_path / "two_lines_targets.js").read_text()
-    done = run_cli("x", "--font", str(TTF), "-p", str(tmp_path))
+    done = cli("particle-text", "x", "--font", str(TTF), "-p", str(tmp_path))
     assert done.returncode == 1 and "--scene" in done.stderr and "Traceback" not in done.stderr
 
 
-def test_technique_files_current(tmp_path: Path) -> None:
+def test_technique_files_current(tmp_path: Path, no_project) -> None:
     """The technique's title_targets.js and title_tex.png are what its documented command writes now. Guards the
-    placeholder files against changes of the generator."""
-    done = run_cli(*TECHNIQUE_ARGS, "--frame", "1920x1080", "--out", str(tmp_path))
+    placeholder files against changes of the generator and of the command's defaults."""
+    done = cli("particle-text", *TECHNIQUE_ARGS, "--frame", "1920x1080", "--out", str(tmp_path))
     assert done.returncode == 0, done.stderr
     for name in ("title_targets.js", "title_tex.png"):
         assert (tmp_path / name).read_bytes() == (TECHNIQUE / name).read_bytes(), name
@@ -168,20 +172,37 @@ def test_measure_and_fit() -> None:
         text.fitted(1.5)
 
 
-def test_cli_project_frame_and_report(tmp_path: Path) -> None:
-    """With --out and no -p, run inside a portrait project, the frame is that project's `video:` size; the
+def test_write_block_report(tmp_path: Path) -> None:
+    """write_block writes <name>_targets.js and <name>_tex.png named from the text; its report gives the text's
+    size and share of the frame, warns above 80% of the width, and with `fit` the size is set so the text is that
+    share of the width. Guards the size report and `--fit` of `particle-text` (SKILL.md's command table)."""
+    text = ParticleText(("Phone",), TTF, size=400, count=300, width=1080, height=1920)
+    written = particle_text.write_block(text, tmp_path)
+    assert written.files == (tmp_path / "phone_targets.js", tmp_path / "phone_tex.png")
+    assert written.too_wide
+    report = written.report()
+    assert re.search(REPORT, report[0]), report
+    assert report[1].startswith("warning: the text is wider than 80%"), report
+    fitted = particle_text.write_block(text, tmp_path, fit=0.5)
+    assert not fitted.too_wide and len(fitted.report()) == 1
+    assert re.search(r" (49|50|51)% x \d+% of the 1080x1920 frame", fitted.report()[0]), fitted.report()
+
+
+def test_cli_project_frame_and_report(tmp_path: Path, no_project) -> None:
+    """With --out, -p naming a portrait project and no --frame, the frame is that project's `video:` size; the
     command reports the text's size and share of the frame on stderr, warns above 80% of the width, and --fit
-    sets the size. Guards the default frame and the size report of SKILL.md's command table."""
+    sets the size. Guards the default frame and the size report of SKILL.md's command table. The project is
+    passed with -p; the default of -p, the current directory, is `config.resolve_project`'s."""
     project = tmp_path / "phone"
     project.mkdir()
     (project / "settings.yaml").write_text("video:\n  width: 1080\n  height: 1920\n  fps: 30\n")
-    done = run_cli("Phone", "--font", str(TTF), "--count", "300", "--size", "400", "--out", str(tmp_path / "o"),
-                   cwd=project)
+    done = cli("particle-text", "Phone", "--font", str(TTF), "--count", "300", "--size", "400",
+               "--out", str(tmp_path / "o"), "-p", str(project))
     assert done.returncode == 0, done.stderr
     assert '"width": 1080, "height": 1920' in (tmp_path / "o/phone_targets.js").read_text()
-    assert re.search(r"text \d+x\d+ px at the end distance, \d+% x \d+% of the 1080x1920 frame", done.stderr)
+    assert re.search(REPORT, done.stderr)
     assert "warning: the text is wider than 80%" in done.stderr
-    done = run_cli("Phone", "--font", str(TTF), "--count", "300", "--fit", "0.5", "--out", str(tmp_path / "o"),
-                   cwd=project)
+    done = cli("particle-text", "Phone", "--font", str(TTF), "--count", "300", "--fit", "0.5",
+               "--out", str(tmp_path / "o"), "-p", str(project))
     assert done.returncode == 0 and "warning" not in done.stderr, done.stderr
     assert re.search(r" (49|50|51)% x \d+% of the 1080x1920 frame", done.stderr), done.stderr
