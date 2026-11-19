@@ -35,8 +35,8 @@ The template **must** instruct the agent to end its response with exactly one li
 
 The colon separates the keyword from the payload. `classify()` scans the agent's
 final response **in reverse** and takes the first line that starts with a known
-keyword. When a reason follows an `—` or ` - ` separator it is captured as the
-error reason. **If no signal line is present, the item is treated as
+keyword. The text after the colon, stripped, is the payload or the error reason
+recorded in the journal. **If no signal line is present, the item is treated as
 `error_transient`** (so a crashed/silent run is retried, not silently dropped).
 
 ## Worked example

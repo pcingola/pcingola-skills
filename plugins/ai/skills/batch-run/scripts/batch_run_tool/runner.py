@@ -9,11 +9,11 @@ Signal protocol
 ---------------
 Agents end their response with exactly one terminal signal line:
 
-    DONE: <payload>             — success; payload is job-specific
-    ERROR_TRANSIENT: <payload>  — transient failure (network, timeout); safe to retry
-    ERROR_FATAL: <payload>      — permanent failure (corrupt file, bad format); skip
+    done: <payload>             success; payload is job-specific
+    error_transient: <reason>   transient failure (network, timeout); safe to retry
+    error_fatal: <reason>       permanent failure (corrupt file, bad format); skip
 
-The colon is the separator between the keyword and the payload.
+The colon is the separator: everything after it, stripped, is the payload or reason.
 Signal keywords are the string values of Status.DONE, Status.ERROR_TRANSIENT,
 Status.ERROR_FATAL, so callers construct signal lines as f"{Status.DONE}: {payload}".
 """
@@ -108,14 +108,19 @@ class ClaudeRunner:
         Returns:
             (status, reason):
                 - status is Status.DONE on success, ERROR_TRANSIENT or ERROR_FATAL on failure.
-                - reason is empty on success, human-readable on failure.
+                - reason is the text after the keyword's colon: the payload on
+                  success, the failure reason otherwise.
                 - No signal line ⇒ ERROR_TRANSIENT.
         """
         for line in reversed(result_text.splitlines()):
             for status in (Status.DONE, Status.ERROR_FATAL, Status.ERROR_TRANSIENT):
                 if line.startswith(f"{status}:"):
-                    sep = "—" if "—" in line else ("-" if " - " in line else None)
-                    reason = line.split(sep, 1)[-1].strip() if sep else ""
+                    reason = line[len(status) + 1:].strip()
+                    # Older templates wrote `keyword: — reason` or `keyword: - reason`.
+                    for sep in ("—", "- "):
+                        if reason.startswith(sep):
+                            reason = reason[len(sep):].strip()
+                            break
                     return status, reason
         return Status.ERROR_TRANSIENT, f"no {Status.DONE}: signal in result (exit={exit_code})"
 

@@ -37,11 +37,23 @@ def test_fatal_with_emdash(runner):
     assert runner.classify("error_fatal: — corrupt pdf", 0) == (Status.ERROR_FATAL, "corrupt pdf")
 
 
-def test_colon_only_reason_is_empty(runner):
-    """ClaudeRunner.classify matches `keyword: payload` without a separator and returns an empty reason.
-    Guards the rule that a reason is captured only after an em-dash or ` - `.
+def test_colon_reason(runner):
+    """ClaudeRunner.classify takes the text after `keyword:` as the reason. Guards the documented
+    `error_fatal: <reason>` form.
     """
-    assert runner.classify("error_fatal: corrupt pdf", 0) == (Status.ERROR_FATAL, "")
+    assert runner.classify("error_fatal: corrupt pdf", 0) == (Status.ERROR_FATAL, "corrupt pdf")
+
+
+def test_reason_with_hyphens(runner):
+    """ClaudeRunner.classify keeps hyphens inside the reason. Guards against splitting `rate-limit` at its
+    hyphen.
+    """
+    assert runner.classify("error_transient: rate-limit - x", 0) == (Status.ERROR_TRANSIENT, "rate-limit - x")
+
+
+def test_done_payload(runner):
+    """ClaudeRunner.classify returns the text after `done:` as the payload."""
+    assert runner.classify("done: 5 products found", 0) == (Status.DONE, "5 products found")
 
 
 def test_last_signal_wins(runner):

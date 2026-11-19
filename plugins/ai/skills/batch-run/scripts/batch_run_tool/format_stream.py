@@ -33,9 +33,14 @@ def format_event(obj: dict) -> None:
                 else:
                     print(f"  → {name}", flush=True)
 
-    elif t == "tool_result":
-        if obj.get("is_error"):
-            print(f"  ✗ tool error: {obj.get('content', '')}", flush=True)
+    elif t == "user":
+        # Tool results arrive as tool_result blocks inside user messages.
+        for blk in obj.get("message", {}).get("content", []):
+            if isinstance(blk, dict) and blk.get("type") == "tool_result" and blk.get("is_error"):
+                content = blk.get("content", "")
+                if isinstance(content, list):
+                    content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+                print(f"  ✗ tool error: {content}", flush=True)
 
     elif t == "result":
         result = obj.get("result", "").strip()
