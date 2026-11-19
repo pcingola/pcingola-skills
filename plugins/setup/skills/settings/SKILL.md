@@ -51,7 +51,7 @@ A skill installed as part of a plugin loads as `<plugin>:<skill>`. A skill that 
 | media | image, music and voiceover generation, narrated short videos, image-to-image video effects, infographics, slide deck authoring |
 | dev | implementation plans, Agent Skill authoring and review |
 | brand | brand folders (logos, colours, fonts, guidelines, PowerPoint templates) and a catalogue of visual styles |
-| ai | text classification with a System-1 model (class probabilities) or a chat model; file review by a second model |
+| ai | text classification with a System-1 model (class probabilities) or a chat model; file review by a second model; resumable batch jobs of one `claude -p` run per item |
 | studio | a page in the browser for making images, infographics, slide decks and short videos with Claude (`/studio`); projects under `studio.dir`, default `~/Documents/Studio` |
 | setup | this skill: installation and settings |
 

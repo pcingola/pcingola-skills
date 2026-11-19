@@ -8,7 +8,7 @@ This repository is a Claude Code marketplace, `pcingola-skills` (`.claude-plugin
 | media | image-gen, infographic, music, pptx-author, short-video, video-effects, voiceover | ai, brand, docs, setup |
 | dev | plan, skill-author | setup |
 | brand | brand, style | setup |
-| ai | classify, second-opinion | setup |
+| ai | batch-run, classify, second-opinion | setup |
 | studio | images, videos | brand, media, setup |
 | setup | settings | none |
 

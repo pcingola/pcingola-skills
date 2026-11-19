@@ -40,7 +40,7 @@ Installed, a skill loads as `<plugin>:<skill>`. Installing a plugin also install
 | media | image-gen, infographic, music, pptx-author, short-video, video-effects, voiceover | ai, brand, docs, setup |
 | dev | plan, skill-author | setup |
 | brand | brand, style | setup |
-| ai | classify, second-opinion | setup |
+| ai | batch-run, classify, second-opinion | setup |
 | studio | images, videos | brand, media, setup |
 | setup | settings | |
 

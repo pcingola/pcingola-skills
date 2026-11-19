@@ -17,6 +17,8 @@ dev = [
     "ai-models[diffusers]",
     "plugin-settings",
     "psutil",
+    # batch-run
+    "pydantic>=2",
     # brand, style
     "pyyaml>=6",
     "python-pptx>=1.0",
@@ -92,6 +94,7 @@ timeout = 30
 testpaths = ["tests/unit", "tests/integration"]
 # The skill packages (<skill>_tool) and the studio server, importable by every suite
 pythonpath = [
+    "plugins/ai/skills/batch-run/scripts",
     "plugins/ai/skills/classify/scripts",
     "plugins/ai/skills/second-opinion/scripts",
     "plugins/brand/skills/brand/scripts",
