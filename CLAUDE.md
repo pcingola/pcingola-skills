@@ -51,7 +51,7 @@ Each rule and its reason are in `docs/architecture.md`, with the test that enfor
 All tests run in one environment, the root project's `dev` group: `lib/` from this directory and the dependencies of every skill project. Its pytest `pythonpath` lists each skill's `scripts/`.
 
 - Every pytest run stops at the first failure (`addopts = "-x"` in the root `pyproject.toml`); after a fix, `--lf` starts with the failed test.
-- All tests: `scripts/tests.sh unit|integration|all`, with pytest arguments after it; `all` is unit and integration.
+- All tests: `scripts/tests.sh unit|integration|all`, with pytest arguments after it; `all` is unit and integration, what runs on any machine. `scripts/tests.sh` without a category prints the categories.
 - Full-size model tests: `scripts/tests.sh models` (`tests/models/`, never collected by `unit`, `integration` or `all`).
 - NVIDIA GPU tests: `scripts/tests.sh cuda` (`tests/cuda/`, never collected by `unit`, `integration` or `all`).
 - Deployed model server tests: `scripts/tests.sh server --server-url <url>` (`tests/server/`, `<url>` the server's `/v1`; never collected by `unit`, `integration` or `all`).
