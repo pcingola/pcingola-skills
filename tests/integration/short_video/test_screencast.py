@@ -83,7 +83,8 @@ class TestScreencast(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.TemporaryDirectory()
-        cls.project = p = Path(cls._tmp.name) / "film"
+        # resolved: the tool prints resolved paths, and macOS's temporary directory is under the /var symlink
+        cls.project = p = Path(cls._tmp.name).resolve() / "film"
         for d in ("images", "sources", "voice", "scenes", "music", "film"):
             (p / d).mkdir(parents=True)
         (p / "settings.yaml").write_text(f"video:\n  width: {W}\n  height: {H}\n  fps: {FPS}\n")

@@ -104,6 +104,7 @@ credit:
   font: Helvetica
   cap_height: 0.717         # cap height of `font` as a fraction of font_size (places the brand logo)
   font_size: h/40           # FFmpeg expression, h = frame height
+  min_font_size: 8          # pixels; FFmpeg 9 drawtext fails on every glyph of macOS Helvetica.ttc below 8 px
   margin: h/24              # from the right and bottom edges
   dark_text: black@0.5      # on a light corner
   light_text: white@0.6     # on a dark corner

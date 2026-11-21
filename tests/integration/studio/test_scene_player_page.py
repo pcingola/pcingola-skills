@@ -86,7 +86,8 @@ def test_point_and_comment_on_a_playing_scene(tmp_path, page):
             s.value = '1.5'; s.dispatchEvent(new Event('input')); })()""")
         frame = next(f for f in page.frames if "/scene/" in f.url)
         page.wait_for_function("document.querySelector('#sv-player .sp-time').textContent.startsWith('1.50')")
-        assert abs(frame.evaluate("window.__timelines.intro.time()") - 1.5) < 1e-6
+        # The clock changes in the Studio page at once; the sandboxed frame gets the seek as a later message.
+        frame.wait_for_function("Math.abs(window.__timelines.intro.time() - 1.5) < 1e-6")
 
         page.click("#sv-player .seg button[data-v=box]")
         box = page.locator("#sv-player .sp-overlay").bounding_box()
@@ -141,7 +142,7 @@ def test_point_and_comment_on_a_playing_scene(tmp_path, page):
         frame = next(f for f in page.frames if "/scenes/intro/v2/" in f.url)
         page.wait_for_function("document.querySelector('#sv-player .sp-time').textContent.startsWith('1.50')")
         assert frame.evaluate("document.getElementById('title').textContent") == "Second render"
-        assert abs(frame.evaluate("window.__timelines.intro.time()") - 1.5) < 1e-6
+        frame.wait_for_function("Math.abs(window.__timelines.intro.time() - 1.5) < 1e-6")
         page.screenshot(path=str(out / "reloaded.png"))
 
         # On the page-only version, Send sends no still; the agent makes it with `stills`.

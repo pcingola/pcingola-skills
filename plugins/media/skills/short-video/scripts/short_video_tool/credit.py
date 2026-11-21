@@ -164,7 +164,7 @@ def logo_box(frame: tuple[int, int], png: tuple[int, int], ratios: dict) -> tupl
     height, centred on the cap band; ink gap = `ratios.gap` x font size."""
     c = _c()
     fw, fh = frame
-    size, margin = pixels(c["font_size"], fh), pixels(c["margin"], fh)
+    size, margin = max(pixels(c["font_size"], fh), c["min_font_size"]), pixels(c["margin"], fh)
     cap = c["cap_height"] * size
     h = max(1, round(ratios["height"] * cap))
     w = max(1, round(h * png[0] / png[1]))
@@ -220,15 +220,17 @@ def _enable(ranges: list[tuple[float, float]] | None) -> str:
 def drawtext_filter(textfile: Path, color: str, ranges: list[tuple[float, float]] | None = None,
                     logo: Logo | None = None) -> str:
     """One `drawtext` for the caption: bottom right, size and margin relative to
-    the frame height. `ranges=None` draws it on every frame. With a `logo`, the
-    text moves left to make room and is placed by its baseline."""
+    the frame height, at least `min_font_size` pixels. `ranges=None` draws it on
+    every frame. With a `logo`, the text moves left to make room and is placed
+    by its baseline."""
     path = _safe(textfile, "caption file")
     c = _c()
     if logo is None:
         pos = f"x=w-tw-{c['margin']}:y=h-th-{c['margin']}"
     else:
         pos = f"x=w-tw-{c['margin']}-{logo.shift}:y=h-{c['margin']}:y_align=baseline"
-    return (f"drawtext=textfile='{path}':expansion=none:font={c['font']}:fontsize={c['font_size']}"
+    return (f"drawtext=textfile='{path}':expansion=none:font={c['font']}"
+            f":fontsize='max({c['font_size']},{c['min_font_size']})'"
             f":fontcolor={color}:{pos}" + _enable(ranges))
 
 
