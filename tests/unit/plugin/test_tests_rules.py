@@ -104,7 +104,7 @@ CLI_PROCESS_ALLOWLIST = {
         "subject is pptx.sh: the wrapper, uv_env.sh and the skill's locked environment",
     "tests/integration/short_video/test_wrapper.py":
         "subject is short-video.sh: the wrapper, uv_env.sh and the skill's locked environment",
-    "tests/integration/voiceover/test_fish_voice.py":
+    "tests/cuda/test_voiceover_fish_voice.py":
         "a voice saved by one command and reused by the next is the subject",
     "tests/unit/image_gen/test_generate.py":
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",

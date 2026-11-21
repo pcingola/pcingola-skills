@@ -1,6 +1,6 @@
 """Memory safety of local models without a GPU: the weight sum, the memory check and the process lock
 (docs/ai_models.md, Local models). Each case that takes the lock runs in a child process, because the lock lasts for
-the life of the process. The cases that need a GPU are in tests/integration/ai_models/test_memory.py."""
+the life of the process. The cases that need a GPU are in tests/cuda/test_memory.py."""
 
 import gc
 import time

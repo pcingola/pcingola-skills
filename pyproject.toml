@@ -94,7 +94,8 @@ explicit = true
 addopts = "-x"
 # Every test has a timeout (seconds); a tests/models/ test sets a larger one of its own
 timeout = 30
-# unit and integration only: tests/models/ and tests/server/ run only when named (scripts/tests.sh models, server)
+# unit and integration only: tests/models/, tests/server/ and tests/cuda/ run only when named (scripts/tests.sh models,
+# server, cuda)
 testpaths = ["tests/unit", "tests/integration"]
 # The skill packages (<skill>_tool) and the studio server, importable by every suite
 pythonpath = [

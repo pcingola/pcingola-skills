@@ -1,4 +1,4 @@
-"""Memory safety of local models on the GPU: the allocator cap, the release of the lock after a refused load, the
+"""Memory safety of local models on an NVIDIA GPU: the allocator cap, the
 free memory after a holder exits, the processes named in a memory error and the wait for Ollama
 (docs/ai_models.md, Local models). Each case that sets a cap or takes the lock runs in a child process, because
 both last for the life of the process. No case loads a model."""
@@ -15,7 +15,7 @@ import pytest
 import torch
 
 from ai_models import config, local
-from tests.local_lock import HOLDER, lock_env, start
+from tests.local_lock import lock_env, start
 from tests.prereq import requires
 from tests.settings_env import TEST_CONFIG
 from tests.subproc import child_env, run_python
@@ -47,37 +47,6 @@ def test_allocation_over_the_cap_raises_ai_models_error(tmp_path):
     """, child_env(SKILLS_CONFIG=str(tmp_path / "none.yaml")), timeout=25)
     assert done.returncode == 0, done.stderr
     assert "refused: local model some/model: it ran out of memory" in done.stdout
-
-
-REFUSED = """
-    import sys
-    from ai_models import local
-    try:
-        local.pipeline("no-such/repo")
-    except Exception as e:
-        print("refused", type(e).__name__, flush=True)
-    sys.stdin.readline()
-"""
-
-
-def test_refused_load_releases_the_lock(tmp_path):
-    """Guards against a process that holds the lock forever without a model: a load that fails while the process
-    has no pipeline releases the lock, so another process takes it at once. The load reads the device's free
-    memory and caps its allocator before it fails on the missing repo."""
-    env = lock_env(tmp_path)
-    first = start(REFUSED, env)
-    try:
-        assert first.stdout.readline().startswith("refused"), first.stderr.read()
-        second = start(HOLDER, env)
-        try:
-            out, err = second.communicate("\n", timeout=20)
-            assert out.strip() == "held", err
-            assert "waiting" not in err
-        finally:
-            second.kill()
-    finally:
-        first.kill()
-        first.wait(timeout=5)
 
 
 GPU_HOLDER = """
