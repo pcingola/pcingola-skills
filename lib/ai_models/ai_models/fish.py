@@ -61,8 +61,14 @@ takes = Takes()  # the first take of each voice
 _lock = threading.RLock()  # one load or synthesis at a time when callers run in several threads
 
 
-local.on_unload(_models)
+local.on_unload(_models, locked=True)
 local.on_unload(takes)
+
+
+@local.on_unload_model
+def _drop(model_id: str, weights_dir: Path | None) -> int:
+    """Drop the loaded fish model `model_id`; its first takes stay (`takes`), so its voices stay the same."""
+    return 0 if _models.pop(model_id, None) is None else 1
 
 
 def checkpoint(repo: str) -> Path:
@@ -80,19 +86,9 @@ def checkpoint(repo: str) -> Path:
 
 
 def check_free(entry: FishModel, where: str, waited: bool) -> int:
-    """The device's free memory once it holds the model's `memory`, after waiting for the previous holder of the
-    lock (`waited`) and for Ollama models that unload soon; `local.memory_error` when it stays below. `where` is
-    the model's YAML path."""
-    need = int(entry.memory * local.GB)
-    free = local.free_memory(DEVICE)
-    if waited and need > free:
-        free = local.wait_for_memory(DEVICE, need)
-    if need > free:
-        free = local.wait_for_ollama(DEVICE, need)
-    if need > free:
-        raise local.memory_error(entry.repo, f"it takes {entry.memory:g} GB at its peak (`memory` of {where}) and "
-                                 f"the device has {free / local.GB:.1f} GB free")
-    return free
+    """The device's free memory once it holds the model's `memory` (`local.check_free`); `where` is the model's
+    YAML path."""
+    return local.check_free(entry.memory, entry.repo, where, DEVICE, waited)
 
 
 def _load(entry: FishModel, name: str, model: str) -> Loaded:

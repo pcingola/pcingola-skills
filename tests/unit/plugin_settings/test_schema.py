@@ -196,12 +196,24 @@ def test_tasks_reference_configured_providers_and_entries():
                    "tasks.presenter: providers.local.models.v is a video model; task presenter takes a presenter "
                    "model",
                    "tasks.speech: model 'kokoro-v1.0' is not in providers.k.models",
-                   "tasks.align: provider 'o' is of kind ollama; task align takes kinds torchaudio",
+                   "tasks.align: provider 'o' is of kind ollama; task align takes kinds openai, torchaudio",
                    "tasks.embed: provider 'local' is of kind diffusers; task embed takes kinds azure, google, "
                    "ollama, openai, openrouter",
                    "tasks.system1: provider 'or' has no base_url for System-1 models"]
     assert "tasks.chat: model id 'nocolon' is not <provider>:<model>" in problems({"tasks": {"chat": "nocolon"}})
     assert problems({"tasks": {"speech": None}}) == ["tasks.speech: is empty; give a model or remove the key"]
+
+
+def test_server_tasks_take_openai_with_a_base_url():
+    """Tasks align, music, video and presenter take a model of kind `openai` with a `base_url` (a model server's
+    local model, docs/ai_models.md, Provider kinds) and refuse one without (the OpenAI API has no such models)."""
+    tasks = {t: "srv:local:m" for t in ("align", "music", "video", "presenter")}
+    cfg = Config.model_validate({"providers": {"srv": {"kind": "openai", "base_url": "http://localhost:8000/v1"}},
+                                 "tasks": tasks})
+    assert cfg.task_model("video") == "srv:local:m"
+    got = problems({"providers": {"api": {"kind": "openai", "api_key": "k"}}, "tasks": {"video": "api:sora-2"}})
+    assert got == ["tasks.video: provider 'api' has no base_url; task video takes a model of kind openai only from a "
+                   "model server"]
 
 
 def test_null_sections_take_their_defaults():
@@ -263,3 +275,38 @@ def test_lock_wait_is_unset_or_positive():
     for bad in (0, -1):
         assert problems({"local_models": {"lock_wait": bad}}) == [
             "local_models.lock_wait: Input should be greater than 0"]
+
+
+def test_model_server_defaults_and_types():
+    """`model_server` has its defaults when absent: 127.0.0.1:8000, keep-alive 300 s, Ollama at 127.0.0.1:11434, no
+    weights directory; the port is 1 to 65535, keep-alive 0 or more, the Ollama URL an http(s) URL and the weights
+    directory absolute (docs/model_server.md, Settings)."""
+    s = Config().model_server
+    assert (s.host, s.port, s.keep_alive, s.ollama_url, s.weights_dir) == (
+        "127.0.0.1", 8000, 300.0, "http://127.0.0.1:11434", None)
+    assert Config.model_validate({"model_server": {"keep_alive": 0}}).model_server.keep_alive == 0
+    assert problems({"model_server": {"port": 0, "keep_alive": -1, "ollama_url": "localhost:11434",
+                                      "weights_dir": "rel/dir", "listen": "x"}}) == [
+        "model_server.port: Input should be greater than or equal to 1",
+        "model_server.keep_alive: Input should be greater than or equal to 0",
+        "model_server.ollama_url: URL scheme should be 'http' or 'https'",
+        "model_server.weights_dir: 'rel/dir' is not an absolute path or a path starting with ~",
+        "model_server.listen: not a setting"]
+
+
+def test_memory_on_every_local_model_entry():
+    """Every local model entry takes an optional `memory` (GB at its peak), unset by default except fish's (Drama
+    3's 44 GB), and a positive number when set; the model server and the load check read it
+    (docs/model_server.md, Memory)."""
+    entries = {"diffusers": {"m": {"repo": "r", "memory": 12}},
+               "kokoro": {"m": {**KOKORO_MODEL, "memory": 1}},
+               "chatterbox": {"m": {"url": "https://x", "files": ["f"], "memory": 2.5}},
+               "torchaudio": {"m": {"url": "https://x/model.pt", "memory": 1}},
+               "fish": {"m": {"repo": "r", "memory": 6}}}
+    cfg = Config.model_validate({"providers": {k: {"kind": k, "models": m} for k, m in entries.items()}})
+    assert [cfg.model_entry(f"{k}:m").memory for k in entries] == [12, 1, 2.5, 1, 6]
+    unset = Config.model_validate({"providers": {"d": {"kind": "diffusers", "models": {"m": {"repo": "r"}}},
+                                                 "t": {"kind": "torchaudio", "models": {"m": {"url": "https://x"}}}}})
+    assert unset.model_entry("d:m").memory is None and unset.model_entry("t:m").memory is None
+    assert problems({"providers": {"d": {"kind": "diffusers", "models": {"m": {"repo": "r", "memory": 0}}}}}) == [
+        "providers.d.models.m.memory: Input should be greater than 0"]

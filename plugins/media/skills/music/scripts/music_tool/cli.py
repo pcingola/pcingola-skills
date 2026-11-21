@@ -138,7 +138,7 @@ def generate(
     from ai_models import config as ai_config
     from ai_models import music
     from ai_models.errors import AIModelsError
-    from ai_models.models import kind
+    from ai_models.served import kind
 
     if out.suffix.lower() not in EXTENSIONS:
         raise GenerateError(f"--out must end in {' or '.join(EXTENSIONS)}, got {out.name}")

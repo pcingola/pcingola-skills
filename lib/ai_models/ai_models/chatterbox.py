@@ -3,7 +3,8 @@ caller's process (extra `ai-models[chatterbox]`).
 
 A model entry (`providers.<p>.models.<m>`, `ChatterboxModel`) names its files, `files` under the repository URL
 `url`, downloaded to `weights.model_dir`. The model is loaded once per weights directory and stays loaded for the life
-of the process (`local.unload` drops it); it needs no GPU and no local-model lock. One synthesis runs at a time
+of the process (`local.unload` and `local.unload_model` drop it); it needs no GPU and no local-model lock. A load of a
+model whose entry sets `memory` is refused when the system's available memory is below it (`local.check_free`). One synthesis runs at a time
 (`_lock`), because the loaded model holds the conditioning of one voice, on the fast cores of the CPU
 (`cpu.performance_threads`).
 
@@ -22,7 +23,7 @@ from typing import Any
 
 from plugin_settings import ChatterboxModel, ChatterboxProvider, ProviderKind
 
-from . import cpu, local, weights
+from . import config, cpu, local, weights
 from .errors import AIModelsError
 
 KIND = ProviderKind.CHATTERBOX
@@ -47,6 +48,18 @@ _lock = threading.Lock()  # one load or synthesis at a time when callers run in 
 local.on_unload(_models)
 
 
+@local.on_unload_model
+def _drop(model_id: str, weights_dir: Path | None) -> int:
+    """Drop the loaded chatterbox model `model_id`, whose files are in its provider's `dir`, else in
+    `weights_dir`."""
+    if not _models or local.provider_kind(model_id) != KIND:
+        return 0
+    name, bare = config.split_id(model_id)
+    d = weights.model_dir(config.provider(name).with_dir(weights_dir), bare)
+    with _lock:
+        return 0 if _models.pop(d, None) is None else 1
+
+
 def fetch(spec: ChatterboxProvider, entry: ChatterboxModel, model: str) -> Path:
     """The directory of the model files, each downloaded when missing."""
     base = entry.url.rstrip("/")
@@ -60,6 +73,8 @@ def _load(spec: ChatterboxProvider, entry: ChatterboxModel, model: str) -> Loade
     """The loaded model of provider `spec`'s `model`, loaded on the first call; the caller holds `_lock`."""
     d = fetch(spec, entry, model)
     if d not in _models:
+        if entry.memory is not None:
+            local.check_free(entry.memory, str(d), f"the entry of {model}", DEVICE, False)
         import numpy as np
         from chatterbox.tts_turbo import ChatterboxTurboTTS
         from transformers.initialization import no_init_weights

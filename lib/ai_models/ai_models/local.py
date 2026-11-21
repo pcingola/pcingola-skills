@@ -19,10 +19,12 @@ Pipelines stay loaded until the process exits or calls `unload`. torch and diffu
 imported only here.
 
 Memory: the first load takes an exclusive file lock (`hold_lock`) that the process keeps until it exits or calls
-`unload`, so one process at a time holds local models. A load whose weights exceed the device's free memory raises
-`AIModelsError` before any weight moves to the device (`check_memory`); on CUDA the allocator is capped at
-the memory free before the load (`cap_memory`), and an out-of-memory error becomes the same `AIModelsError`
-(`out_of_memory`).
+`unload`, so one process at a time holds local models. A load of a model whose entry sets `memory` (GB at its peak)
+is refused with `AIModelsError` when the free memory stays below it (`check_free`); a load whose weights exceed the
+device's free memory raises `AIModelsError` before any weight moves to the device (`check_memory`); on CUDA the
+allocator is capped at the memory free before the load (`cap_memory`), and an out-of-memory error becomes the same
+`AIModelsError` (`out_of_memory`). `unload_model` drops one model and releases the lock once no model that took it
+is loaded.
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ import threading
 import time
 import urllib.request
 import wave
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -57,7 +59,7 @@ from pydantic_ai.images import GeneratedImage, ImageGenerationModel, ImageGenera
 from pydantic_ai.messages import BinaryImage
 
 from . import config
-from .errors import AIModelsError, ConfigError
+from .errors import AIModelsError, ConfigError, LocalMemoryError
 
 _pipes: dict[str, Any] = {}
 _lock = None  # the FileLock this process holds once it loads a model
@@ -82,13 +84,15 @@ def device() -> str:
     raise AIModelsError(f"local models need a CUDA or Apple MPS GPU; torch {torch.__version__} sees neither")
 
 
-def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline", skip: Sequence[str] = ()):
+def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline", skip: Sequence[str] = (),
+             memory: float | None = None):
     """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules. `repo` is a
     Hugging Face repository id or a local folder (`local_folder`), which is loaded as is, with no cache lookup.
     `cls` is the diffusers class to load: a `DiffusionPipeline` class (`model_index.json`), or a `ModularPipeline`
     class (`modular_model_index.json`, loaded with `load_components`, `_modular`); the components in `skip` are
     loaded as None (a modular pipeline: not loaded). A load first takes
-    the lock (`hold_lock`), caps the CUDA allocator (`cap_memory`) and checks the weights against the free
+    the lock (`hold_lock`), checks `memory` (the entry's GB at the peak, when set) against the free memory
+    (`check_free`), caps the CUDA allocator (`cap_memory`) and checks the weights against the free
     memory (`check_memory`). After waiting for the lock, a check that fails reads the free memory again for up to
     `SETTLE_SECONDS` (`wait_for_memory`), while the previous holder's memory comes back."""
     import diffusers
@@ -101,12 +105,13 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
             return _pipes[key]
         if inpaint:
             # from_pipe casts the shared modules to float32 unless given the loaded dtype
-            _pipes[key] = getattr(diffusers, inpaint).from_pipe(pipeline(repo, cls=cls, skip=skip), dtype=torch.bfloat16)
+            base = pipeline(repo, cls=cls, skip=skip, memory=memory)
+            _pipes[key] = getattr(diffusers, inpaint).from_pipe(base, dtype=torch.bfloat16)
             return _pipes[key]
         waited = hold_lock()
         try:
             dev = device()
-            free = free_memory(dev)
+            free = free_memory(dev) if memory is None else check_free(memory, repo, "its entry", dev, waited)
             cap_memory(dev, free)
             klass = getattr(diffusers, cls)
             if issubclass(klass, diffusers.ModularPipeline):
@@ -216,6 +221,22 @@ def release_lock() -> None:
         _lock = None
 
 
+def check_free(memory: float, repo: str, where: str, dev: str, waited: bool) -> int:
+    """The free memory of `dev` once it holds `memory` GB (a model's `memory`), after waiting for the previous holder
+    of the lock (`waited`, `wait_for_memory`) and for local Ollama models that unload soon (`wait_for_ollama`);
+    `memory_error` naming `repo` and `where` (the entry's YAML path) when it stays below."""
+    need = int(memory * GB)
+    free = free_memory(dev)
+    if waited and need > free:
+        free = wait_for_memory(dev, need)
+    if need > free:
+        free = wait_for_ollama(dev, need)
+    if need > free:
+        raise memory_error(repo, f"it takes {memory:g} GB at its peak (`memory` of {where}) and the device has "
+                           f"{free / GB:.1f} GB free")
+    return free
+
+
 class Cache(Protocol):
     """An in-process model cache: its length is the number of entries it holds, `clear` empties it."""
 
@@ -225,13 +246,62 @@ class Cache(Protocol):
 
 
 _caches: list[Cache] = []  # every in-process model cache (`on_unload`)
+_locked: list[Cache] = []  # the caches whose models take the lock (`on_unload(locked=True)`)
+# One function per module that keeps loaded models: (model id, weights dir) -> the entries it dropped (`unload_model`)
+_droppers: list[Callable[[str, Path | None], int]] = []
 
 
-def on_unload(cache: Cache) -> Cache:
+def on_unload(cache: Cache, *, locked: bool = False) -> Cache:
     """Register `cache` (a dict, or any object with `__len__` and `clear`) for `unload`; return it. Each module
-    that keeps loaded models registers its cache at import."""
+    that keeps loaded models registers its cache at import; `locked` marks a cache whose models take the lock of
+    `hold_lock` (diffusers, fish)."""
     _caches.append(cache)
+    if locked:
+        _locked.append(cache)
     return cache
+
+
+def on_unload_model(drop: Callable[[str, Path | None], int]) -> Callable[[str, Path | None], int]:
+    """Register `drop` for `unload_model`; return it. `drop(model_id, weights_dir)` removes the entries of model
+    `model_id` from its module's cache and returns how many it removed (0 for a model of another kind)."""
+    _droppers.append(drop)
+    return drop
+
+
+def provider_kind(model_id: str) -> str | None:
+    """The provider kind of `model_id` in the config, None when its provider is missing."""
+    spec = config.load().provider(config.split_id(model_id)[0])
+    return None if spec is None else spec.kind
+
+
+def unload_model(model_id: str, weights_dir: str | Path | None = None) -> bool:
+    """Drop the loaded model `model_id` (`on_unload_model`); `weights_dir` is the weights directory a kokoro or
+    chatterbox provider without `dir` loaded it from. When no model that takes the lock stays loaded, empty
+    `PID_FILE` and release the lock (`unload`). True when an entry was dropped; it then collects garbage and empties
+    the CUDA allocator cache when torch is imported."""
+    where = None if weights_dir is None else Path(weights_dir).expanduser()
+    with _load_lock:
+        dropped = sum(drop(model_id, where) for drop in _droppers)
+        if dropped:
+            gc.collect()
+            if (torch := sys.modules.get("torch")) is not None:
+                torch.cuda.empty_cache()
+        if not any(len(cache) for cache in _locked):
+            _release_held()
+    return bool(dropped)
+
+
+def _release_held() -> None:
+    """Empty `PID_FILE` when it names this process and release the lock of `hold_lock`; the caller holds
+    `_load_lock`."""
+    if _lock is not None:
+        pid_file = Path(tempfile.gettempdir()) / PID_FILE
+        if read_pid(pid_file) == str(os.getpid()):
+            try:
+                pid_file.write_text("")  # a waiter then takes the lock without waiting for this process to exit
+            except OSError:
+                pass
+    release_lock()
 
 
 def unload() -> None:
@@ -247,17 +317,23 @@ def unload() -> None:
             gc.collect()
             if (torch := sys.modules.get("torch")) is not None:
                 torch.cuda.empty_cache()  # a no-op when CUDA was never initialized
-        if _lock is not None:
-            pid_file = Path(tempfile.gettempdir()) / PID_FILE
-            if read_pid(pid_file) == str(os.getpid()):
-                try:
-                    pid_file.write_text("")  # a waiter then takes the lock without waiting for this process to exit
-                except OSError:
-                    pass
-        release_lock()
+        _release_held()
 
 
-on_unload(_pipes)
+on_unload(_pipes, locked=True)
+
+
+@on_unload_model
+def _drop_pipes(model_id: str, weights_dir: Path | None) -> int:
+    """Drop the pipelines of the diffusers model `model_id` (its `repo`, with any `inpaint` pipeline built over it);
+    another model of the same `repo` shares them."""
+    if provider_kind(model_id) != ProviderKind.DIFFUSERS:
+        return 0
+    repo = config.local_entry(model_id).repo
+    keys = [k for k in _pipes if k.startswith(f"{repo}#")]
+    for k in keys:
+        del _pipes[k]
+    return len(keys)
 
 
 def weight_bytes(modules: Iterable[Any]) -> int:
@@ -272,10 +348,13 @@ def free_memory(dev: str) -> int:
     """Bytes the device can still allocate. CUDA: `torch.cuda.mem_get_info`; on an integrated GPU under Linux,
     the system's available memory (`psutil`, `MemAvailable`), because the device allocates system memory,
     reclaims the page cache, and `mem_get_info` counts that cache as used. MPS: the recommended maximum minus what
-    the driver holds for this process, at most the system's available memory, which other processes share."""
+    the driver holds for this process, at most the system's available memory, which other processes share. CPU
+    (`"cpu"`): the system's available memory."""
     import psutil
     import torch
 
+    if dev == "cpu":
+        return psutil.virtual_memory().available
     if dev == "mps":
         return min(torch.mps.recommended_max_memory() - torch.mps.driver_allocated_memory(),
                    psutil.virtual_memory().available)
@@ -376,11 +455,11 @@ OLLAMA_WAIT_SECONDS = 15 * 60  # `wait_for_ollama` waits only for models Ollama 
 OLLAMA_POLL_SECONDS = 5.0
 
 
-def memory_error(repo: str, sizes: str, advice: str = "free memory and retry") -> AIModelsError:
+def memory_error(repo: str, sizes: str, advice: str = "free memory and retry") -> LocalMemoryError:
     """The error for model `repo`: `sizes`, what holds the memory (`memory_holders`) and `advice`."""
     held = memory_holders()
     where = f"; held by {'; '.join(map(str, held))}" if held else ""
-    return AIModelsError(f"local model {repo}: {sizes}{where}. To start it, {advice}")
+    return LocalMemoryError(f"local model {repo}: {sizes}{where}. To start it, {advice}")
 
 
 def memory_holders() -> list[Holder]:
@@ -639,7 +718,8 @@ class DiffusersImageModel(ImageGenerationModel):
                 kwargs["image_reference"] = pics[1:]
         elif pics:
             kwargs["image"] = pics
-        pipe = pipeline(self.spec.repo, self.spec.inpaint if self.mask is not None else None, skip=self.spec.skip)
+        pipe = pipeline(self.spec.repo, self.spec.inpaint if self.mask is not None else None, skip=self.spec.skip,
+                        memory=self.spec.memory)
         with out_of_memory(self.spec.repo):
             images = pipe(prompt=prompt, **kwargs).images
         out = []
@@ -670,7 +750,7 @@ class DiffusersMusicModel:
             if not self.spec.lyrics_arg:
                 raise ConfigError(f"diffusers model {self.name!r} has no `lyrics_arg` for lyrics")
             extra[self.spec.lyrics_arg] = lyrics
-        pipe = pipeline(self.spec.repo, skip=self.spec.skip)
+        pipe = pipeline(self.spec.repo, skip=self.spec.skip, memory=self.spec.memory)
         with out_of_memory(self.spec.repo):
             audio = pipe(prompt=prompt, output_type="pt", **pipe_kwargs(self.spec, extra)).audios[0]  # (channels, samples)
         pcm = (audio.float().clamp(-1, 1) * 32767).to(torch.int16).T.contiguous().cpu().numpy().tobytes()
@@ -710,7 +790,7 @@ def animate(model_id: str, image: bytes, prompt: str, *, seconds: float, width: 
     w, h = clip_size(spec, width, height, aspect)
     frames_n = frame_count(seconds, spec.fps, spec.frame_step, spec.max_frames)
     extra: dict[str, Any] = {"width": w, "height": h, "num_frames": frames_n, "seed": seed}
-    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip)
+    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, memory=spec.memory)
     still = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
     with out_of_memory(spec.repo):
         result = pipe(image=still, prompt=prompt, output_type="np", **pipe_kwargs(spec, extra))
@@ -781,7 +861,7 @@ def present(model_id: str, image: bytes, speech: bytes, *, aspect: float | None 
     extra: dict[str, Any] = {"width": w, "height": h, "fps": spec.fps, "seed": seed}
     if prompt:
         extra["prompt"] = prompt
-    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip)
+    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, memory=spec.memory)
     with out_of_memory(spec.repo):
         frames = pipe(image=still, audio=drive[0].numpy(), output=spec.output, output_type="np",
                       **pipe_kwargs(spec, extra))[0]

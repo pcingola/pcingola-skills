@@ -12,8 +12,9 @@
     chatterbox  Chatterbox Turbo in process on the CPU (extra `ai-models[chatterbox]`)
     cpu      torch's CPU threads on the fast cores (`performance_threads`)
     align    `aligner` (forced alignment of speech against its text, torchaudio, extra `ai-models[align]`)
+    served   the local models of a model server through a provider of kind `openai` (`served`, `kind`, `client`)
     weights  weight files of the kokoro, chatterbox and torchaudio kinds
-    music    `compose` (Google predict and stream models, local diffusers)
+    music    `compose` (Google predict and stream models, local diffusers, a model server)
     video    `animate`, `aanimate` (image to video), `present`, `apresent` (portrait and speech to video), local diffusers
     local    diffusers image, music, video and presenter models (extra `ai-models[diffusers]`)
     tls      certifi roots plus `network.extra_ca_cert` for remote clients
@@ -23,9 +24,9 @@ Every error of this package is an `AIModelsError`.
 
 import os
 
-from .errors import AIModelsError, ConfigError
+from .errors import AIModelsError, ConfigError, LocalMemoryError
 
 # Pydantic-AI prints a banner on the first agent run; the skills' output is read by programs.
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
-__all__ = ["AIModelsError", "ConfigError"]
+__all__ = ["AIModelsError", "ConfigError", "LocalMemoryError"]

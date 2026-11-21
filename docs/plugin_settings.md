@@ -34,6 +34,7 @@ The sections, each a class in `schema/`:
 | `brand` | `BrandSettings` | `path`, a list of directories |
 | `studio` | `StudioSettings` | `dir` (absolute or `~`), `author` (a list of names) |
 | `voiceover` | `VoiceoverSettings` | `voices_dir` |
+| `model_server` | `ModelServerSettings` | `host`, `port`, `keep_alive`, `ollama_url`, `timeout`, `video_ttl`, `weights_dir` of the model server (`docs/model_server.md`, Settings) |
 
 Every class derives from `Strict` (`extra="forbid"`, frozen), so an unknown section or key fails with its path. A
 key that is empty or holds only comments parses as null; `Strict` gives it its default when that default is a
@@ -51,11 +52,15 @@ what is about where and how its models run; each model's own attributes are on i
 |---|---|---|---|
 | `ollama`, `openrouter`, `openai`, `azure` | `api_key`, `base_url`, `timeout`; azure `api_version` | `OpenAIModel` | `image` (`OpenAIImageLimits`), `voice`, `voices` |
 | `google` | `api_key`, `base_url`, `timeout`, `vertex`, `credentials`, `project`, `location` | `GoogleModel` | `predict` (served by the Vertex `:predict` endpoint), `voice`, `voices` |
-| `diffusers` | none | `DiffusersEntry`: the class of the entry's role | `repo` (required), the pipeline fields of the role |
-| `kokoro` | `dir` | `KokoroModel` | `model_url`, `voices_url`, `langs`, `voice`, `voices` |
-| `torchaudio` | `dir` | `TorchaudioModel` | `url` |
-| `chatterbox` | `dir` | `ChatterboxModel` | `url`, `files`, `voice`, `voices` |
+| `diffusers` | none | `DiffusersEntry`: the class of the entry's role | `repo` (required), the pipeline fields of the role, `memory` |
+| `kokoro` | `dir` | `KokoroModel` | `model_url`, `voices_url`, `langs`, `voice`, `voices`, `memory` |
+| `torchaudio` | `dir` | `TorchaudioModel` | `url`, `memory` |
+| `chatterbox` | `dir` | `ChatterboxModel` | `url`, `files`, `voice`, `voices`, `memory` |
 | `fish` | none | `FishModel` | `repo` (required: a Hugging Face repository or a local folder, absolute or `~`), `memory` (GB at the peak, default `DRAMA3_PEAK_GB`, 44), `style`, `max_frames`, `voice`, `voices` |
+
+`memory` of every local model entry is `LocalMemory` (`schema/local_memory.py`): the GB the model takes at its peak,
+optional, unset by default; `FishModel` declares its own with Drama 3's default. `ai_models.local.check_free` and
+the model server read it (`docs/model_server.md`, Memory).
 
 The provider fields shared by several kinds are declared once, in classes the provider classes derive from:
 `TimedProvider` (`timeout`), `RemoteProvider` (`api_key`, `base_url`), `OpenAIKindProvider` (`models` of
@@ -80,11 +85,12 @@ that role refuses a key of another role and names each missing required key.
 
 The groupings of provider kinds the code branches on are in `schema/provider_kind.py`: `OPENAI_KINDS`, `API_KINDS`,
 `LOCAL_KINDS`, `IMAGE_LIMIT_KINDS`, `SPEECH_KINDS`. `schema/task_kinds.py` holds `TASK_KINDS`, the kinds each task
-takes, and `TASK_ROLES`, the diffusers role of the image, music, video and presenter tasks.
+takes, `TASK_ROLES`, the diffusers role of the image, music, video and presenter tasks, and `SERVER_TASKS`, the
+tasks (align, music, video, presenter) the kind `openai` serves only from a model server.
 
 `Config.task_error(task, model_id)` says why a model cannot serve a task: its provider is not in `providers`, is of
 a kind not in `TASK_KINDS[task]`, is local and has no entry for the model, the entry is a diffusers model of another
-role, or a System-1 model's provider has no `base_url`. After every section validates, `Config` runs it for each
+role, or a System-1 model's provider, or an `openai` provider of a task of `SERVER_TASKS`, has no `base_url`. After every section validates, `Config` runs it for each
 `tasks.<task>`; `ai_models.config.resolve` runs it for a model a caller names (`--model`). Each provider class
 checks its own required keys (`setup:settings` lists them).
 

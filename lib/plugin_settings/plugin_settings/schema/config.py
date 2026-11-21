@@ -12,13 +12,14 @@ from .brand import BrandSettings
 from .diffusers_model import DiffusersModel
 from .huggingface import HuggingFace
 from .local_models import LocalModels
+from .model_server import ModelServerSettings
 from .model_id import ModelId, split_id
 from .network import Network
-from .provider_kind import LOCAL_KINDS
+from .provider_kind import LOCAL_KINDS, ProviderKind
 from .providers import Provider, RemoteProvider
 from .studio import StudioSettings
 from .task import Task
-from .task_kinds import TASK_KINDS, TASK_ROLES
+from .task_kinds import SERVER_TASKS, TASK_KINDS, TASK_ROLES
 from .voiceover import VoiceoverSettings
 
 
@@ -33,6 +34,7 @@ class Config(Strict):
     brand: BrandSettings = BrandSettings()
     studio: StudioSettings = StudioSettings()
     voiceover: VoiceoverSettings = VoiceoverSettings()
+    model_server: ModelServerSettings = ModelServerSettings()
 
     @model_validator(mode="before")
     @classmethod
@@ -52,7 +54,8 @@ class Config(Strict):
     def task_error(self, task: Task, model_id: str) -> str | None:
         """Why `model_id` cannot serve `task`, None when it can: its provider is missing, is of a kind the task does
         not take (`TASK_KINDS`), is local and has no entry for the model, or the entry is a diffusers model of
-        another role (`TASK_ROLES`); a System-1 model needs a provider with a `base_url`."""
+        another role (`TASK_ROLES`); a System-1 model needs a provider with a `base_url`, and so does a model of
+        kind `openai` for a task of `SERVER_TASKS` (a model server's local model)."""
         name, model = split_id(model_id)
         p = self.providers.get(name)
         if p is None:
@@ -67,6 +70,9 @@ class Config(Strict):
             return f"providers.{name}.models.{model} is {entry.role.noun()}; task {task} takes {role.noun()}"
         if task == Task.SYSTEM1 and isinstance(p, RemoteProvider) and p.base_url is None:
             return f"provider {name!r} has no base_url for System-1 models"
+        if task in SERVER_TASKS and p.kind == ProviderKind.OPENAI and p.base_url is None:
+            return (f"provider {name!r} has no base_url; task {task} takes a model of kind openai only from a "
+                    "model server")
         return None
 
     def provider(self, name: str) -> Provider | None:

@@ -14,6 +14,7 @@
 #     brand        brand:brand and the Studio catalogue
 #     studio       the Studio
 #     voiceover    media:voiceover
+#     model_server the OpenAI-compatible model server (python -m model_server)
 #
 # The whole file is validated when a skill starts: a misspelt section or key, a
 # missing required key or a wrong type is an error naming its path. A section
@@ -41,7 +42,13 @@
 # the colon. A remote provider serves any model id, and its entries only add
 # attributes; a model of a local kind (diffusers, kokoro, torchaudio,
 # chatterbox, fish) must have an entry. A speech model's entry takes voice
-# (the default voice) and voices (the list `voiceover voices` shows).
+# (the default voice) and voices (the list `voiceover voices` shows). Every
+# entry of a local kind takes memory: the GB the model takes at its peak (a
+# positive number), checked against the free memory before the load (GPU
+# memory for diffusers and fish, system memory for the others); the model
+# server also reads it to unload idle models until the model fits. Unset: no
+# check of its own (fish: 44, Drama 3's); a diffusers load still checks its
+# weights against the free memory.
 # A task's model must be of a kind that serves the task (an image task takes
 # an image model; tasks below).
 #
@@ -79,6 +86,17 @@ providers:
           max_pixels: 8294400
           always_sized: true      # every request gets a size (default 1:1, 1K)
           default_quality: high   # low | medium | high | auto, when --quality is not given
+  # A model server (python -m model_server on another machine; section
+  # model_server below): a provider of kind openai whose base_url is the
+  # server's /v1 serves every task, the local models of the server and the
+  # Ollama models it forwards. A model id is this provider's name, then the
+  # server's model id (split at the first colon): server:local:ltx-video,
+  # server:kokoro:kokoro-v1.0, server:gemma3:4b. The model attributes (video
+  # sizes and frames, image limits, voices) come from the server, so the
+  # entries stay on the server's machine. Tasks: see the server lines in tasks.
+  #server:
+  #  kind: openai
+  #  base_url: http://model-server.example.com:8000/v1
   vertex:
     kind: google
     vertex: true
@@ -342,7 +360,8 @@ providers:
 # kinds (ollama, openrouter, openai, azure, google); the image tasks those of
 # OpenAI, google and diffusers; speech those and fish, kokoro,
 # chatterbox; align torchaudio; music google and diffusers; video and
-# presenter diffusers.
+# presenter diffusers. align, music, video and presenter also take openai
+# with a base_url: the local models of a model server.
 # A `--model <provider>:<model>` flag of a skill replaces the task's model; it
 # is checked the same way.
 tasks:
@@ -371,6 +390,21 @@ tasks:
   #video: local:ltx-video
   #video: local:kandinsky-6
   #presenter: local:kandinsky-s2v
+  # Every task on the model server provider above, in place of the lines
+  # above (the models of the server's config.yaml and its Ollama):
+  #chat: server:gemma3:4b
+  #vision: server:gemma3:4b
+  #system1: server:d3:4b
+  #embed: server:all-minilm:22m
+  #image: server:local:flux2-klein-4b
+  #image_edit: server:local:flux2-klein-4b
+  #image_best: server:local:qwen-image
+  #image_multi_ref: server:local:qwen-image
+  #speech: server:kokoro:kokoro-v1.0
+  #align: server:torchaudio:MMS_FA
+  #music: server:local:ace-step-sft
+  #video: server:local:ltx-video
+  #presenter: server:local:kandinsky-s2v
   # Small local models for a quick draft or test film: real
   # models at small size and few steps, low quality output.
   #image: local:flux2-klein-4b
@@ -453,3 +487,28 @@ voiceover:
   # clone one: chatterbox) and the saved Fish voices (NAME.fish/, kind fish).
   # Default <media data dir>/voiceover/voices.
   #voices_dir: /path/to/voices
+
+
+# === model_server ============================================================
+# The OpenAI-compatible model server (python -m model_server): it runs the
+# models of the local providers above in its process and forwards every other
+# model to Ollama. Only the machine that runs the server reads this section.
+model_server:
+  # The address it listens on. Default 127.0.0.1 (this machine only); 0.0.0.0
+  # serves the network, without authentication.
+  #host: 127.0.0.1
+  # Default 8000.
+  #port: 8000
+  # Seconds an in-process model stays loaded after its last request; 0
+  # unloads it after each request. Default 300.
+  #keep_alive: 300
+  # The Ollama server of the other models, without /v1. Default
+  # http://127.0.0.1:11434.
+  #ollama_url: http://127.0.0.1:11434
+  # Seconds a request forwarded to Ollama may take. Default 600.
+  #timeout: 600
+  # Seconds a finished video job and its MP4 are kept. Default 3600.
+  #video_ttl: 3600
+  # The weights directory of a kokoro, chatterbox or torchaudio provider
+  # without dir (absolute or ~). Unset: such a provider needs dir.
+  #weights_dir: /path/to/weights

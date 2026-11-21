@@ -22,6 +22,9 @@ model's provider kind:
   when `--aspect` or `--size` is given, else the pipeline keeps the first
   reference image's size. One request per image; PNG only.
 
+The kind is the one the model runs as (`ai_models.served.kind`): a diffusers model of a model server, reached
+through a provider of kind `openai`, takes the `diffusers` settings and its server's image limits.
+
 `request_limits` reads the model's limits once per request (`ai_models.config.image_limits`): required when the
 request needs a size, so a missing entry fails before any model call with the key to add. Every failure is an
 `ImageError` with a message for the CLI.
@@ -37,7 +40,7 @@ from typing import Any
 from ai_models import config as ai_config
 from ai_models import images
 from ai_models.errors import AIModelsError, explained
-from ai_models.models import kind as provider_kind
+from ai_models.served import kind as provider_kind
 from plugin_settings import OPENAI_KINDS, DiffusersImageLimits, OpenAIImageLimits, ProviderKind
 from pydantic_ai.exceptions import AgentRunError, ContentFilterError, ModelRateLimitError, UserError
 from pydantic_ai.messages import BinaryImage

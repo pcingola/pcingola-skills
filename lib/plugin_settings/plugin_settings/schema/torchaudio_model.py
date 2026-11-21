@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from .base import Strict
 from .fields import HttpUrl
+from .local_memory import LocalMemory
 
 
-class TorchaudioModel(Strict):
-    """`url`: the pipeline's weights file, downloaded to `<dir>/<model lowercased>/`."""
+class TorchaudioModel(LocalMemory):
+    """`url`: the pipeline's weights file, downloaded to `<dir>/<model lowercased>/`; `memory` (`LocalMemory`)."""
 
     url: HttpUrl

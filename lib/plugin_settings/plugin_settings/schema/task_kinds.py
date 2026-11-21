@@ -1,5 +1,6 @@
 """The provider kinds each task takes (`TASK_KINDS`) and the diffusers role a task needs (`TASK_ROLES`); checked
-for every `tasks.<task>` at load and for a model a caller names for a task (`Config.task_error`)."""
+for every `tasks.<task>` at load and for a model a caller names for a task (`Config.task_error`). The kind `openai`
+serves align, music, video and presenter only with a `base_url` (`SERVER_TASKS`): a model server's local models."""
 
 from __future__ import annotations
 
@@ -17,13 +18,16 @@ TASK_KINDS: dict[Task, frozenset[ProviderKind]] = {
     Task.EMBED: API_KINDS,
     **{t: _IMAGE_KINDS for t in _IMAGE_TASKS},
     Task.SPEECH: SPEECH_KINDS,
-    Task.ALIGN: frozenset({ProviderKind.TORCHAUDIO}),
-    Task.MUSIC: frozenset({ProviderKind.GOOGLE, ProviderKind.DIFFUSERS}),
+    Task.ALIGN: frozenset({ProviderKind.TORCHAUDIO, ProviderKind.OPENAI}),
+    Task.MUSIC: frozenset({ProviderKind.GOOGLE, ProviderKind.DIFFUSERS, ProviderKind.OPENAI}),
     Task.AUDIO: API_KINDS,
-    Task.VIDEO: frozenset({ProviderKind.DIFFUSERS}),
-    Task.PRESENTER: frozenset({ProviderKind.DIFFUSERS}),
+    Task.VIDEO: frozenset({ProviderKind.DIFFUSERS, ProviderKind.OPENAI}),
+    Task.PRESENTER: frozenset({ProviderKind.DIFFUSERS, ProviderKind.OPENAI}),
     Task.FILM_CRITIC: API_KINDS,
 }
+
+# The tasks the kind `openai` serves only from a model server, so only with a `base_url`.
+SERVER_TASKS = frozenset({Task.ALIGN, Task.MUSIC, Task.VIDEO, Task.PRESENTER})
 
 TASK_ROLES: dict[Task, DiffusersRole] = {
     **{t: DiffusersRole.IMAGE for t in _IMAGE_TASKS},

@@ -88,6 +88,7 @@ Every skill reads its settings from one file: `<config dir>/plugins/data/config.
 | `brand` | `path`: directories searched for brand folders after the bundled ones |
 | `studio` | `dir` (the Studio projects, absolute or `~`, default `~/Documents/Studio`), `author` (the default "Made by" names of a new film) |
 | `voiceover` | `voices_dir`: the reference recordings of `add-voice` and the saved Fish voices (`<name>.fish/`) |
+| `model_server` | the OpenAI-compatible model server (`python -m model_server`), read only on the machine that runs it: `host` (default `127.0.0.1`), `port` (default `8000`), `keep_alive` (seconds an in-process model stays loaded after its last request, default 300; 0 unloads it after each request), `ollama_url` (the Ollama server of the other models, without `/v1`, default `http://127.0.0.1:11434`), `timeout` (seconds per request forwarded to Ollama, default 600), `video_ttl` (seconds a finished video job is kept, default 3600), `weights_dir` (the weights directory of a `kokoro`, `chatterbox` or `torchaudio` provider without `dir`) |
 
 `assets/config.example.yaml` is the template. It lists every section and key, commented, with its meaning, default, accepted values and the skills that read it. Read it to find a key's name and values.
 
@@ -116,7 +117,7 @@ Rules:
 When the user asks to set up the skills, or a skill reports a missing config, setting or key:
 
 1. Find the file: `$SKILLS_CONFIG`, else `<config dir>/plugins/data/config.yaml`. Read it when it exists.
-2. When it does not exist, read `${CLAUDE_SKILL_DIR}/assets/config.example.yaml`. Ask the user's level (below), then write the file from the template: the `providers` and `tasks` of that level (every level includes `kokoro` and `torchaudio` with the tasks `speech` and `align`: voiceover aligns by default), the `local` provider of kind `diffusers` only for the GPU level, and the sections `network`, `huggingface`, `local_models`, `brand`, `studio` and `voiceover` with their keys commented. Create the directory when it is missing.
+2. When it does not exist, read `${CLAUDE_SKILL_DIR}/assets/config.example.yaml`. Ask the user's level (below), then write the file from the template: the `providers` and `tasks` of that level (every level includes `kokoro` and `torchaudio` with the tasks `speech` and `align`: voiceover aligns by default), the `local` provider of kind `diffusers` only for the GPU level, and the sections `network`, `huggingface`, `local_models`, `brand`, `studio` and `voiceover` with their keys commented, and `model_server` only on a machine that runs the model server. Create the directory when it is missing.
    Then write `routes.md` in the same directory as a copy of `${CLAUDE_SKILL_DIR}/assets/routes.md` (Model routes below), unless it exists.
 3. Ask for each key the chosen providers need and write it as `api_key` of the provider. Never echo a key back in the reply.
 4. Ask for the settings of the skills the user wants (the table of required settings below and the other sections), and uncomment or add them.
@@ -185,7 +186,7 @@ Provider kinds (`providers.<name>.kind`):
 |---|---|---|
 | `ollama` | chat, vision, embeddings, System-1 models, speech (Ollama on macOS) | `base_url` (default `http://localhost:11434/v1`) |
 | `openrouter` | chat, vision, audio input, embeddings, images (no image edits: `image_edit`, `image_multi_ref` and `--ref` need another kind), speech | `api_key` |
-| `openai` | any OpenAI-compatible server: chat, embeddings, images, speech | `base_url` (default the OpenAI API), `api_key` (required without `base_url`) |
+| `openai` | any OpenAI-compatible server: chat, embeddings, images, speech; with a model server's `base_url`, every task (Model server below) | `base_url` (default the OpenAI API), `api_key` (required without `base_url`) |
 | `azure` | Azure OpenAI: chat, images with masks, speech | `base_url` (the Azure endpoint), `api_version`, `api_key` |
 | `google` | Gemini chat with audio and video input, Gemini image models, Gemini TTS, Lyria music | `api_key`, `base_url`; `vertex: true` for a Vertex endpoint, which takes Google Cloud credentials in place of `api_key`: `credentials` (path to a service-account JSON file; its project unless `project` is set), else Application Default Credentials (`gcloud auth application-default login`), with `project` and `location` (default `us-central1`); the `:predict` models need `api_key`; `models.<m>.predict: true` for a music model served by the Vertex `:predict` endpoint (the others stream) |
 | `diffusers` | local images, image edits with masks, music, image to video, portrait and speech to video, in the skill's process on a CUDA or Apple MPS GPU | `models`: one entry per local model (below) |
@@ -196,7 +197,11 @@ Provider kinds (`providers.<name>.kind`):
 
 A speech model's entry (`providers.<p>.models.<m>`) takes `voice` (optional: its default voice, else the kind's: `marin` for `openai`, `azure` and `openrouter`, `Kore` for `google`, `af_heart` for `kokoro`, and `default`, the model's own voice, for `ollama`, `fish` and `chatterbox`; `default` is a `fish` model's only voice) and `voices` (optional: the list `voiceover voices` prints; without it a `kokoro` model lists its voices and the others their default voice).
 
+Every model entry of a local kind (`diffusers`, `kokoro`, `chatterbox`, `torchaudio`, `fish`) takes `memory` (optional: the GB the model takes at its peak, a positive number). The load is refused when the free memory stays below it (GPU memory for `diffusers` and `fish`, system memory for the others), and the model server unloads idle models until it fits. Unset, there is no check of its own (`fish`: 44, Drama 3's); a `diffusers` load still checks its weights against the free memory.
+
 The remote kinds take `timeout` (seconds per request, default 600). System-1 models go to the `base_url` of their provider (an `ollama` provider's default included), so a remote provider with a `base_url` can serve them; Ollama serves them at `/v1/systemone`.
+
+Model server: a machine that runs the model server (`python -m model_server`, settings in the `model_server` section) serves its local models and its Ollama models to other machines. A client sets one provider of kind `openai` with `base_url: http://<server host>:<port>/v1` (no key) and points every task at it, as the commented `server` provider and tasks of the template show. A model id is the provider name, then the server's model id, split at the first colon: `server:local:ltx-video` (the server's provider `local`), `server:kokoro:kokoro-v1.0`, `server:gemma3:4b` (an Ollama tag). The client's config holds no entry for these models: video sizes and frames, image limits, music lyrics support and voices come from the server (`GET /v1/models/<id>`). A Chatterbox model of the server speaks in its default voice only (a reference recording would be a path on the server's machine), and `voiceover voices` lists a server model's voices as the server lists them (a Kokoro model's voices from its voices file). With `--size`, image-gen sizes a server's diffusers model within its server entry's `image` limits. A video job polls the server until it ends; the provider's `timeout` applies to each request, not to the job.
 
 Tasks (`tasks.<task>`) and the skills that ask for them:
 
@@ -209,11 +214,11 @@ Tasks (`tasks.<task>`) and the skills that ask for them:
 | `image_best` | image-gen `--tier best` (Studio "Best", video-effects keyframes), with and without `--ref` | as `image` |
 | `image_multi_ref` | image-gen `--tier multi-ref` (Studio "Multi-reference"), with and without `--ref` | as `image` |
 | `speech` | voiceover (`synth`, `voices`) | remote, `fish`, `kokoro`, `chatterbox` |
-| `align` | voiceover word times (`synth` without `--no-align`) | `torchaudio` |
-| `music` | music `generate` | `google`, `diffusers` (a music model) |
+| `align` | voiceover word times (`synth` without `--no-align`) | `torchaudio`; `openai` with a model server's `base_url` |
+| `music` | music `generate` | `google`, `diffusers` (a music model); `openai` with a model server's `base_url` |
 | `audio` | music `analyze` (a chat model that takes audio) | remote |
-| `video` | short-video video scenes (`Engine: video`): an image animated into a clip | `diffusers` (a video model) |
-| `presenter` | short-video presenter scenes (`Engine: presenter`): a portrait and the scene's narration recording made into a clip of the person speaking it | `diffusers` (a presenter model) |
+| `video` | short-video video scenes (`Engine: video`): an image animated into a clip | `diffusers` (a video model); `openai` with a model server's `base_url` |
+| `presenter` | short-video presenter scenes (`Engine: presenter`): a portrait and the scene's narration recording made into a clip of the person speaking it | `diffusers` (a presenter model); `openai` with a model server's `base_url` |
 | `film_critic` | short-video film critic, through second-opinion (a model that takes video with sound) | remote |
 | `embed` | embeddings | remote |
 

@@ -16,6 +16,10 @@ class ConfigError(AIModelsError):
     """`config.yaml` is missing, malformed, or lacks a task, provider or key."""
 
 
+class LocalMemoryError(AIModelsError):
+    """A local model does not fit in the free memory (`local.memory_error`)."""
+
+
 # HTTP statuses of a request the server refuses for its credentials.
 REFUSED = (401, 403)
 

@@ -88,6 +88,19 @@ each one is listed here with its reason:
 - Weight downloads (`ai_models.weights`): a file fetched over HTTP, no model call.
 - Ollama's memory query (`ai_models.local`, `GET /api/ps`): which models Ollama holds and when it unloads them, read
   before a local load; no model call. Pydantic-AI has no call for it.
+- The model server's Ollama calls (`lib/model_server`, `docs/model_server.md`): it forwards every request for an
+  Ollama model to Ollama unchanged over HTTP (httpx), streams included, because it passes the client's request
+  through and makes no model call of its own; and it reads `GET /api/ps` and `GET /api/tags` and unloads a model
+  with `POST /api/generate` and `keep_alive: 0` to make room before a load. Pydantic-AI has no call for these.
+
+- The model server's local models from a client (`ai_models.served`, `docs/ai_models.md`, Model server). A provider
+  of kind `openai` whose `base_url` is a model server reaches its music, video, presenter and alignment endpoints,
+  which Pydantic-AI has no call for. `ai_models` makes them with the OpenAI SDK on the client of the Pydantic-AI
+  provider, as speech: `client.post("/audio/music")` and `client.post("/audio/alignments")` (the SDK has no call
+  for them either), `client.videos.create`, `poll` and `download_content` for a video job, and `client.post("/videos")`
+  for a presenter job, whose narration is a second file that `videos.create` cannot send. The model attributes a
+  client needs come from `GET /models/{id}` over HTTP (httpx), no model call; Pydantic-AI has no call for a model's
+  metadata.
 
 The image edit with a mask (`MaskedOpenAIImageModel`) is a subclass of Pydantic-AI's `OpenAIImageGenerationModel`,
 on the standard path. A change of path keeps every capability, and wiring that costs without need is removed.
@@ -196,6 +209,15 @@ Two uv settings apply the overrides in `scripts/pyproject.toml` of media:voiceov
   torch and torchaudio cannot be overrides there: an override replaces the requirement of the `cpu` and `cuda`
   extras too, and with it the extra's index in `tool.uv.sources`, so the CPU and CUDA builds would no longer be
   selected. The root project has no such extras and overrides torch and torchaudio directly.
+
+The model server (`lib/model_server`, `docs/model_server.md`) is the one server process around local models. Its
+reason is not a version pin: it serves the models of a machine with a GPU to the skills of other machines over HTTP,
+through an OpenAI-compatible API. A skill on a machine without CUDA (macOS) cannot run the CUDA-only models (Fish
+Audio Drama 3) or the models larger than its memory in its own process. The server runs the models with the same
+`lib/ai_models` code a skill runs in process, keeps them loaded between requests (a Fish load takes about 4 min) and
+runs one model at a time, so two large models do not compete for the GPU's memory. On the machine that runs it, the
+skills reach its models through a provider of kind `openai`; a skill that loads a diffusers or fish model in its own
+process there waits for the server's local-model lock (`docs/model_server.md`, Local-model lock).
 
 ## CLI wrappers
 

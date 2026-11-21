@@ -9,6 +9,8 @@
                 end the stream with a `[DONE]` line the SDK cannot parse: it is ignored once audio
                 arrived, and a stream with no audio is tried again.
     diffusers   `local.DiffusersMusicModel`; a WAV file
+    openai      a diffusers music model of a model server (`served`): `POST <base_url>/audio/music` with the
+                `openai` SDK's `client.post` (the SDK has no music call); a WAV file
 
 An option the model does not take (`TAKES`) is an `AIModelsError` before any request.
 """
@@ -30,8 +32,10 @@ VERTEX_URL = "https://aiplatform.googleapis.com"
 STREAM_ATTEMPTS = 3
 MAX_IMAGES = 10
 # The options each kind of music model takes.
-TAKES = {"diffusers": {"seconds", "lyrics", "seed"}, "predict": {"seed", "negative", "samples"},
-         "stream": {"seconds", "lyrics", "images"}}
+TAKES = {"diffusers": {"seconds", "lyrics", "seed"}, "server": {"seconds", "lyrics", "seed"},
+         "predict": {"seed", "negative", "samples"}, "stream": {"seconds", "lyrics", "images"}}
+# The APIs of a diffusers music model: in process, or on a model server.
+DIFFUSERS_APIS = ("diffusers", "server")
 
 
 @dataclass
@@ -65,17 +69,20 @@ def model_api(model_id: str) -> str:
     """The API of the music model `model_id` (`<provider>:<model>`): a key of TAKES. `ConfigError` for a model that
     cannot serve task music (`config.resolve`)."""
     name, _ = config.split_id(config.resolve(model_id, "music"))
-    if config.provider(name).kind == ProviderKind.DIFFUSERS:
+    kind = config.provider(name).kind
+    if kind == ProviderKind.DIFFUSERS:
         return "diffusers"
+    if kind == ProviderKind.OPENAI:
+        return "server"
     entry = config.model_entry(model_id)
     return "predict" if entry is not None and entry.predict else "stream"
 
 
 def min_crest_db(model_id: str) -> float | None:
     """The `min_crest_db` of the music model `model_id`'s entry (`providers.<p>.models.<m>` of a diffusers provider):
-    the crest factor (dB) below which its tracks are loud and compressed. None when the entry has no such key, or
-    the model is not a diffusers model (remote kinds)."""
-    if model_api(model_id) != "diffusers":
+    the crest factor (dB) below which its tracks are loud and compressed, also for a model server's diffusers model.
+    None when the entry has no such key, or the model is not a diffusers model (remote kinds)."""
+    if model_api(model_id) not in DIFFUSERS_APIS:
         return None
     return config.diffusers_model(model_id, DiffusersRole.MUSIC).min_crest_db
 
@@ -143,6 +150,23 @@ async def _stream(client, model: str, prompt: str, images: Sequence[tuple[bytes,
     raise AIModelsError(f"{model} returned no audio in {STREAM_ATTEMPTS} attempts")
 
 
+async def _server(model_id: str, bare: str, prompt: str, seconds: float | None, lyrics: str | None,
+                  seed: int | None) -> bytes:
+    """The WAV file of the music model `bare` of a model server (`POST /audio/music`)."""
+    import httpx2
+
+    from . import served
+
+    entry = config.diffusers_model(model_id, DiffusersRole.MUSIC)
+    if lyrics and not entry.lyrics_arg:
+        raise AIModelsError(f"{model_id} takes no lyrics (its server's entry has no `lyrics_arg`)")
+    body = {k: v for k, v in (("model", bare), ("prompt", prompt), ("seconds", seconds), ("lyrics", lyrics or None),
+                              ("seed", seed), ("response_format", "wav")) if v is not None}
+    with served.answered(model_id):
+        response = await served.client(model_id).post("/audio/music", body=body, cast_to=httpx2.Response)
+    return response.content
+
+
 def stream_prompt(prompt: str, seconds: float | None, lyrics: str | None) -> str:
     """The stream prompt: `prompt`, then the length and the lyrics when given."""
     parts = [prompt]
@@ -173,6 +197,8 @@ async def acompose(prompt: str, *, seconds: float | None = None, lyrics: str | N
 
         return [Track(await asyncio.to_thread(DiffusersMusicModel(model_id).compose, prompt, seconds=seconds,
                                               lyrics=lyrics, seed=seed))]
+    if api == "server":
+        return [Track(await _server(model_id, bare, prompt, seconds, lyrics, seed))]
     with explained(model_id):
         if api == "predict":
             return await _predict(spec, name, bare, prompt, negative, seed, samples)

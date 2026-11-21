@@ -83,9 +83,9 @@ def test_chatterbox_voice_and_reference_checks(tmp_path):
 
 
 def test_align_model_of_another_kind_refused(write_config):
-    """The align task takes only a `torchaudio` model with an entry; without `tasks.align`, its provider or the
-    entry, the error names the task, provider or key."""
-    write_config({"providers": {"o": {"kind": "openai", "base_url": "http://127.0.0.1:9/v1"},
+    """The align task takes only a `torchaudio` model with an entry (or a model server's, kind `openai`); without
+    `tasks.align`, its provider or the entry, the error names the task, provider or key."""
+    write_config({"providers": {"o": {"kind": "ollama", "base_url": "http://127.0.0.1:9/v1"},
                                 "t": {"kind": "torchaudio"}}, "tasks": {}})
     with pytest.raises(ConfigError, match="no model for task 'align'"):
         align.aligner()
@@ -93,7 +93,7 @@ def test_align_model_of_another_kind_refused(write_config):
         align.aligner("torchaudio:MMS_FA")
     with pytest.raises(ConfigError, match="model 'MMS_FA' is not in providers.t.models"):
         align.aligner("t:MMS_FA")
-    with pytest.raises(ConfigError, match="task align takes kinds torchaudio"):
+    with pytest.raises(ConfigError, match="task align takes kinds openai, torchaudio"):
         align.aligner("o:mms")
 
 

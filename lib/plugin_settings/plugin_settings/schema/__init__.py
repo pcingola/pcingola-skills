@@ -17,7 +17,9 @@ from .google_model import GoogleModel
 from .huggingface import HuggingFace
 from .image_limits import ImageLimits
 from .kokoro_model import KokoroModel
+from .local_memory import LocalMemory
 from .local_models import LocalModels
+from .model_server import OLLAMA_LOCAL_URL, ModelServerSettings
 from .model_id import ModelId, split_id
 from .network import Network
 from .openai_image_limits import OpenAIImageLimits
@@ -29,18 +31,18 @@ from .providers import (OLLAMA_URL, AzureProvider, ChatterboxProvider, Diffusers
 from .quality import Quality
 from .studio import StudioSettings
 from .task import Task
-from .task_kinds import TASK_KINDS, TASK_ROLES
+from .task_kinds import SERVER_TASKS, TASK_KINDS, TASK_ROLES
 from .torchaudio_model import TorchaudioModel
 from .voiceover import VoiceoverSettings
 from .voices import Voices
 
 __all__ = [
-    "API_KINDS", "IMAGE_LIMIT_KINDS", "LOCAL_KINDS", "OLLAMA_URL", "OPENAI_KINDS", "ROLE_CLASSES", "SPEECH_KINDS",
-    "TASK_KINDS", "TASK_ROLES", "AzureProvider", "BrandSettings", "ChatterboxModel", "ChatterboxProvider", "Config",
+    "API_KINDS", "IMAGE_LIMIT_KINDS", "LOCAL_KINDS", "OLLAMA_LOCAL_URL", "OLLAMA_URL", "OPENAI_KINDS", "ROLE_CLASSES", "SPEECH_KINDS",
+    "SERVER_TASKS", "TASK_KINDS", "TASK_ROLES", "AzureProvider", "BrandSettings", "ChatterboxModel", "ChatterboxProvider", "Config",
     "DiffusersEntry", "DiffusersImageLimits", "DiffusersImageModel", "DiffusersModel", "DiffusersMusicModel",
     "DiffusersPresenterModel", "DiffusersProvider", "DiffusersRole", "DiffusersVideoModel", "FishModel",
     "FishProvider", "GoogleModel",
-    "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "LocalModels", "ModelId", "Network",
+    "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "LocalMemory", "LocalModels", "ModelId", "ModelServerSettings", "Network",
     "OllamaProvider", "OpenAIImageLimits", "OpenAIKindProvider", "OpenAIModel", "OpenAIProvider",
     "OpenRouterProvider", "Provider", "ProviderKind", "Quality", "RemoteProvider", "Strict",
     "StudioSettings", "Task", "TimedProvider", "TorchaudioModel", "TorchaudioProvider",

@@ -6,7 +6,8 @@ downloaded to `weights.model_dir`, and the espeak-ng language of each voice-name
 `af_: en-us`). A voice whose name has
 no listed prefix is refused, and `voices` lists only the voices of the listed prefixes. The model takes no
 instructions; the speed is 0.5 to 2. The audio is a 24 kHz WAV file. The model stays loaded for the life of the
-process; it needs no GPU and no local-model lock.
+process or until `local.unload_model` drops it; it needs no GPU and no local-model lock. A load of a model whose
+entry sets `memory` is refused when the system's available memory is below it (`local.check_free`).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from typing import Any
 
 from plugin_settings import KokoroModel, KokoroProvider, ProviderKind
 
-from . import espeak, local, weights
+from . import config, espeak, local, weights
 from .errors import AIModelsError
 
 KIND = ProviderKind.KOKORO
@@ -26,6 +27,19 @@ SAMPLE_RATE = 24_000
 _models: dict[Path, Any] = {}
 _lock = threading.Lock()  # one load at a time when callers run in several threads
 local.on_unload(_models)
+
+
+@local.on_unload_model
+def _drop(model_id: str, weights_dir: Path | None) -> int:
+    """Drop the loaded kokoro model `model_id`, whose files are in its provider's `dir`, else in `weights_dir`."""
+    if not _models or local.provider_kind(model_id) != KIND:
+        return 0
+    name, bare = config.split_id(model_id)
+    d = weights.model_dir(config.provider(name).with_dir(weights_dir), bare)
+    keys = [k for k in _models if k.parent == d]
+    for k in keys:
+        del _models[k]
+    return len(keys)
 
 
 def files(spec: KokoroProvider, entry: KokoroModel, model: str) -> tuple[Path, Path]:
@@ -52,6 +66,8 @@ def model(spec: KokoroProvider, entry: KokoroModel, bare: str):
 def _load(spec: KokoroProvider, entry: KokoroModel, bare: str):
     onnx, voices_file = files(spec, entry, bare)
     if onnx not in _models:
+        if entry.memory is not None:
+            local.check_free(entry.memory, str(onnx), f"the entry of {bare}", "cpu", False)
         from kokoro_onnx import EspeakConfig, Kokoro
 
         _models[onnx] = Kokoro(str(onnx), str(voices_file),
@@ -60,9 +76,14 @@ def _load(spec: KokoroProvider, entry: KokoroModel, bare: str):
 
 
 def voices(spec: KokoroProvider, entry: KokoroModel, name: str, bare: str) -> list[str]:
-    """The voices of the model whose prefix is in `langs`."""
+    """The voices of the model whose prefix is in `langs`, sorted, read from its voices file (a NumPy archive with
+    one array per voice, which kokoro-onnx loads with `np.load`); the model file is neither downloaded nor loaded."""
+    import numpy as np
+
+    path = weights.ensure_file(entry.voices_url, weights.model_dir(spec, bare) / weights.basename(entry.voices_url))
     prefixes = tuple(entry.langs)
-    return [v for v in model(spec, entry, bare).get_voices() if v.startswith(prefixes)]
+    with np.load(path) as archive:
+        return sorted(v for v in archive.files if v.startswith(prefixes))
 
 
 def speak(spec: KokoroProvider, entry: KokoroModel, name: str, bare: str, text: str, voice: str,

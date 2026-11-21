@@ -19,6 +19,11 @@ fields (`params`) pass through to the server (the OpenAI kinds as `extra_body`).
 model entry's `voice` (`providers.<p>.models.<m>`) replaces the kind's default voice and its `voices` (a list) are
 what `voices` lists; without it `voices` lists the Kokoro voices of a `kokoro` model, else the default voice.
 `check` refuses a speed, instructions or `params` the model does not take, before any request or model load.
+
+A model of a provider of kind `openai` that a model server describes (`served`: a fish, kokoro or chatterbox model
+of the server) takes what its server kind takes: its traits are those of that kind, without voice cloning (a
+chatterbox reference recording is a path on the server's machine); its default voice comes from the server's entry
+and its voices from the server's list (`GET /models/{id}`, `voices`). The request is the OpenAI `audio.speech` call, with `speaker` as an extra field for a fish model.
 """
 
 from __future__ import annotations
@@ -27,15 +32,16 @@ import asyncio
 import io
 import re
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from plugin_settings import OPENAI_KINDS, Provider, ProviderKind, Voices, WeightsDir
+from plugin_settings import OPENAI_KINDS, Provider, ProviderKind, Task, Voices, WeightsDir
 
-from . import chatterbox, config, fish, kokoro
+from . import chatterbox, config, fish, kokoro, served
 from .errors import AIModelsError, explained
 from .models import provider
+from .served_model import ServedModel
 
 DEFAULT_PCM_RATE = 24_000
 
@@ -69,14 +75,16 @@ TRAITS: dict[str, Traits] = {
 
 @dataclass(frozen=True)
 class SpeechModel:
-    """A speech model of the config: its id, provider name, provider settings, bare model name and entry
-    (`providers.<p>.models.<m>`; None for a remote model without one)."""
+    """A speech model of the config: its id, provider name, provider settings, bare model name, entry
+    (`providers.<p>.models.<m>`; None for a remote model without one) and, for a model of a model server, the
+    server's description of it (`served`)."""
 
     id: str
     provider: str
     spec: Provider
     bare: str
     entry: Voices | None
+    served: ServedModel | None = None
 
     @property
     def kind(self) -> str:
@@ -84,19 +92,24 @@ class SpeechModel:
 
     @property
     def traits(self) -> Traits:
+        if self.served is not None:
+            return replace(TRAITS[self.served.kind], clones=False)
         return TRAITS[self.kind]
 
     @property
     def default_voice(self) -> str:
-        return (self.entry and self.entry.voice) or self.traits.voice
+        return ((self.entry and self.entry.voice) or (self.served and self.served.entry.voice)
+                or self.traits.voice)
 
     @property
     def voices(self) -> list[str] | None:
-        """The entry's `voices`, None when it lists none."""
-        return None if self.entry is None else self.entry.voices
+        """The entry's `voices`, else the server's list of the model's voices; None when neither lists any."""
+        return ((self.entry and self.entry.voices) or (self.served and self.served.voices)) or None
 
     @property
     def instructions(self) -> bool:
+        if self.served is not None and self.served.kind == fish.KIND:
+            return bool(self.served.entry.style)
         return bool(self.entry.style) if self.kind == fish.KIND else self.traits.instructions
 
 
@@ -108,7 +121,10 @@ def model_of(model: str | None = None, weights_dir: str | Path | None = None) ->
     spec = config.provider(name)
     if isinstance(spec, WeightsDir):
         spec = spec.with_dir(weights_dir)
-    return SpeechModel(model_id, name, spec, bare, config.model_entry(model_id))
+    m = served.served(model_id, quiet=True)
+    if m is not None and m.role != Task.SPEECH:
+        raise AIModelsError(f"{model_id} is a {m.role} model of its server, not a speech model")
+    return SpeechModel(model_id, name, spec, bare, config.model_entry(model_id), m)
 
 
 def model_of_kind(kind: str) -> str | None:
@@ -143,9 +159,9 @@ def check(model: str | None = None, *, speed: float = 1.0, instructions: str | N
 
 
 def voices(model: str | None = None, weights_dir: str | Path | None = None) -> list[str]:
-    """The voices of `model` (else `tasks.speech`): the provider's `voices`, else a Kokoro model's voices (loading
-    it from `weights_dir` when the provider has no `dir`), else the default voice. A model whose kind `clones` also
-    takes a reference recording, which is not listed."""
+    """The voices of `model` (else `tasks.speech`): the entry's `voices`, else a model server's list of them, else a
+    Kokoro model's voices (from its voices file, in `weights_dir` when the provider has no `dir`), else the default
+    voice. A model whose kind `clones` also takes a reference recording, which is not listed."""
     m = model_of(model, weights_dir)
     if m.voices:
         return list(m.voices)
@@ -234,6 +250,8 @@ async def aspeak(text: str, *, voice: str | None = None, model: str | None = Non
         return await asyncio.to_thread(kokoro.speak, spec, entry, name, bare, text, voice, speed)
     if kind == chatterbox.KIND:
         return await asyncio.to_thread(chatterbox.speak, spec, entry, name, bare, text, voice)
+    if m.served is not None and m.served.kind == fish.KIND and speaker is not None:
+        params = {**(params or {}), "speaker": speaker}
     p = provider(name)
     with explained(model_id):
         if kind in OPENAI_KINDS:

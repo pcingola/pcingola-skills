@@ -6,8 +6,12 @@ A model of provider kind `torchaudio` is a forced-alignment pipeline of `torchau
 weights file. `weights.ensure_file` downloads it (with
 the TLS context of `tls`) to `weights.model_dir` under its own file name, the name torch.hub looks for, and the
 pipeline loads it from there (`model_dir`), so torch.hub downloads nothing. torchaudio 2.11, its last release,
-keeps `forced_align` and flags it deprecated. A model stays loaded for the life of the process; it needs no GPU
-and no local-model lock.
+keeps `forced_align` and flags it deprecated. A model stays loaded for the life of the process or until
+`local.unload_model` drops it; it needs no GPU and no local-model lock. A load of a model whose entry sets `memory` is
+refused when the system's available memory is below it (`local.check_free`).
+
+A model of a provider of kind `openai` is the torchaudio aligner of a model server (`served`): `aligner` returns a
+`ServedAligner`, which sends each clip to `POST <base_url>/audio/alignments`.
 """
 
 from __future__ import annotations
@@ -15,16 +19,23 @@ from __future__ import annotations
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from plugin_settings import ProviderKind, TorchaudioModel, TorchaudioProvider
+from plugin_settings import ProviderKind, Task, TorchaudioModel, TorchaudioProvider
 
 from . import config, local, weights
 from .errors import AIModelsError, ConfigError
+from .served_aligner import ServedAligner
 
 KIND = ProviderKind.TORCHAUDIO
 TASK = "align"
 
 _aligners: dict[str, "Aligner"] = {}
 local.on_unload(_aligners)
+
+
+@local.on_unload_model
+def _drop(model_id: str, weights_dir: Path | None) -> int:
+    """Drop the loaded aligner `model_id`."""
+    return 0 if _aligners.pop(model_id, None) is None else 1
 
 
 class Aligner:
@@ -68,15 +79,26 @@ def fetch(spec: TorchaudioProvider, entry: TorchaudioModel, model: str):
     return weights.ensure_file(entry.url, weights.model_dir(spec, model) / weights.basename(entry.url))
 
 
-def aligner(model: str | None = None, weights_dir: str | Path | None = None) -> Aligner:
+def aligner(model: str | None = None, weights_dir: str | Path | None = None) -> Aligner | ServedAligner:
     """The aligner of `model` (else `tasks.align`), loaded once per process, its weights in the provider's `dir`,
-    else `weights_dir` (`WeightsDir.with_dir`); `config.resolve` refuses a model that is not of kind torchaudio or
-    has no entry."""
+    else `weights_dir` (`WeightsDir.with_dir`); `config.resolve` refuses a model that is not of kind torchaudio
+    (or `openai`) or has no entry. A model of an `openai` provider is a model server's aligner (`ServedAligner`),
+    whose server must describe it as a torchaudio model."""
     model_id = config.resolve(model, TASK)
+    name, bare = config.split_id(model_id)
+    if config.provider(name).kind == ProviderKind.OPENAI:
+        from . import served
+
+        m = served.require(model_id, Task.ALIGN)
+        if m.kind != KIND:
+            raise ConfigError(f"{model_id} is a {m.kind} model of its server, not a torchaudio aligner")
+        return ServedAligner(model_id, bare)
     if model_id not in _aligners:
-        name, bare = config.split_id(model_id)
         spec = config.provider(name).with_dir(weights_dir)
-        fetch(spec, config.local_entry(model_id), bare)
+        entry = config.local_entry(model_id)
+        fetch(spec, entry, bare)
+        if entry.memory is not None:
+            local.check_free(entry.memory, model_id, f"providers.{name}.models.{bare}", "cpu", False)
         try:
             _aligners[model_id] = Aligner(bare, str(weights.model_dir(spec, bare)))
         except (OSError, RuntimeError) as e:

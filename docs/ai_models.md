@@ -6,9 +6,9 @@ per concern). It has four parts:
 1. Pydantic-AI: chat, vision, audio input, embeddings, image generation, image edits with reference images and
    System-1 models. The package reads the config and builds the Pydantic-AI object (`Agent`, `Embedder`,
    `ImageGenerator`, `SystemOneModel`); the call itself is Pydantic-AI's.
-2. Adapters for what Pydantic-AI lacks: speech, music, video and image masks. One function per task, one branch per
-   provider kind. The remote speech and music calls are the documented exceptions to Pydantic-AI
-   (`docs/architecture.md`, Standard paths for model calls).
+2. Adapters for what Pydantic-AI lacks: speech, music, video, alignment and image masks. One function per task, one
+   branch per provider kind. The remote speech and music calls and the calls to a model server (Model server) are
+   the documented exceptions to Pydantic-AI (`docs/architecture.md`, Standard paths for model calls).
 3. Local models with `diffusers`, in the caller's process: image, music and image-to-video models. The extra
    `ai-models[diffusers]` installs torch and diffusers, so only the skills that need it carry them.
 4. Local speech and alignment (Local speech and alignment), in the caller's process: Kokoro, Chatterbox Turbo and
@@ -27,14 +27,15 @@ per concern). It has four parts:
 | `chatterbox` | `speak` of a `chatterbox` provider (Local speech and alignment) |
 | `cpu` | `performance_threads`: torch's CPU threads on the fast cores (Local speech and alignment) |
 | `fish` | `speak` of a `fish` provider; `fish_span` (`split_spans`), `fish_take` (`Take`), `fish_takes` (`Takes`) (Fish) |
-| `align` | `aligner`: an `Aligner` of a `torchaudio` provider (Local speech and alignment) |
+| `align` | `aligner`: an `Aligner` of a `torchaudio` provider (Local speech and alignment), a `ServedAligner` of a model server (Model server) |
+| `served`, `served_model`, `served_aligner` | the local models of a model server: `served`, `require`, `kind`, `client`, `answered`; `ServedModel`; `ServedAligner` (Model server) |
 | `weights` | the weights directory of a provider (`dir`), `ensure_file` |
 | `espeak` | the espeak-ng data path for Kokoro |
 | `music` | `compose` |
 | `video` | `animate`, `aanimate`, `present`, `apresent`; `frame_count`, `frame_size`, `clip_size`, `bucket` |
-| `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` and `present` (video), the pipeline cache, the lock, `unload`, memory check and cap, what holds the memory (Local model memory) |
+| `local` | `DiffusersImageModel`, `DiffusersMusicModel`, `animate` and `present` (video), the pipeline cache, the lock, `unload`, `unload_model`, memory checks (`check_free`, `check_memory`) and cap, what holds the memory (Local model memory) |
 | `tls` | the TLS context of remote clients |
-| `errors` | `AIModelsError`, `ConfigError`, `explained` |
+| `errors` | `AIModelsError`, `ConfigError`, `LocalMemoryError`, `explained` |
 
 ## Config
 
@@ -161,7 +162,7 @@ A diffusers model downloads 4 to 90 GB of weights to the Hugging Face cache (`hu
 |---|---|---|
 | `ollama` | `OllamaProvider` | `base_url` (default `http://localhost:11434/v1`) |
 | `openrouter` | `OpenRouterProvider` | `api_key` |
-| `openai` | `OpenAIProvider`; chat goes through Chat Completions (`openai-chat`), which every OpenAI-compatible server has | `base_url`, `api_key` (required without `base_url`) |
+| `openai` | `OpenAIProvider`; chat goes through Chat Completions (`openai-chat`), which every OpenAI-compatible server has; with a model server's `base_url`, also its local models (Model server) | `base_url`, `api_key` (required without `base_url`) |
 | `azure` | `AzureProvider` | `base_url` (the Azure endpoint), `api_version`, `api_key` |
 | `google` | `GoogleProvider`, or `GoogleCloudProvider` (Vertex) with `vertex: true` | `api_key`, `base_url`; Vertex: `project`, `location`, `credentials` |
 | `diffusers` | none; `local` | none |
@@ -180,10 +181,10 @@ What each kind serves (the Kinds column is `TASK_KINDS`, checked at load and by 
 | image, image_edit | Pydantic-AI `OpenAIImageGenerationModel`, `GoogleImageGenerationModel`; `local.DiffusersImageModel` | `ollama`, `openrouter`, `openai`, `azure`, `google`, `diffusers` |
 | image mask | `images.MaskedOpenAIImageModel`; the `inpaint` pipeline of a `diffusers` model | OpenAI kinds, `diffusers` |
 | speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, Google `generate_content`, `fish.speak`, `kokoro.speak` or `chatterbox.speak` (the last three in a worker thread) | OpenAI kinds, `google`, `fish`, `kokoro`, `chatterbox` |
-| align | `align.aligner` | `torchaudio` |
-| music | `music.compose`: Google predict or stream, or `local.DiffusersMusicModel` | `google`, `diffusers` |
-| video | `video.animate`: `local.animate` (image to video) | `diffusers` |
-| presenter | `video.present`: `local.present` (portrait and speech to video) | `diffusers` |
+| align | `align.aligner`; a model server's `POST /audio/alignments` (`ServedAligner`) | `torchaudio`, `openai` with a `base_url` |
+| music | `music.compose`: Google predict or stream, `local.DiffusersMusicModel`, or a model server's `POST /audio/music` | `google`, `diffusers`, `openai` with a `base_url` |
+| video | `video.animate`: `local.animate` (image to video), or a model server's video job (`POST /videos`) | `diffusers`, `openai` with a `base_url` |
+| presenter | `video.present`: `local.present` (portrait and speech to video), or a model server's video job with the narration as a second file | `diffusers`, `openai` with a `base_url` |
 
 Remote clients are one `httpx2.AsyncClient` per provider object, with the provider's timeout and the context of
 `tls`.
@@ -226,11 +227,14 @@ The adapters cover what Pydantic-AI has no call for:
 ## Local model memory
 
 A diffusers pipeline or a Fish model runs in the caller's process and keeps its weights until that process exits or
-calls `unload`. Skills run
+calls `unload` or `unload_model`. Skills run
 model commands in parallel (parallel tool calls, one subagent per scene), and Ollama keeps a model resident for
 5 minutes after its last call. On a unified-memory GPU, allocations past the free memory exhaust system memory and
 the machine hangs without an error. `local.pipeline` therefore does four things before a load (`fish` the same, with
-the model's `memory` in place of the weights it counts):
+the model's `memory` in place of the weights it counts). A model whose entry sets `memory` (GB at its peak, optional
+on every local model entry) is first checked against the free memory by `local.check_free`, the check of `fish`: a
+diffusers model on its device, a kokoro, chatterbox or torchaudio model against the system's available memory
+(`free_memory("cpu")`). A refused load raises `LocalMemoryError`, a subclass of `AIModelsError`.
 
 - Lock. The first load of a process takes an exclusive `filelock.FileLock` on `ai-models-local.lock` in the system
   temporary directory (`tempfile.gettempdir()`) and holds it until the process exits; the OS releases it then,
@@ -246,7 +250,12 @@ the model's `memory` in place of the weights it counts):
   file and releases the lock, so a waiting process loads at once without waiting for this one to exit. When the
   process held the lock or a cache held an entry, it also collects garbage and empties the CUDA allocator cache
   when torch is imported; otherwise it returns at once (0.15 s per call saved after torch is imported). The
-  integration tests call it after each test.
+  integration tests call it after each test. `local.unload_model(model_id, weights_dir)` drops one model: each
+  module registers a function with `local.on_unload_model` that drops that model's entries from its cache (the
+  pipelines of the model's `repo`, the fish model without its first takes, the kokoro and chatterbox models of its
+  weights directory, the aligner), and the lock is released once no cache registered with `locked=True` (the
+  diffusers pipelines, the fish models) holds an entry. The model server unloads idle models with it
+  (`docs/model_server.md`, Keep-alive).
 - Handover. The OS releases the lock file before the holder has exited, and the holder's device memory comes
   back after that. On a GB10, a waiter that got the lock from a holder of a 60 GB CUDA tensor read 65.5 GB free
   for 0.5 s and 126.9 GB 1 s after, so a 70 GB load right after the handover is refused. A process that waited for the lock
@@ -291,7 +300,7 @@ unloads nothing.
 
 A speech model's entry (`providers.<p>.models.<m>`, any class deriving `Voices`) takes `voice` (its default voice;
 else the kind's, `speech.TRAITS`, whose keys are `SPEECH_KINDS`) and `voices` (the list `speech.voices` returns;
-without it a `kokoro` model lists its voices and the others their default voice). `speech.SpeechModel` carries the
+without it a `kokoro` model lists the voices of its `langs` prefixes, read from its voices file without loading the model, and the others their default voice). `speech.SpeechModel` carries the
 provider and the entry (None for a remote model without one).
 `speech.check` refuses a speed outside the kind's range, instructions a kind does not take, and `params` of a kind
 that takes none, before any request or model load; `speak` calls it. `speech.model_of_kind(kind)` is the configured speech model of a provider kind:
@@ -393,7 +402,7 @@ Instructions go through the model's `style`, a format string with `{instructions
 
 `video.animate(image, prompt, *, seconds, model=None, width=None, height=None, aspect=None, seed=None)` returns an MP4 of the
 image animated as the prompt says; `aanimate` runs it in a worker thread. The model is `model`, else `tasks.video`.
-Only the `diffusers` kind serves video. A video model is a `providers.<p>.models.<name>` entry of a `diffusers`
+The `diffusers` kind serves video in process, and the `openai` kind from a model server (Model server). A video model is a `providers.<p>.models.<name>` entry of a `diffusers`
 provider of the video role (`DiffusersVideoModel`) with these keys besides `repo`, `steps` and `guidance`, all
 required; the schema names each missing one at load, and `config.resolve` refuses a model of another kind or role:
 
@@ -444,6 +453,51 @@ The models, their repositories and these keys are in `config.yaml`; `config.exam
 minimal test model. The presenter test (`tests/integration/ai_models/test_video.py`) uses
 `kandinskylab/tiny-kandinsky-s2v-distilled-modular-pipe` (32 MB, random weights, the diffusers test fixture); its text
 RoPE has 128 positions, so its config passes a short `prompt` in `args`.
+
+## Model server
+
+A provider of kind `openai` whose `base_url` is the `/v1` of a model server (`lib/model_server`,
+`docs/model_server.md`) serves every task: the server runs its local models and forwards the other models to
+Ollama. A client's model id is the provider name, then the server's model id, split at the first colon:
+`srv:local:ltx-video` (a local diffusers model), `srv:kokoro:kokoro-v1.0`, `srv:gemma3:270m` (an Ollama tag).
+Chat, vision, audio input, embeddings, System-1 (`<base_url>/systemone`, which the server forwards to Ollama),
+images and speech take the paths of the `openai` kind. The schema takes `openai` for align, music, video and
+presenter only with a `base_url` (`SERVER_TASKS`).
+
+The model attributes a client needs are the server's: `served.served(model_id)` reads `GET <base_url>/models/{id}`
+once per process and validates its `entry` as the schema class of its `kind` and `role` (`ServedModel`); an answer
+without them (an Ollama model, or a server that is not a model server) is None, and the model takes the paths of the
+`openai` kind. The client's config holds no copy of these attributes:
+
+- `config.diffusers_model(model_id, role)` of an `openai` model is the server's entry, so `video.clip_size`,
+  `video.frame_count`, `music.min_crest_db` and the lyrics check read it; a model the server lacks, or one of
+  another role or kind, is a `ConfigError`.
+- `config.image_limits` of an `openai` model without `image` in the client's entry is the `image` of the server's
+  diffusers entry. `served.kind(model_id)` is `diffusers` for such a model, so media:image-gen sizes its requests as
+  for a local diffusers model (one request per image, PNG only); the request goes through Pydantic-AI's
+  `OpenAIImageGenerationModel`, with the mask through `MaskedOpenAIImageModel`. media:music reads `served.kind` for
+  its local prompt rules.
+- `speech.model_of` of a served fish, kokoro or chatterbox model carries the `ServedModel`: the traits are those of
+  the server's kind (`TRAITS`) without cloning, since a Chatterbox reference recording is a path on the server's
+  machine; the default voice is the client entry's, else the server entry's, and `voices` the client entry's, else
+  the `voices` of the server's answer (a Kokoro model's voices from its voices file). A fish request sends
+  `speaker` as an extra field.
+
+The calls Pydantic-AI and the SDK lack go through the `AsyncOpenAI` client of the Pydantic-AI provider
+(`served.client`), and `served.answered` turns the server's error answers into `AIModelsError` with the status and
+message:
+
+| Task | Call |
+|---|---|
+| music | `client.post("/audio/music", body=..., cast_to=httpx2.Response)`: `prompt`, `seconds`, `lyrics`, `seed`; a WAV file |
+| video | `client.videos.create` (`input_reference`, `seconds`, `size` from `clip_size` when the caller gives a width, height or aspect, `seed` in `extra_body`), `client.videos.poll` every 0.5 s, `client.videos.download_content` |
+| presenter | `client.post("/videos", files=[input_reference, audio])` with `prompt`, `aspect`, `seed`; then poll and download as video |
+| align | `ServedAligner.align`: the clip as a 16-bit WAV at its own rate and the tokens joined by spaces to `client.post("/audio/alignments")`; one (start, end) per token |
+
+A video job that fails raises `AIModelsError` with the job's error. The SDK flags `videos` as deprecated (OpenAI shut
+its video API down); `video` silences that warning. The integration tests (`tests/integration/model_server_client/`)
+run the server in the test process on tests/config.yaml and call each function with a config whose provider `srv`
+is of kind `openai` at the server's URL.
 
 ## TLS
 

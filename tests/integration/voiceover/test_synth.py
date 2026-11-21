@@ -55,7 +55,8 @@ class TestSynth(unittest.TestCase):
         with wave.open(str(self.out / "narration.wav")) as w:
             self.assertEqual((w.getnchannels(), w.getsampwidth(), w.getframerate()), (1, 2, 24000))
             duration = w.getnframes() / w.getframerate()
-        self.assertAlmostEqual(duration, self.timing["duration"], places=3)
+        # timing.json rounds the duration to 3 decimals, so they differ by at most half a millisecond
+        self.assertLessEqual(abs(duration - self.timing["duration"]), 0.0005 + 1e-9)
         self.assertEqual((self.timing["model"], self.timing["voice"]), (task_model("speech"), model_entry("speech")["voice"]))
 
     def test_words_monotonic_inside_sentences(self) -> None:

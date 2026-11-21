@@ -97,10 +97,13 @@ def local_entry(model_id: str) -> Any:
 
 
 def diffusers_model(model_id: str, role: DiffusersRole) -> DiffusersModel:
-    """The entry of the local model `model_id` (`providers.<p>.models.<m>` of a diffusers provider), an instance of
-    the class of `role` (`ROLE_CLASSES`); `ConfigError` for another kind or role."""
+    """The entry of the local model `model_id` (`providers.<p>.models.<m>` of a diffusers provider, or the entry a
+    model server gives for a model of an `openai` provider, `served`), an instance of the class of `role`
+    (`ROLE_CLASSES`); `ConfigError` for another kind or role."""
     name, model = split_id(model_id)
-    if (kind := provider(name).kind) != ProviderKind.DIFFUSERS:
+    if (kind := provider(name).kind) == ProviderKind.OPENAI:
+        return _served_diffusers(model_id, role)
+    if kind != ProviderKind.DIFFUSERS:
         raise ConfigError(f"provider {name!r} of kind {kind!r} has no diffusers models")
     entry = local_entry(model_id)
     if entry.role != role:
@@ -108,14 +111,30 @@ def diffusers_model(model_id: str, role: DiffusersRole) -> DiffusersModel:
     return entry
 
 
+def _served_diffusers(model_id: str, role: DiffusersRole) -> DiffusersModel:
+    """The entry of the diffusers model `model_id` of a model server, of `role`."""
+    from . import served
+
+    m = served.require(model_id, Task(role.value))
+    if m.kind != ProviderKind.DIFFUSERS:
+        raise ConfigError(f"{model_id} is a {m.kind} model of its server, not a diffusers model")
+    return m.entry
+
+
 def _limits_class(kind: str) -> type[OpenAIImageLimits | DiffusersImageLimits]:
     """The limits class of a kind of `IMAGE_LIMIT_KINDS`: diffusers, else the OpenAI kinds."""
     return DiffusersImageLimits if kind == ProviderKind.DIFFUSERS else OpenAIImageLimits
 
 
+def _required(cls: type) -> list[str]:
+    """The required fields of a limits class."""
+    return [f for f, info in cls.model_fields.items() if info.is_required()]
+
+
 def image_limits(model_id: str, *, required: bool) -> OpenAIImageLimits | DiffusersImageLimits | None:
-    """The image request limits of `model_id` (`providers.<p>.models.<m>.image`), None for a model of a kind that
-    takes none (`IMAGE_LIMIT_KINDS`) or that has none. When `required`, a model of such a kind without limits is a
+    """The image request limits of `model_id` (`providers.<p>.models.<m>.image`; for a model of an `openai`
+    provider without them, the `image` of its model server's diffusers entry, `served`), None for a model of a kind
+    that takes none (`IMAGE_LIMIT_KINDS`) or that has none. When `required`, a model of such a kind without limits is a
     `ConfigError` naming the key and its required fields."""
     name, model = split_id(model_id)
     spec = provider(name)
@@ -123,8 +142,15 @@ def image_limits(model_id: str, *, required: bool) -> OpenAIImageLimits | Diffus
         return None
     entry = spec.models.get(model)
     limits = entry.image if isinstance(entry, (OpenAIModel, DiffusersImageModel)) else None
+    if limits is None and spec.kind == ProviderKind.OPENAI:
+        from . import served
+
+        if (m := served.served(model_id, quiet=True)) is not None and isinstance(m.entry, DiffusersImageModel):
+            limits = m.entry.image
+            if limits is None and required:
+                raise ConfigError(f"{model_id} has no image limits: its server's entry of {m.bare} needs `image` "
+                                  f"with {', '.join(_required(DiffusersImageLimits))}")
     if limits is None and required:
-        fields = [f for f, info in _limits_class(spec.kind).model_fields.items() if info.is_required()]
         raise ConfigError(f"{model_id} has no image limits: add providers.{name}.models.{model}.image with "
-                          f"{', '.join(fields)} to {plugin_settings.display(path())}")
+                          f"{', '.join(_required(_limits_class(spec.kind)))} to {plugin_settings.display(path())}")
     return limits

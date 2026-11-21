@@ -8,13 +8,13 @@ from typing import Any, ClassVar
 
 from pydantic import PositiveInt
 
-from .base import Strict
 from .diffusers_role import DiffusersRole
+from .local_memory import LocalMemory
 
 
-class DiffusersModel(Strict):
+class DiffusersModel(LocalMemory):
     """`repo` (Hugging Face repository, or a local folder of a saved pipeline as an absolute or `~` path), `steps`, `guidance` (none: no `guidance_scale`), `args` (more call
-    arguments, after steps and guidance), `skip` (components loaded as None)."""
+    arguments, after steps and guidance), `skip` (components loaded as None), `memory` (`LocalMemory`)."""
 
     role: ClassVar[DiffusersRole]
 

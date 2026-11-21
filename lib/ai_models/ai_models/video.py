@@ -26,6 +26,12 @@ required:
     audio_rate      the sample rate (Hz) the model takes the speech at, mono
     output          the name of the pipeline output that holds the videos (a modular pipeline's `output`)
 
+A model of a provider of kind `openai` is a video or presenter model of a model server (`served`): the job goes to
+`POST <base_url>/videos` (video: `client.videos.create`; presenter: `client.post` with the narration as a second file,
+which `videos.create` cannot send), is polled with `client.videos.poll` and downloaded with
+`client.videos.download_content`. The model's keys come from the server's entry (`config.diffusers_model`), so a
+size is computed here with `clip_size` and sent as `WxH`.
+
 The schema checks these keys at load (a missing one, or a key of another role, names its YAML path), and that
 `tasks.video` and `tasks.presenter` name a model of that role; `config.resolve` checks a model the caller names.
 Any other failure of the model call
@@ -36,12 +42,15 @@ from __future__ import annotations
 
 import asyncio
 import math
+import warnings
 from collections.abc import Sequence
 
-from plugin_settings import DiffusersVideoModel
+from plugin_settings import DiffusersRole, DiffusersVideoModel, ProviderKind
 
 from . import config
 from .errors import AIModelsError
+
+POLL_MS = 500
 
 
 def bucket(buckets: Sequence[tuple[int, int]], aspect: float) -> tuple[int, int]:
@@ -79,6 +88,10 @@ def animate(image: bytes, prompt: str, *, seconds: float, model: str | None = No
     the model's `max_frames` is shorter. The size is `width` and `height`, else the model's; `aspect`
     (width / height) reshapes it to that ratio at the same pixel count."""
     model_id = config.resolve(model, "video")
+    if _on_server(model_id):
+        spec = config.diffusers_model(model_id, DiffusersRole.VIDEO)
+        size = clip_size(spec, width, height, aspect) if width or height or aspect else None
+        return asyncio.run(_server_animate(model_id, image, prompt, seconds, size, seed))
     from . import local
 
     return _call(model_id, local.animate, model_id, image, prompt, seconds=seconds, width=width, height=height,
@@ -92,9 +105,66 @@ def present(image: bytes, speech: bytes, *, model: str | None = None, aspect: fl
     nearest `aspect` (width / height), default the image's. `prompt` replaces the model's default prompt. The
     model is `model`, else the model of task `presenter`."""
     model_id = config.resolve(model, "presenter")
+    if _on_server(model_id):
+        config.diffusers_model(model_id, DiffusersRole.PRESENTER)
+        return asyncio.run(_server_present(model_id, image, speech, aspect, prompt, seed))
     from . import local
 
     return _call(model_id, local.present, model_id, image, speech, aspect=aspect, prompt=prompt, seed=seed)
+
+
+def _on_server(model_id: str) -> bool:
+    """Whether `model_id` is a model of a model server: its provider is of kind `openai`."""
+    return config.provider(config.split_id(model_id)[0]).kind == ProviderKind.OPENAI
+
+
+def image_file(image: bytes) -> tuple[str, bytes, str]:
+    """The multipart file of an image: (name, bytes, media type), PNG unless the bytes are JPEG."""
+    return ("image.jpg", image, "image/jpeg") if image[:3] == b"\xff\xd8\xff" else ("image.png", image, "image/png")
+
+
+async def _server_animate(model_id: str, image: bytes, prompt: str, seconds: float, size: tuple[int, int] | None,
+                          seed: int | None) -> bytes:
+    from openai import omit
+
+    async def create(client):
+        return await client.videos.create(model=config.split_id(model_id)[1], prompt=prompt,
+                                          input_reference=image_file(image), seconds=f"{seconds:g}",
+                                          size=f"{size[0]}x{size[1]}" if size else omit,
+                                          extra_body={"seed": seed} if seed is not None else None)
+
+    return await _server_job(model_id, create)
+
+
+async def _server_present(model_id: str, image: bytes, speech: bytes, aspect: float | None, prompt: str | None,
+                          seed: int | None) -> bytes:
+    from openai.types import Video
+
+    body = {k: v for k, v in (("model", config.split_id(model_id)[1]), ("prompt", prompt or ""), ("aspect", aspect),
+                              ("seed", seed)) if v is not None}
+    files = [("input_reference", image_file(image)), ("audio", ("speech", speech, "application/octet-stream"))]
+
+    async def create(client):
+        return await client.post("/videos", cast_to=Video, body=body, files=files,
+                                 options={"headers": {"Content-Type": "multipart/form-data"}})
+
+    return await _server_job(model_id, create)
+
+
+async def _server_job(model_id: str, create) -> bytes:
+    """The MP4 of the video job `create(client)` makes on the model server of `model_id`, once it completes;
+    `AIModelsError` with the job's error when it fails."""
+    from . import served
+
+    client = served.client(model_id)
+    with served.answered(model_id), warnings.catch_warnings():
+        # The SDK flags `videos` deprecated because OpenAI's own video API is shut down; the model server serves it.
+        warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*Sora API.*")
+        job = await client.videos.poll((await create(client)).id, poll_interval_ms=POLL_MS)
+        if job.status != "completed":
+            raise AIModelsError(f"{model_id}: the video job {job.status}"
+                                + (f": {job.error.message}" if job.error else ""))
+        return (await client.videos.download_content(job.id)).content
 
 
 def _call(model_id: str, fn, *args, **kwargs) -> bytes:
