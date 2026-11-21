@@ -144,6 +144,29 @@ def test_plugin_projects_have_own_tool_uv():
         assert _tool_uv(pyproject) is not None, f"{pyproject}: no [tool.uv] table"
 
 
+def _upper_bounds(requires_python: str) -> set[str]:
+    """The `<` and `<=` clauses of a `requires-python` specifier."""
+    from packaging.specifiers import SpecifierSet
+
+    return {str(s) for s in SpecifierSet(requires_python) if s.operator in ("<", "<=")}
+
+
+def test_plugin_projects_bound_python_as_the_root():
+    """Every uv project under plugins/ has the upper bound on `requires-python` of the repository root project, in
+    its pyproject.toml and its uv.lock. Without it uv picks the newest installed CPython, for which some dependencies
+    have no wheels yet and build from source (docs/architecture.md, Environments outside plugins/)."""
+    root = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["requires-python"]
+    bound = _upper_bounds(root)
+    assert bound, f"the root pyproject.toml has no upper bound on requires-python: {root!r}"
+    for pyproject in PLUGIN_PYPROJECTS:
+        declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["requires-python"]
+        assert _upper_bounds(declared) == bound, f"{pyproject}: requires-python {declared!r}, not bounded by {bound}"
+        lock = pyproject.parent / "uv.lock"
+        if lock.is_file():
+            locked = tomllib.loads(lock.read_text(encoding="utf-8"))["requires-python"]
+            assert _upper_bounds(locked) == bound, f"{lock}: requires-python {locked!r}; relock the project"
+
+
 def test_lock_dependency_metadata_from_own_project():
     """Each plugin project's uv.lock records the dependency-metadata of its own pyproject.toml and no other.
     Guards against a lock written with the settings of another project."""

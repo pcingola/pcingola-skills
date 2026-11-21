@@ -1,8 +1,9 @@
 """`POST /v1/audio/speech`, `POST /v1/audio/music` and `POST /v1/audio/alignments` on local models.
 
 Speech (`openai.types.audio.SpeechCreateParams`, JSON) runs `ai_models.speech.aspeak` on a fish, kokoro or chatterbox
-model and answers the WAV file (`audio/wav`); `response_format` is `wav` (the default here) and `speaker` (a field
-outside the params type) names who speaks to a fish model. Music (`MusicCreateParams`, JSON) runs
+model and answers the WAV file (`audio/wav`); `response_format` is `wav` (the default here), `speaker` (a field
+outside the params type) names who speaks to a fish model, and `reference_audio` (another such field, base64 audio,
+`References`) is the recording a cloning model (chatterbox) speaks in. Music (`MusicCreateParams`, JSON) runs
 `ai_models.music.acompose` on a diffusers music model and answers a WAV file. Alignment (multipart: `model`, `file`,
 `text`) runs the torchaudio aligner (`ai_models.align`) and answers `Alignment` (JSON).
 """
@@ -20,6 +21,7 @@ from .alignment import Alignment
 from .forms import checked, extras, one_file
 from .model_role import ModelRole
 from .music_create_params import MusicCreateParams
+from .references import FIELD as REFERENCE
 from .requests import json_body, server_of
 from .server_error import ServerError
 
@@ -42,12 +44,16 @@ async def speech(request: Request) -> Response:
     srv = server_of(request)
     ref = srv.ref(body.get("model"), ModelRole.SPEECH)
     check_wav(body)
-    more = extras(SpeechCreateParams, body, "speaker")
+    more = extras(SpeechCreateParams, body, "speaker", REFERENCE)
     if more:
         raise ServerError(400, f"{ref.id} takes no request fields {', '.join(sorted(more))}", param=next(iter(more)))
     voice = body.get("voice")
     if isinstance(voice, dict):
         voice = voice.get("id")
+    if REFERENCE in body:
+        if not ai_speech.TRAITS[ref.kind].clones:
+            raise ServerError(400, f"{ref.id} does not clone a voice; it takes no `{REFERENCE}`", param=REFERENCE)
+        voice = str(srv.references.path(body[REFERENCE]))
     async with srv.running(ref):
         audio = await ai_speech.aspeak(body["input"], voice=voice or None, model=ref.id,
                                        instructions=body.get("instructions"), speed=float(body.get("speed") or 1.0),

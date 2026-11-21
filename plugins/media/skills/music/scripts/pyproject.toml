@@ -1,7 +1,7 @@
 [project]
 name = "music-cli"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     # music and audio chat models of the ai_models config through Pydantic-AI (lib/ai_models, git source)
     "ai-models",

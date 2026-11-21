@@ -12,6 +12,7 @@ from PIL import Image
 from plugin_settings import DiffusersRole
 
 from ai_models import config, local, video
+from tests.integration.model_server.media import frames
 from tests.prereq import requires
 from tests.settings_env import TEST_CONFIG
 
@@ -56,12 +57,24 @@ def test_small_ltx_video_clip(tmp_path):
 
 
 @requires(HAS_GPU, f"local video models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")
+def test_seeded_ltx_clip_repeats():
+    """animate with the `video` model and a seed draws its noise from a torch generator on the pipeline's device
+    (`local.pipe_kwargs`): LTX-Video's decode noise (`torch.randn` with the generator on the device) takes it, and
+    the same seed gives the same frames (docs/ai_models.md, Video)."""
+    first, again = (frames(video.animate(red_png(64, 84), "a red square", seconds=0.3, seed=7)) for _ in range(2))
+    assert len(first) == 9 and first == again
+    kwargs = local.pipe_kwargs(config.diffusers_model(config.model_for("video"), DiffusersRole.VIDEO), {"seed": 7})
+    assert kwargs["generator"].device.type == local.device()
+
+
+@requires(HAS_GPU, f"local video models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")
 @requires(shutil.which("ffprobe"), "ffprobe (FFmpeg) not installed")
 def test_ltx2_clip_carries_its_sound_track(tmp_path):
     """animate with an LTX-2 model writes the pipeline's `audio` output (`waveform`) as an AAC stream at the
     vocoder's output rate (`local.audio_rate`: 24 kHz, not the transformer's 16 kHz `audio_sampling_rate`) with the
     vocoder's two channels, as long as the 9 frames at 24 fps within 50 ms (an audio latent covers 40 ms, plus AAC
-    framing) (docs/ai_models.md, Video)."""
+    framing). On MPS its transformer and text connectors load with `rope_double_precision` false
+    (`local.DEVICE_CONFIG`: MPS has no float64) (docs/ai_models.md, Video)."""
     clip = tmp_path / "clip.mp4"
     clip.write_bytes(video.animate(red_png(64, 84), "a red square", seconds=0.3, model=LTX2, seed=1))
     found = {s["codec_type"]: s for s in streams(clip)}
@@ -73,6 +86,10 @@ def test_ltx2_clip_carries_its_sound_track(tmp_path):
         ("aac", rate, 2)
     assert rate == 24000
     assert float(found["audio"]["duration"]) == pytest.approx(9 / 24, abs=0.05)
+    pipe = local.pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip)
+    double = local.DEVICE_CONFIG.get(local.device(), {}).get("rope_double_precision", True)
+    assert [pipe.transformer.config.rope_double_precision, pipe.connectors.config.rope_double_precision] == \
+        [double, double]
 
 
 @requires(HAS_GPU, f"local presenter models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")

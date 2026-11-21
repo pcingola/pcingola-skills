@@ -54,6 +54,14 @@ def clip(data: bytes) -> Clip:
         return Clip(v.codec_context.name, v.codec_context.width, v.codec_context.height, frames, audio)
 
 
+def frames(data: bytes) -> list[bytes]:
+    """The decoded RGB frames of the MP4 `data`, read with PyAV."""
+    import av
+
+    with av.open(io.BytesIO(data)) as f:
+        return [frame.to_ndarray(format="rgb24").tobytes() for frame in f.decode(f.streams.video[0])]
+
+
 def finished(client: openai.OpenAI, video: Video) -> Video:
     """The job `video` once it is completed or failed, polled with `videos.retrieve`."""
     deadline = time.monotonic() + WAIT_SECONDS

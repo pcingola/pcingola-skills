@@ -1,7 +1,7 @@
 [project]
 name = "classify-cli"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     # System-1 and chat models of config.yaml through Pydantic-AI (lib/ai_models, git source)
     "ai-models",

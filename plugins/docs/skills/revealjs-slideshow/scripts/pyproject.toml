@@ -1,7 +1,7 @@
 [project]
 name = "revealjs-slideshow-cli"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 # Standard library only: copies the vendored reveal.js and checks deck references.
 dependencies = []
 

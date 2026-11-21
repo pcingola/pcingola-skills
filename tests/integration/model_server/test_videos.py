@@ -7,7 +7,7 @@ import pytest
 import torch
 from openai.types import Video
 
-from tests.integration.model_server.media import clip, finished, png
+from tests.integration.model_server.media import clip, finished, frames, png
 from tests.prereq import requires
 from tests.settings_env import entry, task_model
 from tests.wav import read
@@ -35,6 +35,22 @@ def test_video_job(running):
     got = clip(running.client.videos.download_content(done.id).content)
     assert (got.video_codec, got.width, got.height, got.frames, got.audio_codec) == (
         "h264", spec["width"], spec["height"], 9, None)
+
+
+@NEEDS_GPU
+def test_seeded_video_jobs_repeat(running):
+    """Two jobs of the `video` model with the same `seed` (an `extra_body` field) complete on the server's GPU, its
+    generator on the pipeline's device, and give the same frames."""
+    def run() -> list[bytes]:
+        job = running.client.videos.create(model=task_model("video"), prompt="waves", seconds="0.3",
+                                           input_reference=("still.png", png(64, 84), "image/png"),
+                                           extra_body={"seed": 7})
+        done = finished(running.client, job)
+        assert done.status == "completed", done.error
+        return frames(running.client.videos.download_content(done.id).content)
+
+    first = run()
+    assert len(first) == 9 and first == run()
 
 
 @NEEDS_GPU

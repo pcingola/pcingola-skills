@@ -218,7 +218,14 @@ The adapters cover what Pydantic-AI has no call for:
   a WAV file; `animate` gives an MP4 (Video). Pipelines load in bfloat16 with `DiffusionPipeline.from_pretrained`,
   or with the class a model's `pipeline` names, from the cached snapshot folder when the Hugging Face cache has
   one (a load by repository id fetches every weight file of each component folder, including shardings the
-  pipeline never reads), on CUDA, else MPS, else an error, and stay loaded for the life of the process. `from_pretrained` leaves the weights memory-mapped from the safetensors
+  pipeline never reads), on CUDA, else MPS, else an error, and stay loaded for the life of the process. On a device
+  with an entry in `local.DEVICE_CONFIG`, a component whose config differs from it loads on its own with those
+  values as `from_pretrained` config overrides (`local.device_components`): on MPS, which has no float64 tensors,
+  `rope_double_precision` false for the LTX-2 transformer and text connectors, which then build their rotary
+  frequencies in float32 instead of float64 (both cast them to float32 before use, so only the rounding of
+  `theta ** linspace(0, 1)` changes). A `seed` becomes a `torch.Generator` on the pipeline's device: LTX-Video's
+  decode noise calls `torch.randn` with the generator on the device, which refuses a CPU generator on a GPU.
+  `from_pretrained` leaves the weights memory-mapped from the safetensors
   files; `to_device` copies each one to process memory before the move to the GPU, because a host-to-device copy
   from a file mapping is about 100 times slower on a unified-memory GPU (GB10: 87 s against under 2 s for FLUX.2
   klein 4B). Weights go to the Hugging Face cache. diffusers is imported only in this module; torch also in
@@ -478,10 +485,13 @@ without them (an Ollama model, or a server that is not a model server) is None, 
   `OpenAIImageGenerationModel`, with the mask through `MaskedOpenAIImageModel`. media:music reads `served.kind` for
   its local prompt rules.
 - `speech.model_of` of a served fish, kokoro or chatterbox model carries the `ServedModel`: the traits are those of
-  the server's kind (`TRAITS`) without cloning, since a Chatterbox reference recording is a path on the server's
-  machine; the default voice is the client entry's, else the server entry's, and `voices` the client entry's, else
-  the `voices` of the server's answer (a Kokoro model's voices from its voices file). A fish request sends
-  `speaker` as an extra field.
+  the server's kind (`TRAITS`); the default voice is the client entry's, else the server entry's, and `voices` the
+  client entry's, else the `voices` of the server's answer (a Kokoro model's voices from its voices file). A fish
+  request sends `speaker` as an extra field. A served chatterbox model clones: a voice other than `default` is a
+  recording on the caller's machine (`.wav`, `.mp3` or `.flac`), and the request sends its bytes in the extra field
+  `reference_audio`, `{"data": <base64>, "format": "wav"}` (`chatterbox.reference_field`), with the file's name as
+  `voice`. A speech request to a served model goes through `served.answered`, so the server's refusal (a reference
+  of 5 s or less) is an `AIModelsError`.
 
 The calls Pydantic-AI and the SDK lack go through the `AsyncOpenAI` client of the Pydantic-AI provider
 (`served.client`), and `served.answered` turns the server's error answers into `AIModelsError` with the status and

@@ -1,7 +1,7 @@
 [project]
 name = "brand-cli"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 # The CLI only resolves and copies folders; plugin-settings (pyyaml)
 # reads the settings file.
 dependencies = [

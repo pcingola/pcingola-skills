@@ -12,10 +12,14 @@ A voice is `default` (the model's built-in voice) or the path of a reference rec
 `MIN_REFERENCE_SECONDS`; the model uses its first 10 to 15 s and copies the speaker and also the delivery,
 microphone and room. The output is a 24 kHz WAV file with Resemble's Perth watermark (inaudible). There is no speed
 or style control.
+
+A model server's chatterbox model takes the recording in the speech request (`reference_field`): the request field
+`REFERENCE_FIELD`, `{"data": <base64>, "format": <REFERENCE_FORMATS>}`, the shape of OpenAI's `input_audio`.
 """
 
 from __future__ import annotations
 
+import base64
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +35,10 @@ DEFAULT_VOICE = "default"
 DEVICE = "cpu"
 MIN_REFERENCE_SECONDS = 5.0
 SAMPLE_RATE = 24_000
+# The speech request field of a model server that carries a reference recording, and its formats: those of OpenAI's
+# `input_audio` (wav, mp3) and FLAC, the formats the reader of the recording (soundfile) takes.
+REFERENCE_FIELD = "reference_audio"
+REFERENCE_FORMATS = ("wav", "mp3", "flac")
 
 
 @dataclass
@@ -98,6 +106,17 @@ def reference(voice: str) -> str | None:
     if not p.is_file():
         raise AIModelsError(f"voice {voice!r} is neither {DEFAULT_VOICE!r} nor a reference recording (a file)")
     return str(p.resolve())
+
+
+def reference_field(voice: str) -> dict[str, str]:
+    """The `REFERENCE_FIELD` value of the recording `voice` (a path): its bytes in base64 and its format, from its
+    suffix; `AIModelsError` for a missing file or a suffix outside `REFERENCE_FORMATS`."""
+    p = Path(reference(voice) or voice)
+    fmt = p.suffix.lower().lstrip(".")
+    if fmt not in REFERENCE_FORMATS:
+        raise AIModelsError(f"{p}: a reference sent to a model server is one of "
+                            f"{', '.join('.' + f for f in REFERENCE_FORMATS)}")
+    return {"data": base64.b64encode(p.read_bytes()).decode("ascii"), "format": fmt}
 
 
 def check_reference(path: str) -> None:

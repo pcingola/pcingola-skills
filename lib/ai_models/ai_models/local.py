@@ -117,7 +117,7 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
             if issubclass(klass, diffusers.ModularPipeline):
                 pipe = _modular(klass, repo, skip)
             else:
-                pipe = _from_pretrained(klass, repo, dtype=torch.bfloat16, **dict.fromkeys(skip))
+                pipe = _from_pretrained(klass, repo, dev, dtype=torch.bfloat16, **dict.fromkeys(skip))
             weights = weight_bytes(pipe.components.values())
             if waited and weights > free:
                 free = wait_for_memory(dev, weights)
@@ -619,23 +619,58 @@ def local_folder(repo: str) -> Path | None:
     return folder
 
 
-def _from_pretrained(cls, repo: str, **kwargs):
+def _from_pretrained(cls, repo: str, dev: str, **kwargs):
     """`cls.from_pretrained` from the folder `repo` names (`local_folder`), else from the cached snapshot folder of
-    the repository `repo`, else with a download.
+    the repository `repo`, else with a download, with the components `device_components` loads for `dev`.
     Loading the repository id fetches every weight file of each component folder, including
     alternative shardings the pipeline never reads, and `local_files_only` refuses a snapshot
     that lacks any of them; a folder load reads only the files the pipeline names."""
     from huggingface_hub import try_to_load_from_cache
 
+    def load(source: str):
+        return cls.from_pretrained(source, **device_components(source, dev, kwargs), **kwargs)
+
     if (folder := local_folder(repo)) is not None:
-        return cls.from_pretrained(str(folder), **kwargs)
+        return load(str(folder))
     index = try_to_load_from_cache(repo, "model_index.json")
     if isinstance(index, str):
         try:
-            return cls.from_pretrained(str(Path(index).parent), **kwargs)
+            return load(str(Path(index).parent))
         except (OSError, ValueError):
             pass
-    return cls.from_pretrained(repo, **kwargs)
+    return load(repo)
+
+
+# The component config values a device needs, each where the component's config sets another value. MPS has no
+# float64 tensors, and the LTX-2 transformer and text connectors build their rotary frequencies in float64 when
+# `rope_double_precision` is true (the published configs); with false they build them in float32. Both cast the
+# frequencies to float32 before any use, so the change is the rounding of `theta ** linspace(0, 1)` (docs/ai_models.md,
+# Video).
+DEVICE_CONFIG: dict[str, dict[str, Any]] = {"mps": {"rope_double_precision": False}}
+
+
+def device_components(source: str, dev: str, given: dict[str, Any]) -> dict[str, Any]:
+    """The components of the pipeline at `source` (a folder or a repository id) whose config differs from
+    `DEVICE_CONFIG[dev]`, each loaded with `from_pretrained` (in the `dtype` of `given`) with those values as config
+    overrides, the diffusers way to change a config value at load. A component named in `given` (a skipped one) and
+    one that is not a diffusers `ConfigMixin` class keep the pipeline's own load."""
+    import diffusers
+
+    want = DEVICE_CONFIG.get(dev)
+    if not want:
+        return {}
+    out = {}
+    for name, spec in diffusers.DiffusionPipeline.load_config(source).items():
+        if name.startswith("_") or name in given or not isinstance(spec, list) or len(spec) != 2:
+            continue
+        klass = getattr(diffusers, spec[1] or "", None)
+        if not (isinstance(klass, type) and issubclass(klass, diffusers.ModelMixin)):
+            continue
+        conf = klass.load_config(source, subfolder=name)
+        changes = {k: v for k, v in want.items() if k in conf and conf[k] != v}
+        if changes:
+            out[name] = klass.from_pretrained(source, subfolder=name, dtype=given.get("dtype"), **changes)
+    return out
 
 
 def to_device(pipe, dev: str):
@@ -655,7 +690,9 @@ def to_device(pipe, dev: str):
 
 def pipe_kwargs(spec: DiffusersModel, extra: dict[str, Any]) -> dict[str, Any]:
     """Steps and guidance of the model (each only when set), its `args`, then `extra`; `seed` becomes a torch
-    generator."""
+    generator on the pipeline's device. diffusers' `randn_tensor` takes a generator of any device, but some pipelines
+    draw with `torch.randn(..., generator=generator, device=device)`, which needs one on `device` (the LTX-Video
+    decode noise), so a CPU generator fails them on a GPU."""
     kwargs = {k: v for k, v in (("num_inference_steps", spec.steps),
                                 ("guidance_scale", spec.guidance)) if v is not None}
     kwargs.update(spec.args)
@@ -663,8 +700,7 @@ def pipe_kwargs(spec: DiffusersModel, extra: dict[str, Any]) -> dict[str, Any]:
     if (seed := kwargs.pop("seed", None)) is not None:
         import torch
 
-        dev = device()
-        kwargs["generator"] = torch.Generator("cpu" if dev == "mps" else dev).manual_seed(int(seed))
+        kwargs["generator"] = torch.Generator(device()).manual_seed(int(seed))
     return kwargs
 
 

@@ -28,6 +28,7 @@ its environment settings (`plugin_settings.export`) and listens on `model_server
 | `music_create_params.py`, `alignment.py` | the request type of music and the answer type of alignments |
 | `video_job.py`, `video_jobs.py` | `VideoJob` (shown as `openai.types.Video`), `VideoJobs` |
 | `forms.py`, `requests.py`, `server_error.py` | request parsing, `ServerError` and its JSON body |
+| `references.py` | `References`: the reference recordings of speech requests, as files |
 
 ## Routing
 
@@ -90,7 +91,7 @@ params type; a wrong field is a 400 naming it in `param`. Music and alignments h
 | `n` | the number of images, from one pipeline call (`num_images_per_prompt`), default 1 |
 | `response_format` | `b64_json` or unset; `url` is a 400 |
 | `output_format` | `png` or unset; others are a 400 |
-| any other field | a pipeline call argument (`seed` becomes a torch generator; others go to the pipeline as they are) |
+| any other field | a pipeline call argument (`seed` becomes a torch generator on the pipeline's device; others go to the pipeline as they are) |
 
 The other `ImageGenerateParams` fields (`quality`, `background`, `style`, `moderation`, ...) are accepted and
 ignored. The `openai` SDK sends the extra fields with `extra_body={"seed": 1}`.
@@ -113,11 +114,23 @@ The answer of both:
 
 `POST /v1/audio/speech`, JSON `SpeechCreateParams`: `model` (a local speech model), `input` (the text), `voice` (a
 string or `{"id": ...}`; unset: the model's default voice), `instructions` (fish models with `style`), `speed`
-(kokoro: 0.5 to 2), `response_format` (`wav` or unset; others are a 400), and `speaker` (a field outside the params
-type: who speaks, for a fish model, which keeps one voice per speaker). Another field is a 400 naming it. The answer
-is a 16-bit mono WAV file, `Content-Type: audio/wav` (kokoro and chatterbox 24 kHz, fish 44.1 kHz). A chatterbox
-voice other than `default` is a path of a reference recording on the server's machine; the request carries no
-recording, so a client clones only a voice whose recording is on the server's machine, by that path.
+(kokoro: 0.5 to 2), `response_format` (`wav` or unset; others are a 400), and two fields outside the params type:
+`speaker` (who speaks, for a fish model, which keeps one voice per speaker) and `reference_audio` (the recording a
+chatterbox model clones). Another field is a 400 naming it. The answer is a 16-bit mono WAV file,
+`Content-Type: audio/wav` (kokoro and chatterbox 24 kHz, fish 44.1 kHz).
+
+`reference_audio` is `{"data": "<base64 audio>", "format": "wav"}`, the shape of the `input_audio` of OpenAI chat
+messages; `format` is `wav`, `mp3` (OpenAI's formats) or `flac`, the formats Chatterbox's reader takes. The recording
+must be longer than 5 s, else the answer is a 400 `model_error`. `voice` is then the recording's name and is not
+read. A model that does not clone (fish, kokoro) answers a 400 on `reference_audio`. The field is in the request
+because the OpenAI flow of custom voices (`POST /v1/audio/voices`, then `voice: {"id": ...}`) keeps state on the
+server between requests and requires a consent recording; one request carries everything, at the cost of sending
+the recording (about 1 MB of base64 for 15 s at 24 kHz) with each sentence. The server writes each recording once,
+to a file named by the SHA-256 of its bytes in a temporary directory (`References`, the last 16 recordings, removed
+at shutdown), so the requests of one voice name one file and Chatterbox conditions on it once. With the `openai`
+SDK: `client.audio.speech.create(model=..., input=..., voice="narrator", response_format="wav",
+extra_body={"reference_audio": {"data": b64, "format": "wav"}})`. Without `reference_audio`, a chatterbox voice other
+than `default` is the path of a recording on the server's machine.
 
 ### Music
 
@@ -353,8 +366,7 @@ Unit tests (`tests/unit/model_server/`) cover the routing (`ModelRef` on tests/c
 model, request parsing, error bodies, video jobs and the model list. Integration tests
 (`tests/integration/model_server/`) start the real app on uvicorn on a free port in a thread of the test process with
 tests/config.yaml, and call every endpoint with the tiny models through the `openai` SDK where it has the call (httpx
-for music and alignments): images and edits (klein-tiny), video jobs (ltx-tiny, ltx2-tiny, s2v-tiny), speech
-(kokoro, chatterbox, fish), music (ace-step-tiny), alignment (MMS_FA), Ollama chat, streamed chat, embeddings,
+for music and alignments): images and edits (klein-tiny), video jobs (ltx-tiny with a seed, ltx2-tiny, s2v-tiny), speech
+(kokoro, chatterbox with and without `reference_audio`, fish), music (ace-step-tiny), alignment (MMS_FA), Ollama chat, streamed chat, embeddings,
 `/v1/systemone`, `/api/tags` and the model list, keep-alive, the lock, the memory refusal and the unload of idle GPU
-models. The fish test needs CUDA. On Apple MPS the LTX-2 job fails: diffusers' LTX-2 text connector builds its rotary
-embedding in float64, which MPS does not support.
+models. The fish test needs CUDA.

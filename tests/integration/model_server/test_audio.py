@@ -7,7 +7,7 @@ import torch
 
 from tests.prereq import requires
 from tests.settings_env import kind_model, task_model
-from tests.wav import read
+from tests.wav import read, reference
 
 SPEECH = task_model("speech")
 TEXT = "The heart pumps blood through the body."
@@ -36,6 +36,38 @@ def test_chatterbox_speech(running):
     wav = read(running.client.audio.speech.create(model=kind_model("chatterbox"), input="Hello there.",
                                                   voice="default", response_format="wav").content)
     assert (wav.rate, wav.channels) == (24_000, 1) and wav.seconds > 0.2
+
+
+def test_chatterbox_clones_the_reference_of_the_request(running):
+    """`audio.speech.create` on the Chatterbox model with `reference_audio` (an `extra_body` field: base64 WAV and
+    its format) speaks in that recording's voice: a 24 kHz mono WAV; the server keeps the recording as one file named
+    by its content, so a second request of the same recording reuses it (docs/model_server.md, Speech). A reference
+    of 5 s or less is a 400 `model_error`; Kokoro, which does not clone, refuses the field."""
+    import base64
+
+    import openai
+
+    model = kind_model("chatterbox")
+    take = running.client.audio.speech.create(model=model, input="The heart pumps blood.", voice="default",
+                                              response_format="wav").content
+
+    def field(data: bytes) -> dict:
+        return {"reference_audio": {"data": base64.b64encode(data).decode(), "format": "wav"}}
+
+    ref = field(reference(take))
+    wav = read(running.client.audio.speech.create(model=model, input="A cloned voice.", voice="ref",
+                                                  response_format="wav", extra_body=ref).content)
+    assert (wav.rate, wav.channels) == (24_000, 1) and wav.seconds > 0.2 and wav.rms > 0
+    running.client.audio.speech.create(model=model, input="Again.", voice="ref", response_format="wav", extra_body=ref)
+    assert len(list(running.server.references.dir.glob("*.wav"))) == 1
+    with pytest.raises(openai.BadRequestError) as e:
+        running.client.audio.speech.create(model=model, input="Short.", voice="ref", response_format="wav",
+                                           extra_body=field(take))
+    assert e.value.code == "model_error" and "longer than 5 s" in e.value.message
+    with pytest.raises(openai.BadRequestError) as e:
+        running.client.audio.speech.create(model=SPEECH, input=TEXT, voice="af_heart", response_format="wav",
+                                           extra_body=ref)
+    assert e.value.param == "reference_audio"
 
 
 def test_speech_refuses_what_local_models_do_not_make(running):

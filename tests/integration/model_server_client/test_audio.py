@@ -8,7 +8,7 @@ from ai_models import AIModelsError, ConfigError, align, music, speech
 from ai_models.served_aligner import ServedAligner
 from tests.integration.model_server_client.conftest import client_id
 from tests.settings_env import kind_model
-from tests.wav import read
+from tests.wav import read, reference
 
 TEXT = "The heart pumps blood."
 TOKENS = ["the", "heart", "pumps", "blood"]
@@ -30,13 +30,26 @@ def test_speech_takes_the_traits_of_the_served_kind(client):
     assert (wav.rate, wav.channels) == (24_000, 1) and wav.seconds > 0.3
 
 
-def test_served_chatterbox_does_not_clone(client):
-    """A served Chatterbox model speaks in its default voice and does not take a reference recording, which
-    would be a path on the server's machine."""
+def test_served_chatterbox_clones_a_recording_of_the_caller(client, tmp_path):
+    """A served Chatterbox model clones (`traits.clones`): `speak` with a voice that is a recording on the caller's
+    machine sends its bytes in `reference_audio`, and the server speaks in it (docs/ai_models.md, Model server); a
+    recording of 5 s or less is the server's `model_error`, and a suffix outside the formats a server takes is refused
+    before any request."""
     model = f"srv:{kind_model('chatterbox')}"
-    assert speech.check(model).traits.clones is False
-    wav = read(speech.speak("Hello there.", model=model))
-    assert wav.rate == 24_000 and wav.seconds > 0.2
+    assert speech.check(model).traits.clones is True
+    take = speech.speak("The heart pumps blood.", model=model)
+    ref = tmp_path / "narrator.wav"
+    ref.write_bytes(reference(take))
+    wav = read(speech.speak("A cloned voice.", model=model, voice=str(ref)))
+    assert wav.rate == 24_000 and wav.seconds > 0.2 and wav.rms > 0
+    short = tmp_path / "short.wav"
+    short.write_bytes(take)
+    with pytest.raises(AIModelsError, match="longer than 5 s"):
+        speech.speak("Short.", model=model, voice=str(short))
+    odd = tmp_path / "narrator.m4a"
+    odd.write_bytes(b"x")
+    with pytest.raises(AIModelsError, match="one of .wav, .mp3, .flac"):
+        speech.speak("Odd.", model=model, voice=str(odd))
 
 
 def test_aligner_of_the_server(client):

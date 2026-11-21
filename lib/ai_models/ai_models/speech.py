@@ -21,9 +21,11 @@ what `voices` lists; without it `voices` lists the Kokoro voices of a `kokoro` m
 `check` refuses a speed, instructions or `params` the model does not take, before any request or model load.
 
 A model of a provider of kind `openai` that a model server describes (`served`: a fish, kokoro or chatterbox model
-of the server) takes what its server kind takes: its traits are those of that kind, without voice cloning (a
-chatterbox reference recording is a path on the server's machine); its default voice comes from the server's entry
-and its voices from the server's list (`GET /models/{id}`, `voices`). The request is the OpenAI `audio.speech` call, with `speaker` as an extra field for a fish model.
+of the server) takes what its server kind takes: its traits are those of that kind; its default voice comes from the
+server's entry and its voices from the server's list (`GET /models/{id}`, `voices`). The request is the OpenAI
+`audio.speech` call, with `speaker` as an extra field for a fish model. For a served model whose kind clones, a voice
+other than the default is a recording on the caller's machine: the request carries its bytes in the extra field
+`reference_audio` (`chatterbox.reference_field`) and the file's name as `voice`.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ import asyncio
 import io
 import re
 import wave
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -92,9 +94,7 @@ class SpeechModel:
 
     @property
     def traits(self) -> Traits:
-        if self.served is not None:
-            return replace(TRAITS[self.served.kind], clones=False)
-        return TRAITS[self.kind]
+        return TRAITS[self.served.kind if self.served is not None else self.kind]
 
     @property
     def default_voice(self) -> str:
@@ -252,8 +252,11 @@ async def aspeak(text: str, *, voice: str | None = None, model: str | None = Non
         return await asyncio.to_thread(chatterbox.speak, spec, entry, name, bare, text, voice)
     if m.served is not None and m.served.kind == fish.KIND and speaker is not None:
         params = {**(params or {}), "speaker": speaker}
+    if m.served is not None and m.traits.clones and voice != chatterbox.DEFAULT_VOICE:
+        params = {**(params or {}), chatterbox.REFERENCE_FIELD: chatterbox.reference_field(voice)}
+        voice = Path(voice).name
     p = provider(name)
-    with explained(model_id):
+    with served.answered(model_id) if m.served is not None else explained(model_id):
         if kind in OPENAI_KINDS:
             audio = await _openai(p.client, bare, text, voice, instructions, response_format, speed, params)
         else:

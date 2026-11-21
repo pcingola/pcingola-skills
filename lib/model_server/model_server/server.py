@@ -1,5 +1,5 @@
-"""`Server`: the state of one model server: its settings, the scheduler, the in-process models, Ollama and the
-video jobs."""
+"""`Server`: the state of one model server: its settings, the scheduler, the in-process models, Ollama, the
+video jobs and the reference recordings of speech requests."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from .lease import Lease
 from .model_ref import ModelRef
 from .model_role import ModelRole
 from .ollama import Ollama
+from .references import References
 from .residency import Residency
 from .scheduler import Scheduler
 from .server_error import ServerError
@@ -31,6 +32,7 @@ class Server:
         self.ollama = Ollama(settings.ollama_url, settings.timeout)
         self.residency = Residency(settings.keep_alive, settings.weights_dir, self.ollama)
         self.videos = VideoJobs(settings.video_ttl)
+        self.references = References()
         self._tasks: set[asyncio.Task] = set()
 
     def config(self) -> Config:
@@ -81,9 +83,10 @@ class Server:
         self.spawn(self.residency.run())
 
     async def stop(self) -> None:
-        """Cancel the tasks, unload every model and close the Ollama client."""
+        """Cancel the tasks, unload every model, close the Ollama client and remove the reference recordings."""
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         await self.residency.unload_all()
         await self.ollama.aclose()
+        self.references.close()

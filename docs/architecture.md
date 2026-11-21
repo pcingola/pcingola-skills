@@ -184,6 +184,11 @@ uv project under `plugins/` therefore has its own `[tool.uv]` table, empty where
 would block the root settings too, but it also drops a project's own `dependency-metadata`, which voiceover needs.
 Tests: `test_plugin_projects_have_own_tool_uv`, `test_lock_dependency_metadata_from_own_project`.
 
+uv runs a project on the newest installed CPython that its `requires-python` admits. Without an upper bound that can
+be a release for which some dependencies publish no wheels yet (CPython 3.15: Pillow builds from source and fails).
+Every uv project under `plugins/` therefore has the upper bound of the repository root's `requires-python`
+(`<3.14`), and its `uv.lock` records it. Test: `test_plugin_projects_bound_python_as_the_root`.
+
 ## Local models in process
 
 A local model runs in the caller's process, in the environment of the skill that calls it: diffusers pipelines,
