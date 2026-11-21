@@ -12,7 +12,7 @@ from PIL import Image
 from plugin_settings import DiffusersRole
 
 from ai_models import config, local, video
-from tests.integration.model_server.media import frames
+from tests.media import frames
 from tests.prereq import requires
 from tests.settings_env import TEST_CONFIG
 

@@ -79,7 +79,9 @@ class ParticleText:
         return self.height / (2 * self.distance * math.tan(math.radians(self.fov / 2)))
 
     def load_font(self) -> ImageFont.FreeTypeFont:
-        """The font at the texture size; a woff or woff2 file is converted to sfnt in memory."""
+        """The font at the texture size; a woff or woff2 file is converted to sfnt in memory. The layout engine is
+        Pillow's basic one on every platform: a Pillow build with libraqm lays out with unhinted fractional advances,
+        one without it with hinted whole-pixel advances, so the default engine gives other files per platform."""
         px = round(self.size * SUPERSAMPLE)
         if self.font.suffix.lower() in (".woff", ".woff2"):
             f = TTFont(str(self.font))
@@ -87,8 +89,8 @@ class ParticleText:
             buf = io.BytesIO()
             f.save(buf)
             buf.seek(0)
-            return ImageFont.truetype(buf, px)
-        return ImageFont.truetype(str(self.font), px)
+            return ImageFont.truetype(buf, px, layout_engine=ImageFont.Layout.BASIC)
+        return ImageFont.truetype(str(self.font), px, layout_engine=ImageFont.Layout.BASIC)
 
     def _layout(self) -> tuple[np.ndarray, list, int, int]:
         """(fill mask cropped to the ink plus a pad, ink boxes per line and letter, crop left, crop top), in

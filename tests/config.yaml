@@ -100,7 +100,9 @@ tasks:
   chat: ollama:gemma3:270m
   system1: ollama:laya:421m-english-bf16
   embed: ollama:all-minilm:22m
-  audio: ollama:lfm3-audio
+  # The Q4_K_M build by its full tag: `lfm3-audio` resolves to an MLX nvfp4 build on macOS, which answers no
+  # structured output, and to this build elsewhere.
+  audio: ollama:lfm3-audio:2b-q4_K_M
   image: local:klein-tiny
   image_best: local:klein-tiny
   image_edit: local:klein-tiny

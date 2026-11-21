@@ -10,7 +10,7 @@ from plugin_settings import DiffusersImageLimits
 from pydantic_ai.messages import BinaryImage
 
 from ai_models import config, images, served
-from tests.integration.model_server.media import left_half_mask, png
+from tests.media import left_half_mask, png
 from tests.integration.model_server_client.conftest import client_id
 from tests.prereq import requires
 from tests.settings_env import model_entry

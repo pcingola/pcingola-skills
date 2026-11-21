@@ -1,0 +1,38 @@
+# The client settings of tests/server/, the tests of a deployed model server (lib/model_server), which only
+# `scripts/tests.sh server --server-url <url>` runs. `server_config` of tests/server/conftest.py writes this file
+# to a temporary directory with `providers.server.base_url` set to the URL of `--server-url` (the server's /v1),
+# so this file has no base_url and is not a valid settings file by itself.
+#
+# The models are the server's tiny models: the providers of tests/config.yaml in the server's config under the
+# names tiny_<provider>, and the Ollama tags of tests/config.yaml pulled on the server's Ollama
+# (docs/model_server.md, Tests). An entry holds no attribute: the client reads them from GET /v1/models/{id}.
+providers:
+  server:
+    kind: openai
+    # Every tiny model the suite calls, by the server's model id.
+    models:
+      "tiny_local:klein-tiny":
+      "tiny_local:ltx-tiny":
+      "tiny_local:ltx2-tiny":
+      "tiny_local:ace-step-tiny":
+      "tiny_local:s2v-tiny":
+      "tiny_kokoro:kokoro-v1.0-int8":
+      "tiny_chatterbox:chatterbox-turbo":
+      "tiny_fish:drama-3-tiny":
+      "tiny_torchaudio:MMS_FA":
+      "gemma3:270m":
+      "laya:421m-english-bf16":
+      "all-minilm:22m":
+      "lfm3-audio:2b-q4_K_M":
+tasks:
+  chat: server:gemma3:270m
+  system1: server:laya:421m-english-bf16
+  embed: server:all-minilm:22m
+  audio: server:lfm3-audio:2b-q4_K_M
+  image: server:tiny_local:klein-tiny
+  image_edit: server:tiny_local:klein-tiny
+  video: server:tiny_local:ltx-tiny
+  presenter: server:tiny_local:s2v-tiny
+  music: server:tiny_local:ace-step-tiny
+  speech: server:tiny_kokoro:kokoro-v1.0-int8
+  align: server:tiny_torchaudio:MMS_FA

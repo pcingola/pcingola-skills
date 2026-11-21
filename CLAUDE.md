@@ -42,14 +42,17 @@ Each rule and its reason are in `docs/architecture.md`, with the test that enfor
 - Tests use tiny models: the smallest model that runs the same code path, random weights where that is what exists. The models tests load or call are named only in `tests/config.yaml` (`tests/models/config.yaml` for the full-size suite); no test reads the user's config ([Tests](docs/architecture.md#tests)).
 - A unit test never calls or loads a model and needs no GPU, Ollama or network. An integration test takes seconds; every test has a timeout, 30 s by default, and every subprocess it starts a shorter one ([Tests](docs/architecture.md#tests)).
 - A test of a full-size model lives in `tests/models/`, runs only with `scripts/tests.sh models`, and exists only where no tiny model tests the same thing ([Tests](docs/architecture.md#tests)).
+- A test of a deployed model server lives in `tests/server/`, runs only with `scripts/tests.sh server --server-url <url>`, calls the server through `ai_models` with its tiny models, and fails without `--server-url`; no file names a host ([Tests](docs/architecture.md#tests)).
 - `uv run --group dev pytest tests/unit/plugin` checks the manifests, every `SKILL.md` frontmatter, cross-skill references and `allowed-tools`; run it after changing any of them ([Tests](docs/architecture.md#tests)).
 
 ## Commands
 
 All tests run in one environment, the root project's `dev` group: `lib/` from this directory and the dependencies of every skill project. Its pytest `pythonpath` lists each skill's `scripts/`.
 
+- Every pytest run stops at the first failure (`addopts = "-x"` in the root `pyproject.toml`); after a fix, `--lf` starts with the failed test.
 - All tests: `scripts/tests.sh unit|integration|all`, with pytest arguments after it; `all` is unit and integration.
 - Full-size model tests: `scripts/tests.sh models` (`tests/models/`, never collected by `unit`, `integration` or `all`).
+- Deployed model server tests: `scripts/tests.sh server --server-url <url>` (`tests/server/`, `<url>` the server's `/v1`; never collected by `unit`, `integration` or `all`).
 - One suite: `uv run --group dev pytest tests/unit/<suite>`; `<suite>` is the skill name with `-` as `_`.
 - One test: the pytest node id, for example `uv run --group dev pytest tests/unit/plugin/test_manifest.py::test_marketplace_json`.
 - Manifests with Claude Code: `claude plugin validate .` (marketplace) and `claude plugin validate plugins/<plugin>` (each plugin).

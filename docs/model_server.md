@@ -370,3 +370,21 @@ for music and alignments): images and edits (klein-tiny), video jobs (ltx-tiny w
 (kokoro, chatterbox with and without `reference_audio`, fish), music (ace-step-tiny), alignment (MMS_FA), Ollama chat, streamed chat, embeddings,
 `/v1/systemone`, `/api/tags` and the model list, keep-alive, the lock, the memory refusal and the unload of idle GPU
 models. The fish test needs CUDA.
+
+The suite `tests/server/` tests a deployed server over the network: `scripts/tests.sh server --server-url <url>`,
+`<url>` the server's `/v1` base URL. It calls each endpoint through the `ai_models` functions with a client config
+(`tests/server/config.yaml`, its provider `server` of kind `openai` at `<url>`) and checks the model list and each
+model's object, chat (plain and streamed), embeddings, System-1, audio input, images and edits with a mask, speech
+(Kokoro in another voice, Chatterbox with `reference_audio`, Fish with `speaker`), alignments, music, the video and
+presenter jobs, the error answers, requests to several models at once and parallel requests to one model, and
+Ollama's `/api/ps`. The server keeps no listing of its loaded in-process models, so their keep-alive is not tested
+there. The suite passes when the server's config holds:
+
+- the providers of `tests/config.yaml` other than `ollama`, each renamed `tiny_<provider>` (`tiny_local`,
+  `tiny_kokoro`, `tiny_chatterbox`, `tiny_fish`, `tiny_torchaudio`) with its models' entries as written there, the
+  `kokoro`, `chatterbox` and `torchaudio` providers with their `dir`, and the tiny Fish and ACE-Step folders built on
+  the server's machine (`tests/tiny_fish.py`, `tests/tiny_ace_step.py`);
+- the Ollama models of the tasks of `tests/server/config.yaml` pulled on the server's Ollama (`gemma3:270m`,
+  `laya:421m-english-bf16`, `all-minilm:22m`, `lfm3-audio:2b-q4_K_M`).
+
+The Fish test needs CUDA on the server's machine.

@@ -9,7 +9,7 @@ import pytest
 import torch
 from PIL import Image
 
-from tests.integration.model_server.media import left_half_mask, png
+from tests.media import left_half_mask, png
 from tests.prereq import requires
 from tests.settings_env import task_model
 

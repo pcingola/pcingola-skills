@@ -90,9 +90,11 @@ url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [tool.pytest.ini_options]
+# Every run stops at the first failure; `--lf` after a fix starts with the failed test
+addopts = "-x"
 # Every test has a timeout (seconds); a tests/models/ test sets a larger one of its own
 timeout = 30
-# unit and integration only: tests/models/ runs only when named (scripts/tests.sh models)
+# unit and integration only: tests/models/ and tests/server/ run only when named (scripts/tests.sh models, server)
 testpaths = ["tests/unit", "tests/integration"]
 # The skill packages (<skill>_tool) and the studio server, importable by every suite
 pythonpath = [

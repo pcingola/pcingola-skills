@@ -7,7 +7,7 @@ import pytest
 import torch
 from openai.types import Video
 
-from tests.integration.model_server.media import clip, finished, frames, png
+from tests.media import clip, finished, frames, png
 from tests.prereq import requires
 from tests.settings_env import entry, task_model
 from tests.wav import read

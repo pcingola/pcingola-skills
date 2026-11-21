@@ -111,7 +111,7 @@ CLI_PROCESS_ALLOWLIST = {
     "tests/unit/music/test_cli.py":
         "test_wrapper_local_extra: subject is the wrapper's `--extra local` choice (runs the wrapper's lines in bash)",
 }
-DOCSTRING_DIRS = ("tests/unit", "tests/integration")
+DOCSTRING_DIRS = ("tests/unit", "tests/integration", "tests/server")
 SUBPROCESS_STARTS = {"run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput"}
 OS_STARTS = {"system", "popen", "execv", "execve", "execvp", "execvpe", "execl", "execlp", "spawnv", "spawnl",
              "posix_spawn", "posix_spawnp"}
@@ -276,8 +276,8 @@ def test_cli_process_only_in_allowlisted_files():
 
 
 def test_tests_have_docstrings():
-    """Every `test_*` function and method under tests/unit/ and tests/integration/ has a docstring, which states
-    what the test checks and what it guards (docs/architecture.md, Tests). Fails with file:line of each test
+    """Every `test_*` function and method under tests/unit/, tests/integration/ and tests/server/ has a docstring,
+    which states what the test checks and what it guards (docs/architecture.md, Tests). Fails with file:line of each test
     without one. Only the presence of a docstring is checked, not its content."""
     bad = []
     for d in DOCSTRING_DIRS:

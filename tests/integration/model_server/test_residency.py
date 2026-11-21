@@ -83,7 +83,7 @@ def test_gpu_model_without_memory_unloads_idle_gpu_models(tmp_path):
     """Before the first request of a GPU model without `memory`, the idle GPU models are unloaded: the image
     pipeline is gone once a video model ran, and the aligner (CPU) stays."""
     from ai_models import align, config, local
-    from tests.integration.model_server.media import finished, png
+    from tests.media import finished, png
 
     with serve(settings(tmp_path)) as r:
         image = config.local_entry(task_model("image")).repo

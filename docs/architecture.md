@@ -269,7 +269,7 @@ maintainers of this repository: how the code works and why, where the code does 
 ## Tests
 
 All tests run in one environment, the repo-root project's `dev` group, from the repository root
-(`scripts/tests.sh unit|integration|models|all`, commands in `CLAUDE.md`). The group installs the `lib/` packages as
+(`scripts/tests.sh unit|integration|models|server|all`, commands in `CLAUDE.md`). The group installs the `lib/` packages as
 editable path dependencies (`ai-models` with its `diffusers` extra), so every test sees the working tree's `lib/`, and
 the dependencies of every skill project, Chatterbox and fish-speech included, with the overrides of media:voiceover
 (Local models in process). Its pytest `pythonpath` lists each skill's `scripts/` and the studio server. A dependency
@@ -320,6 +320,11 @@ Models:
   `tests/models/`, runs only with `scripts/tests.sh models` and sets its own larger timeout; `unit`, `integration`
   and `all` never collect it (`testpaths`). It exists only where no tiny model tests the same thing: Fish Audio
   Drama 3, and the remote speech and music models, whose code path has no local stand-in.
+- A test of a deployed model server lives in `tests/server/` and runs only with `scripts/tests.sh server
+  --server-url <url>`, `<url>` the server's `/v1`; `unit`, `integration` and `all` never collect it (`testpaths`).
+  It calls the server over the network through `ai_models` with the server's tiny models (`tests/server/config.yaml`)
+  and checks the server, not the models; without `--server-url` every test fails naming the option. No file names a
+  host: the URL is given on the command line.
 
 Local models and their lock: a model loaded in the pytest process would hold the local-model lock
 (`ai_models.local.hold_lock`) until pytest exits and block every later child process that loads one. An autouse

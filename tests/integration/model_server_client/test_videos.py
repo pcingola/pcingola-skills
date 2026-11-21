@@ -7,7 +7,7 @@ import torch
 from plugin_settings import DiffusersRole
 
 from ai_models import ConfigError, config, speech, video
-from tests.integration.model_server.media import clip, png
+from tests.media import clip, png
 from tests.integration.model_server_client.conftest import client_id
 from tests.prereq import requires
 from tests.settings_env import model_entry

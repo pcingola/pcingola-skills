@@ -55,15 +55,19 @@ def rendered_images(work_dir: Path, fmt: ImageFormat) -> list[Path]:
     return images
 
 
+LIBREOFFICE_MISSING = (
+    "LibreOffice is required but not found. "
+    "Install: brew install libreoffice (macOS) or apt-get install libreoffice (Linux)"
+)
+
+
 def libreoffice_to_pdf(pptx_path: Path, work_dir: Path) -> Path:
-    """Convert `pptx_path` to a PDF in `work_dir` with LibreOffice and return the PDF path."""
+    """Convert `pptx_path` to a PDF in `work_dir` with LibreOffice and return the PDF path; RuntimeError with
+    `LIBREOFFICE_MISSING` when `find_libreoffice` finds no binary."""
     from . import find_libreoffice
     soffice = find_libreoffice()
     if not soffice:
-        raise RuntimeError(
-            "LibreOffice is required but not found. "
-            "Install: brew install libreoffice (macOS) or apt-get install libreoffice (Linux)"
-        )
+        raise RuntimeError(LIBREOFFICE_MISSING)
     result = subprocess.run(soffice_command(soffice, pptx_path, work_dir), capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"LibreOffice conversion failed: {result.stderr}")

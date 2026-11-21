@@ -149,12 +149,15 @@ def test_cli_out(tmp_path: Path, no_project) -> None:
 
 
 def test_technique_files_current(tmp_path: Path, no_project) -> None:
-    """The technique's title_targets.js and title_tex.png are what its documented command writes now. Guards the
-    placeholder files against changes of the generator and of the command's defaults."""
+    """The technique's title_targets.js and title_tex.png are what its documented command writes now: the same
+    bytes of title_targets.js and the same pixels of title_tex.png (zlib builds encode the same pixels to other
+    bytes). Guards the placeholder files against changes of the generator and of the command's defaults."""
     done = cli("particle-text", *TECHNIQUE_ARGS, "--frame", "1920x1080", "--out", str(tmp_path))
     assert done.returncode == 0, done.stderr
-    for name in ("title_targets.js", "title_tex.png"):
-        assert (tmp_path / name).read_bytes() == (TECHNIQUE / name).read_bytes(), name
+    assert (tmp_path / "title_targets.js").read_bytes() == (TECHNIQUE / "title_targets.js").read_bytes()
+    with Image.open(tmp_path / "title_tex.png") as new, Image.open(TECHNIQUE / "title_tex.png") as old:
+        assert (new.mode, new.size) == (old.mode, old.size)
+        assert new.tobytes() == old.tobytes()
 
 
 def test_measure_and_fit() -> None:

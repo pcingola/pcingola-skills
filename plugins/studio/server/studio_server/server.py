@@ -299,8 +299,10 @@ class Studio:
     def serve(self, port: int = 0) -> ThreadingHTTPServer:
         """An HTTP server on 127.0.0.1 (`port` 0: a free one); the caller runs serve_forever."""
         handler = type("StudioHandler", (Handler,), {"studio": self})
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
-        self.httpd.daemon_threads = True
+        # A listen backlog of 128: socketserver's default of 5 refuses connections on macOS when the page opens
+        # more than 5 at once (parallel image and API requests).
+        server = type("StudioHTTPServer", (ThreadingHTTPServer,), {"request_queue_size": 128, "daemon_threads": True})
+        self.httpd = server(("127.0.0.1", port), handler)
         return self.httpd
 
     @property
