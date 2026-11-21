@@ -494,10 +494,11 @@ def _cmd_credit(args: argparse.Namespace) -> int:
 
 def _cmd_setup(args: argparse.Namespace) -> int:
     try:
+        ffmpeg = media.check_ffmpeg()
         lines = scenes.setup(args.node_dir, config.NODE_SRC)
     except (scenes.SceneError, media.ToolError) as e:
         config.error(str(e))
-    print("\n".join(lines))
+    print("\n".join([f"ok  ffmpeg: {ffmpeg} with {', '.join(media.REQUIRED_FILTERS)}", *lines]))
     print(f"ready: {args.node_dir / 'node_modules'}")
     return 0
 

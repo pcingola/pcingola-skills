@@ -48,7 +48,7 @@ Installed, a skill loads as `<plugin>:<skill>`. Installing a plugin also install
 
 - Linux, or macOS on Apple Silicon (PyTorch, which voiceover always installs, has no wheels for Intel Macs).
 - `uv` and `git` on `PATH`. uv builds each skill's environment on first use (a few seconds for most skills; minutes and several GB for the skills that install PyTorch) and fetches the shared packages in `lib/` from this repository, which needs network access to GitHub, no credentials. uv downloads Python 3.11 or later when the system has none.
-- FFmpeg for the audio and video skills (music, short-video, video-effects, voiceover recordings, and large video input of second-opinion).
+- FFmpeg for the audio and video skills (music, short-video, video-effects, voiceover recordings, and large video input of second-opinion), with the `drawtext` filter for short-video (on macOS `brew install ffmpeg-full`).
 - LibreOffice and Poppler (`pdftoppm`) for the pptx previews and PDF export. macOS: `brew install libreoffice poppler`. Linux: `apt-get install libreoffice poppler-utils`.
 - Node.js 22 or later with `npm` for short-video HTML scenes. Its first render runs `npm ci` and downloads a headless Chrome through HyperFrames.
 - For short-video Manim scenes, Manim's system libraries (on Linux the Cairo and Pango development packages, `pkg-config` and a C compiler), and LaTeX with `dvisvgm` for formulas.

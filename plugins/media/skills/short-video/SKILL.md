@@ -397,7 +397,7 @@ be the `brand:` value.
 | `assemble [--music vN] [--brand DIR]` | the next film version |
 | `audiocheck [FILE...] [--film vN]` | bursts and clicks in each source track; exit 1 if any |
 | `credit FILE [-o OUT] --author NAME... [--brand DIR]` | credit caption, logo and tags on any MP4 |
-| `setup` | install HyperFrames and GSAP; `render` runs it when needed |
+| `setup` | check that ffmpeg has the `drawtext` filter, install HyperFrames and GSAP; `render` runs the install when needed |
 | `particle-text LINE... --font FILE [--name N] [--size PX \| --fit F] [--tracking EM] [--line-gap EM] [--count N] [--frame WxH] [--fov DEG] [--distance D] (--scene ID \| --out DIR)` | `<name>_targets.js` and `<name>_tex.png` of a text block (one argument per line, font .woff2/.woff/.ttf/.otf) for a particle-text page (`kit/particles.js`, technique `particle_text`), into the scene's latest page version or `DIR`; prints the text's size in frame pixels and share of the frame, warns above 80% of the width; `--fit F`: the size at which the text is F of the frame width; `--frame` defaults to `video:` of the project |
 | `play FILE...` | macOS: open images in `play.image_app`, video and audio in `play.app`, HTML in the default browser; Linux: open each file with `xdg-open`; do not open media with QuickTime or a bare `open` |
 

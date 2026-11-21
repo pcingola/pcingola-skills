@@ -25,6 +25,24 @@ def which(name: str) -> str:
     return path
 
 
+# The ffmpeg filters short-video's commands use that some ffmpeg builds leave out (drawtext needs libfreetype).
+REQUIRED_FILTERS = ("drawtext",)
+FFMPEG_INSTALL = "brew install ffmpeg-full (macOS; the ffmpeg formula has no drawtext) or apt-get install ffmpeg (Linux)"
+
+
+def check_ffmpeg() -> str:
+    """The ffmpeg on PATH; ToolError naming the install command when it is missing or lacks a filter of
+    `REQUIRED_FILTERS`."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None or shutil.which("ffprobe") is None:
+        raise ToolError(f"ffmpeg and ffprobe are required on PATH. Install: {FFMPEG_INSTALL}")
+    listed = run([ffmpeg, "-hide_banner", "-filters"]).stdout.split()
+    missing = [f for f in REQUIRED_FILTERS if f not in listed]
+    if missing:
+        raise ToolError(f"{ffmpeg} lacks the filter(s) {', '.join(missing)}. Install: {FFMPEG_INSTALL}")
+    return ffmpeg
+
+
 def run(cmd: list[str], *, cwd: Path | None = None, env: dict | None = None, capture: bool = True,
         text: bool = True) -> subprocess.CompletedProcess:
     """Run a command; raise ToolError with its output tail on a non-zero exit.

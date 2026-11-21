@@ -66,13 +66,13 @@ When the user sets up the skills, name the tools that the skills the user wants 
 | Tool | Skills | macOS | Linux (Debian, Ubuntu) |
 |---|---|---|---|
 | `uv`, `git` | every CLI skill | `brew install uv git` | `curl -LsSf https://astral.sh/uv/install.sh \| sh`, `apt-get install git` |
-| `ffmpeg` | music, short-video, video-effects, voiceover recordings, second-opinion large video | `brew install ffmpeg` | `apt-get install ffmpeg` |
+| `ffmpeg` | music, short-video, video-effects, voiceover recordings, second-opinion large video; short-video needs the `drawtext` filter | `brew install ffmpeg-full` (the `ffmpeg` formula has no `drawtext`) | `apt-get install ffmpeg` |
 | `soffice`, `pdftoppm` | pptx previews and slide export | `brew install libreoffice poppler` | `apt-get install libreoffice poppler-utils` |
 | `node` 22 or later, `npm` | short-video HTML scenes (the first render runs `npm ci` and downloads a headless Chrome) | `brew install node` | Node.js 22 from nodejs.org or NodeSource |
 | `latex`, `dvisvgm` | short-video Manim scenes with formulas | `brew install --cask mactex` | `apt-get install texlive texlive-latex-extra dvisvgm` |
 | `ollama` | the `ollama` provider | ollama.com | ollama.com |
 
-Short-video Manim scenes on Linux also need `libcairo2-dev`, `libpango1.0-dev`, `pkg-config` and a C compiler. On macOS, PyTorch has wheels only for Apple Silicon, so voiceover does not run on an Intel Mac.
+Short-video Manim scenes on Linux also need `libcairo2-dev`, `libpango1.0-dev`, `pkg-config` and a C compiler; on macOS `brew install cairo pkgconf` (pycairo has no macOS wheel and builds against them). On macOS, PyTorch has wheels only for Apple Silicon, so voiceover does not run on an Intel Mac.
 
 ## The settings file: config.yaml
 
