@@ -3,8 +3,8 @@ revision = 5
 requires-python = ">=3.11, <3.14"
 resolution-markers = [
     "python_full_version >= '3.12' and sys_platform == 'linux'",
-    "python_full_version < '3.12' and sys_platform == 'linux'",
     "python_full_version >= '3.12' and sys_platform != 'linux'",
+    "python_full_version < '3.12' and sys_platform == 'linux'",
     "python_full_version < '3.12' and sys_platform != 'linux'",
 ]
 
@@ -31,7 +31,7 @@ wheels = [
 [[package]]
 name = "ai-models"
 version = "0.1.0"
-source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fai_models&branch=main#1a5b1a3adde15fb3b952ab0b8598109df6842ef4" }
+source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fai_models&branch=main#2769cfc4a52e631f4e3bc6c0d498204a93a14ba5" }
 dependencies = [
     { name = "certifi" },
     { name = "filelock" },
@@ -1324,7 +1324,7 @@ wheels = [
 [[package]]
 name = "plugin-settings"
 version = "0.1.0"
-source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main#1a5b1a3adde15fb3b952ab0b8598109df6842ef4" }
+source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main#2769cfc4a52e631f4e3bc6c0d498204a93a14ba5" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
