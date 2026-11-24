@@ -12,6 +12,9 @@ video over the limit, or every video (largest first) while the files of the
 request total more than the limit, is transcoded by FFmpeg to 720p H.264
 with AAC audio (`transcode_video`); any other file over the limit is refused
 with its size, before it is read.
+
+For a review by Codex (`locate_all`), no file is read or sent: each path is checked (a file, not empty) and
+classified; a file of another type that is not UTF-8 is kind `other`, which Codex inspects with its own tools.
 """
 
 from __future__ import annotations
@@ -60,12 +63,15 @@ class ReviewFile:
     data: bytes
     text: str | None = None
     transcoded: dict | None = field(default=None)  # original size and type when transcoded
+    on_disk: int | None = None  # the file's size when it is not sent (Codex reads it itself)
 
     @property
     def size(self) -> int:
         return len(self.data)
 
     def record(self) -> dict:
+        if self.on_disk is not None:
+            return {"path": self.path, "kind": self.kind, "mime_type": self.mime, "bytes": self.on_disk}
         r = {"path": self.path, "kind": self.kind, "mime_type": self.mime, "bytes_sent": self.size}
         if self.transcoded:
             r["transcoded_from"] = self.transcoded
@@ -133,15 +139,37 @@ def transcode(f: ReviewFile, limit: int) -> None:
     f.data, f.mime = data, "video/mp4"
 
 
-def load(path_str: str, limit: int = LIMIT_BYTES) -> ReviewFile:
-    """The file as it will be sent. A video over `limit` is transcoded; any
-    other file over `limit`, or a transcoded video still over it, is refused."""
+def _size(path_str: str) -> int:
+    """The size of the file at `path_str`; FileError when it is not a file or is empty."""
     path = Path(path_str)
     if not path.is_file():
         raise FileError(f"{path_str}: no such file")
     size = path.stat().st_size
     if size == 0:
         raise FileError(f"{path_str}: empty file")
+    return size
+
+
+def locate(path_str: str) -> ReviewFile:
+    """The file for a review by Codex: checked and classified, not read (kind `other` for an unsupported type)."""
+    size = _size(path_str)
+    try:
+        kind, mime = classify(Path(path_str))
+    except FileError:
+        kind, mime = "other", "application/octet-stream"
+    return ReviewFile(path_str, kind, mime, b"", on_disk=size)
+
+
+def locate_all(paths: list[str]) -> list[ReviewFile]:
+    """`locate` of every path."""
+    return [locate(p) for p in paths]
+
+
+def load(path_str: str, limit: int = LIMIT_BYTES) -> ReviewFile:
+    """The file as it will be sent. A video over `limit` is transcoded; any
+    other file over `limit`, or a transcoded video still over it, is refused."""
+    path = Path(path_str)
+    size = _size(path_str)
     kind, mime = classify(path)
     if size > limit:
         if kind != "video":

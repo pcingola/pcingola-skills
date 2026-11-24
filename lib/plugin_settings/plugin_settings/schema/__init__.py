@@ -29,6 +29,7 @@ from .providers import (OLLAMA_URL, AzureProvider, ChatterboxProvider, Diffusers
                         GoogleProvider, KokoroProvider, OllamaProvider, OpenAIKindProvider, OpenAIProvider,
                         OpenRouterProvider, Provider, RemoteProvider, TimedProvider, TorchaudioProvider, WeightsDir)
 from .quality import Quality
+from .second_opinion import SecondOpinionSettings
 from .studio import StudioSettings
 from .task import Task
 from .task_kinds import SERVER_TASKS, TASK_KINDS, TASK_ROLES
@@ -44,7 +45,7 @@ __all__ = [
     "FishProvider", "GoogleModel",
     "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "LocalMemory", "LocalModels", "ModelId", "ModelServerSettings", "Network",
     "OllamaProvider", "OpenAIImageLimits", "OpenAIKindProvider", "OpenAIModel", "OpenAIProvider",
-    "OpenRouterProvider", "Provider", "ProviderKind", "Quality", "RemoteProvider", "Strict",
+    "OpenRouterProvider", "Provider", "ProviderKind", "Quality", "RemoteProvider", "SecondOpinionSettings", "Strict",
     "StudioSettings", "Task", "TimedProvider", "TorchaudioModel", "TorchaudioProvider",
     "VoiceoverSettings", "Voices", "WeightsDir", "split_id",
 ]

@@ -101,6 +101,10 @@ each one is listed here with its reason:
   for a presenter job, whose narration is a second file that `videos.create` cannot send. The model attributes a
   client needs come from `GET /models/{id}` over HTTP (httpx), no model call; Pydantic-AI has no call for a model's
   metadata.
+- The Codex review of second-opinion (`second_opinion_tool.codex`, `docs/second-opinion.md`). With
+  `second_opinion.codex: true` the skill runs the Codex CLI (`codex exec`) as a subprocess. Codex is an agent that
+  reads the repository and runs read-only commands while it reviews, which a single Pydantic-AI request cannot do,
+  and it uses its own login and model (`~/.codex/config.toml`), not a provider of `config.yaml`.
 
 The image edit with a mask (`MaskedOpenAIImageModel`) is a subclass of Pydantic-AI's `OpenAIImageGenerationModel`,
 on the standard path. A change of path keeps every capability, and wiring that costs without need is removed.

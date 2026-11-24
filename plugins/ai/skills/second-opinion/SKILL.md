@@ -38,7 +38,22 @@ ${CLAUDE_SKILL_DIR}/scripts/second-opinion.sh models
 
 The models come from the settings file `config.yaml`: `tasks.vision`
 when an image is among the files, else `tasks.chat`. `--model` takes any
-`<provider>:<model>` id of that file; `models` prints the two models.
+`<provider>:<model>` id of that file; `models` prints the two models and
+whether Codex reviews.
+
+## Codex
+
+With `second_opinion.codex: true` in `config.yaml` and no `--model`, the
+review runs the Codex CLI (`codex exec`) instead of a model of `tasks`, with
+Codex's own login and model. Codex runs as an agent in the current working
+directory, in a read-only sandbox: it reads the files under review itself,
+and may read other files and run read-only commands (git history, related
+sources, text extraction) to check the brief. Run the review from the
+directory whose context the reviewer needs, such as the repository root. The
+size limit and transcoding below do not apply; images are also attached.
+Codex has no audio or video input: for those, pass `--model` with a model
+that takes them. The review fails when `codex` is not on `PATH`. `model` in
+the report and the JSON is `codex`.
 
 ## Model routes
 
@@ -49,7 +64,7 @@ row (`when` is `default`, the model is the task's model in `config.yaml`,
 and `why` names the table's recommended model when it differs), then the
 escalation rows, without the rows whose model `config.yaml` lacks. Without
 the file it prints only the default rows. Use the default row and pass no
-`--model`. Take a later row, and pass its `model` with `--model`, only
+`--model` (with `second_opinion.codex: true`, Codex reviews). Take a later row, and pass its `model` with `--model`, only
 when its `when` condition holds for the request; the first such row wins.
 A model that the user or a calling skill names is passed as given, without
 the table.
@@ -88,7 +103,7 @@ file do not change the review.
 
 ## Settings
 
-No settings of its own. The models, the providers and their keys are in
-`config.yaml`.
+`second_opinion.codex` (Codex above). The models, the providers and their
+keys are in `config.yaml`.
 An answer that does not match the findings schema is sent back to the model
 once for a retry.

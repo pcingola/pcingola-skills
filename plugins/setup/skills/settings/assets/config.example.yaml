@@ -489,6 +489,14 @@ voiceover:
   #voices_dir: /path/to/voices
 
 
+# === second_opinion ==========================================================
+second_opinion:
+  # true: ai:second-opinion reviews with the Codex CLI (codex exec, its own
+  # login and model) when no --model is given, instead of tasks.chat and
+  # tasks.vision. The review fails when codex is not on PATH. Default false.
+  #codex: true
+
+
 # === model_server ============================================================
 # The OpenAI-compatible model server (python -m model_server): it runs the
 # models of the local providers above in its process and forwards every other

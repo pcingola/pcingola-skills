@@ -220,7 +220,7 @@ def test_null_sections_take_their_defaults():
     """A section, a `models:` map, a model entry or a list that holds only comments parses as null and takes its
     default (empty); a null required key still fails."""
     cfg = Config.model_validate({k: None for k in ("providers", "tasks", "network", "huggingface", "local_models",
-                                                   "brand", "studio", "voiceover")})
+                                                   "brand", "studio", "voiceover", "second_opinion")})
     assert cfg == Config()
     cfg = Config.model_validate({"providers": {"o": {"kind": "ollama", "models": None},
                                                "g": {"kind": "google", "api_key": "k", "models": {"lyria-3": None}}},
@@ -244,6 +244,10 @@ def test_studio_and_brand_values():
     assert Config().studio.dir == Path.home() / "Documents/Studio"
     assert cfg.brand.path == [Path.home() / "brands", Path("/b")]
     assert cfg.voiceover.voices_dir == Path.home() / "v"
+    assert Config().second_opinion.codex is False
+    assert Config.model_validate({"second_opinion": {"codex": True}}).second_opinion.codex is True
+    assert problems({"second_opinion": {"codex": "x"}}) == [
+        "second_opinion.codex: Input should be a valid boolean, unable to interpret input"]
     assert "network.no_proxy: Input should be a valid list" in problems({"network": {"no_proxy": "a,b"}})
 
 

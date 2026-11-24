@@ -17,6 +17,7 @@ from .model_id import ModelId, split_id
 from .network import Network
 from .provider_kind import LOCAL_KINDS, ProviderKind
 from .providers import Provider, RemoteProvider
+from .second_opinion import SecondOpinionSettings
 from .studio import StudioSettings
 from .task import Task
 from .task_kinds import SERVER_TASKS, TASK_KINDS, TASK_ROLES
@@ -34,6 +35,7 @@ class Config(Strict):
     brand: BrandSettings = BrandSettings()
     studio: StudioSettings = StudioSettings()
     voiceover: VoiceoverSettings = VoiceoverSettings()
+    second_opinion: SecondOpinionSettings = SecondOpinionSettings()
     model_server: ModelServerSettings = ModelServerSettings()
 
     @model_validator(mode="before")

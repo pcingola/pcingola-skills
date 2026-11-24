@@ -34,6 +34,7 @@ The sections, each a class in `schema/`:
 | `brand` | `BrandSettings` | `path`, a list of directories |
 | `studio` | `StudioSettings` | `dir` (absolute or `~`), `author` (a list of names) |
 | `voiceover` | `VoiceoverSettings` | `voices_dir` |
+| `second_opinion` | `SecondOpinionSettings` | `codex`: review with the Codex CLI when no `--model` is given |
 | `model_server` | `ModelServerSettings` | `host`, `port`, `keep_alive`, `ollama_url`, `timeout`, `video_ttl`, `weights_dir` of the model server (`docs/model_server.md`, Settings) |
 
 Every class derives from `Strict` (`extra="forbid"`, frozen), so an unknown section or key fails with its path. A

@@ -30,6 +30,7 @@ def check_settings() -> None:
 
 from . import files as files_mod
 from . import models, review
+from .codex import CodexReviewer
 
 # The review takes the vision model when an image is among the files, else the chat model.
 ROUTE_TASKS = ("chat", "vision")
@@ -49,12 +50,18 @@ def cmd_review(args: argparse.Namespace) -> None:
 
 
 def run_review(brief: str, paths: list[str], model: str | None = None, out: Path | None = None) -> dict:
-    """Review the files at `paths` against `brief` with `model` (default: `models.resolve` by the file kinds); the
-    result (model, files, brief, summary, findings), also written as JSON to `out` when given. Raises
-    `files.FileError`, `review.ReviewError` or `AIModelsError`."""
-    inputs = files_mod.load_all(paths)
-    model_id = models.resolve(model, {f.kind for f in inputs})
-    answer = review.review(model_id, brief, inputs)
+    """Review the files at `paths` against `brief`: by Codex in the working directory when `model` is None and
+    `second_opinion.codex` is true, else with `model` (default: `models.resolve` by the file kinds); the result
+    (model, files, brief, summary, findings), also written as JSON to `out` when given. Raises `files.FileError`,
+    `review.ReviewError` or `AIModelsError`."""
+    if models.uses_codex(model):
+        inputs = files_mod.locate_all(paths)
+        model_id = models.CODEX
+        answer = CodexReviewer.find(Path.cwd()).review(brief, inputs)
+    else:
+        inputs = files_mod.load_all(paths)
+        model_id = models.resolve(model, {f.kind for f in inputs})
+        answer = review.review(model_id, brief, inputs)
     result = {"model": model_id, "files": [f.record() for f in inputs], "brief": brief, **answer}
     if out:
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -91,13 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--brief-file", help="file holding the brief")
     r.add_argument("--file", action="append", required=True, metavar="PATH",
                    help="file to review (repeat for several): text, PNG, JPEG, WebP, WAV, MP3, FLAC, MP4, MOV, PDF")
-    r.add_argument("--model", help="review model <provider>:<model> (default: tasks.vision of config.yaml "
-                                   "when an image is among the files, else tasks.chat)")
+    r.add_argument("--model", help="review model <provider>:<model> (default: Codex when second_opinion.codex is "
+                                   "true in config.yaml, else tasks.vision when an image is among the files, "
+                                   "else tasks.chat)")
     r.add_argument("--out", help="write the findings JSON (model, files, brief, summary, findings) here")
     r.add_argument("--force", action="store_true", help="replace an existing --out file")
     r.set_defaults(func=cmd_review)
 
-    m = sub.add_parser("models", help="show the review models of config.yaml")
+    m = sub.add_parser("models", help="show the review models of config.yaml and whether Codex reviews")
     m.set_defaults(func=cmd_models)
 
     routes.command(sub, ROUTE_TASKS)
