@@ -9,7 +9,7 @@ resolution-markers = [
 [[package]]
 name = "ai-models"
 version = "0.1.0"
-source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fai_models&branch=main#2769cfc4a52e631f4e3bc6c0d498204a93a14ba5" }
+source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fai_models&branch=main#c3009f5e700acf097b8e7681c9458892dac29526" }
 dependencies = [
     { name = "certifi" },
     { name = "filelock" },
@@ -579,7 +579,7 @@ wheels = [
 [[package]]
 name = "plugin-settings"
 version = "0.1.0"
-source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main#2769cfc4a52e631f4e3bc6c0d498204a93a14ba5" }
+source = { git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main#c3009f5e700acf097b8e7681c9458892dac29526" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
