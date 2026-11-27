@@ -92,7 +92,6 @@ diffusers = [
     { name = "sentencepiece" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
     { name = "torch", version = "2.11.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'linux'" },
-    { name = "torchao" },
     { name = "torchvision", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
     { name = "torchvision", version = "0.26.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "sys_platform == 'linux'" },
     { name = "transformers" },
@@ -125,7 +124,6 @@ requires-dist = [
     { name = "torch", marker = "sys_platform == 'linux' and extra == 'diffusers'", specifier = ">=2.9", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torch", marker = "sys_platform != 'linux' and extra == 'align'", specifier = ">=2.9" },
     { name = "torch", marker = "sys_platform != 'linux' and extra == 'diffusers'", specifier = ">=2.9" },
-    { name = "torchao", marker = "extra == 'diffusers'", specifier = ">=0.17" },
     { name = "torchaudio", marker = "sys_platform == 'linux' and extra == 'align'", specifier = "==2.11.*", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchaudio", marker = "sys_platform != 'linux' and extra == 'align'", specifier = "==2.11.*" },
     { name = "torchvision", marker = "sys_platform == 'linux' and extra == 'diffusers'", index = "https://download.pytorch.org/whl/cu130" },
@@ -3679,15 +3677,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/47/a4/23be9a35b6c5b5c4547d24c52b07f4a5d55406a5ae43d9cce09f2352d75a/torch_stoi-0.2.3.tar.gz", hash = "sha256:228207b8d63548336c5520b156f1e6b30d3ae3db1fb3c41999f01aee087c5f85", size = 9224, upload-time = "2024-09-30T15:22:12.841Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a3/92/ead346e904390a53e71b5da2df7e7839abb16e967ba07fa15addf1f9f37c/torch_stoi-0.2.3-py3-none-any.whl", hash = "sha256:6eee85e33b42fe843a2150de46000f72e7b87cbeb19ae6ab9bbd94b6ec6b3cd2", size = 8146, upload-time = "2024-09-30T15:22:10.92Z" },
-]
-
-[[package]]
-name = "torchao"
-version = "0.18.0"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/55/ed9ad98f0f09d5a1124d09830043d13a39e63539f9590d2bdb6d71cbc4a4/torchao-0.18.0-cp310-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6540b148e40ba81cbd4de86392225a076a1591146e9cebb099b3b234ba9feebe", size = 3372585, upload-time = "2026-08-03T19:43:10.993Z" },
-    { url = "https://files.pythonhosted.org/packages/c4/4d/485477bb8f05bd501016059c6d8abd742f830cb1b24ab7704e086c7cc35a/torchao-0.18.0-py3-none-any.whl", hash = "sha256:5c2b4485341bf28b7fed2c4fc95b9f298e209f41685350f067de85527a05585e", size = 1369798, upload-time = "2026-08-03T19:43:12.649Z" },
 ]
 
 [[package]]

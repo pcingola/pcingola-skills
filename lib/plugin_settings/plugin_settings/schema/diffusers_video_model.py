@@ -12,9 +12,7 @@ from .diffusers_role import DiffusersRole
 
 class DiffusersVideoModel(DiffusersModel):
     """`pipeline`: the class to load; `fps`; `size_multiple`: width and height are rounded to it; `frame_step`:
-    frame counts are frame_step * k + 1; `width`, `height`: the default size; `max_frames`: the longest clip;
-    `output`: the output of a ModularPipeline class that holds the videos (none: a DiffusionPipeline class);
-    `quantize`: the components quantized to int8 weight-only with torchao at load."""
+    frame counts are frame_step * k + 1; `width`, `height`: the default size; `max_frames`: the longest clip."""
 
     role: ClassVar[DiffusersRole] = DiffusersRole.VIDEO
 
@@ -25,5 +23,3 @@ class DiffusersVideoModel(DiffusersModel):
     width: PositiveInt
     height: PositiveInt
     max_frames: PositiveInt
-    output: str | None = None
-    quantize: list[str] = []

@@ -179,24 +179,6 @@ def test_diffusers_roles_from_keys():
                    "providers.l.models.p.width: not a setting of a presenter model (kind diffusers)"]
 
 
-def test_video_output_and_quantize_keys():
-    """A video model takes `output` (a string) and `quantize` (a list of component names), both optional with
-    defaults None and []; `quantize` is refused on a presenter model and `output` on a music model, and a
-    `quantize` that is not a list fails, each with its YAML path."""
-    entry = DiffusersVideoModel.model_validate({**VIDEO, "output": "videos", "quantize": ["transformer", "te"]})
-    assert (entry.output, entry.quantize) == ("videos", ["transformer", "te"])
-    plain = DiffusersVideoModel.model_validate(VIDEO)
-    assert (plain.output, plain.quantize) == (None, [])
-    got = problems({"providers": {"l": {"kind": "diffusers", "models": {
-        "v": {**VIDEO, "quantize": "transformer"},
-        "p": {"repo": "r", "pipeline": "P", "fps": 25, "buckets": [[1, 1]], "audio_rate": 1, "output": "o",
-              "quantize": ["transformer"]},
-        "m": {"repo": "r", "duration_arg": "d", "output": "o"}}}}})
-    assert got == ["providers.l.models.v.quantize: Input should be a valid list",
-                   "providers.l.models.p.quantize: not a setting of a presenter model (kind diffusers)",
-                   "providers.l.models.m.output: not a setting of a music model (kind diffusers)"]
-
-
 def test_tasks_reference_configured_providers_and_entries():
     """A task naming a provider that is not in providers, a model of a local kind without an entry, a provider of
     a kind the task does not take (`TASK_KINDS`), or a diffusers model of another role (`TASK_ROLES`) fails; a
