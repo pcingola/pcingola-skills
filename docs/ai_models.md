@@ -422,7 +422,7 @@ required; the schema names each missing one at load, and `config.resolve` refuse
 | `width`, `height` | size when the caller gives none; with `aspect` (width / height), reshaped to that ratio at the same pixel count (`video.clip_size`) |
 | `max_frames` | the longest clip; a longer request is cut to it |
 | `output` | optional: the output of a `ModularPipeline` class that holds the videos; required for such a class |
-| `quantize` | optional: components quantized to int8 weight-only with torchao (`Int8WeightOnlyConfig`) on the CPU at load |
+| `quantize` | optional: components quantized to int8 weight-only with torchao (`Int8WeightOnlyConfig`) while they load |
 
 The frame count is cut to `max_frames`, rounded down to the `frame_step * k + 1` form.
 
@@ -456,8 +456,11 @@ biased upward to keep the head, `local.presenter_still`) and passed with its `wi
 `local.pipeline` loads a `ModularPipeline` class (`modular_model_index.json`, Kandinsky S2V) with `from_pretrained`
 then `load_components(dtype=bfloat16)` of every component outside `skip`, under the same lock, memory check of the
 loaded components' weights and CUDA cap as a `DiffusionPipeline`. The components in a video model's `quantize` load
-last, one at a time, and each is quantized before the next loads, so at most one of them is held in bfloat16; the
-memory check counts a quantized weight at its int8 size plus scales (`local.tensor_bytes`). `animate` calls a modular
+last, one at a time, with the `TorchAoConfig` of their library (`local.int8_config`: diffusers or transformers), so
+each weight is quantized as it is read from its shard and no component is ever whole in bfloat16 (quantizing a loaded
+bfloat16 component held both copies: MiniMax-H3 reached 121 GB and the OOM killer on a 121 GB GB10). Modules in a
+model's `_keep_in_fp32_modules` (MiniMax-H3: `proj_in`, `time_embedder`, `proj_out` and their audio twins) stay in
+bfloat16. The memory check counts a quantized weight at its int8 size plus scales (`local.tensor_bytes`). `animate` calls a modular
 pipeline with `output=[output, "audio"]`. MiniMax-H3 (`MiniMaxH3ModularPipeline`, 33B transformer and Qwen3-VL text
 encoder, about 66 GB each in bfloat16, about 34 GB each in int8) makes 5 to 15 s clips of
 `17 * n + 5` frames at 24 fps with a stereo 32 kHz sound track, so its entry has `frame_step` 17 (the pipeline adds

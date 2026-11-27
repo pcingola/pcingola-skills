@@ -96,7 +96,8 @@ def test_ltx2_clip_carries_its_sound_track(tmp_path):
 @requires(shutil.which("ffprobe"), "ffprobe (FFmpeg) not installed")
 def test_quantized_modular_clip(tmp_path, tiny_minimax_h3_folder):
     """animate with a ModularPipeline video model (`minimax-h3-tiny`: MiniMax-H3, random weights) whose `quantize`
-    names the transformer: every linear weight of the transformer holds int8 data on the device (torchao), the text
+    names the transformer: the transformer loads with diffusers' `TorchAoConfig` (`local.int8_config`), so every
+    linear weight outside the model's `_keep_in_fp32_modules` holds int8 data on the device (torchao), the text
     encoder keeps plain bfloat16 weights, and the clip is an MP4 at the spec's 64x64 from the pipeline's `videos`
     output, 124 frames (frame_step 17 gives 120, which MiniMax-H3 rounds up to 17 * 7 + 5), with its `audio` output as
     a stereo AAC stream at 32 kHz (docs/ai_models.md, Video)."""
@@ -110,7 +111,9 @@ def test_quantized_modular_clip(tmp_path, tiny_minimax_h3_folder):
         ("aac", 32000, 2)
     spec = config.diffusers_model(model, DiffusersRole.VIDEO)
     pipe = local.pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, quantize=spec.quantize)  # the cached one
-    linears = [m.weight for m in pipe.transformer.modules() if isinstance(m, torch.nn.Linear)]
+    keep = pipe.transformer._keep_in_fp32_modules
+    linears = [m.weight for n, m in pipe.transformer.named_modules()
+               if isinstance(m, torch.nn.Linear) and n.split(".")[0] not in keep]
     assert linears and all(w.qdata.dtype == torch.int8 and w.device.type == local.device() for w in linears)
     text = [m.weight for m in pipe.text_encoder.modules() if isinstance(m, torch.nn.Linear)]
     assert text and all(type(w) is torch.nn.Parameter and w.dtype == torch.bfloat16 for w in text)
