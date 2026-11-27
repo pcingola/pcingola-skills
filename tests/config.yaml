@@ -44,6 +44,22 @@ providers:
         width: 128
         height: 96
         max_frames: 9
+      # Random weights, the MiniMax-H3 modular pipeline (video with a stereo 32 kHz sound track), its transformer
+      # quantized to int8. MiniMax-H3 makes 5 to 15 s at 24 fps, 17 * n + 5 frames: 120 frames become 124. A folder
+      # that the session fixture of tests/integration writes with tests/tiny_minimax_h3.py when it is missing.
+      minimax-h3-tiny:
+        repo: ~/.cache/pcingola-skills-tests/tiny-minimax-h3
+        pipeline: MiniMaxH3ModularPipeline
+        output: videos
+        quantize: [transformer]
+        skip: [transformer_ref]
+        steps: 2
+        fps: 24
+        size_multiple: 32
+        frame_step: 17
+        width: 64
+        height: 64
+        max_frames: 124
       # Random weights, the ACE-Step pipeline classes: noise at 48 kHz. A folder that the session fixture of
       # tests/integration/music writes with tests/tiny_ace_step.py when it is missing.
       ace-step-tiny:

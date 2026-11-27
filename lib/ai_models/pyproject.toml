@@ -18,7 +18,7 @@ dependencies = [
 # image-to-video pipeline re-encodes its conditioning image as H.264; sentencepiece, protobuf: transformers
 # reads a T5 tokenizer (`spiece.model`, LTX-Video) with them; transformers 5 parses it with protobuf 7.36 gencode;
 # torchvision: transformers' Qwen-VL processors (a Qwen-VL text encoder, Qwen-Image); psutil: available system memory
-# before a load (local.py)
+# before a load (local.py); torchao: int8 weight-only quantization of the components a model's `quantize` names (local.py)
 diffusers = [
     "torch>=2.9",
     "torchvision",
@@ -29,6 +29,7 @@ diffusers = [
     "protobuf>=7.36",
     "av",
     "psutil",
+    "torchao>=0.17",
 ]
 # Kokoro speech on the CPU (kokoro.py)
 kokoro = [

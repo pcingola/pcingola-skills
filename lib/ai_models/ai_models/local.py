@@ -14,7 +14,9 @@ length in seconds and the lyrics; without one, the model does not take that opti
 again. A video model also has
 `pipeline` (the class to load), `fps`, `size_multiple`, `frame_step`, `width`, `height` and
 `max_frames` (see `video`); a presenter model `pipeline`, `fps`, `buckets`, `audio_rate` and `output` (see
-`video`, `present`). `pipeline` may name a `ModularPipeline` class. The device is CUDA, else MPS; `to_device` moves the weights there.
+`video`, `present`). `pipeline` may name a `ModularPipeline` class. A video model may also have `output` (the output
+of its `ModularPipeline` class that holds the videos) and `quantize` (components quantized to int8 weight-only with
+torchao on the CPU at load, `quantize_int8`). The device is CUDA, else MPS; `to_device` moves the weights there.
 Pipelines stay loaded until the process exits or calls `unload`. torch and diffusers are
 imported only here.
 
@@ -85,12 +87,13 @@ def device() -> str:
 
 
 def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline", skip: Sequence[str] = (),
-             memory: float | None = None):
+             memory: float | None = None, quantize: Sequence[str] = ()):
     """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules. `repo` is a
     Hugging Face repository id or a local folder (`local_folder`), which is loaded as is, with no cache lookup.
     `cls` is the diffusers class to load: a `DiffusionPipeline` class (`model_index.json`), or a `ModularPipeline`
     class (`modular_model_index.json`, loaded with `load_components`, `_modular`); the components in `skip` are
-    loaded as None (a modular pipeline: not loaded). A load first takes
+    loaded as None (a modular pipeline: not loaded); those in `quantize` are quantized to int8 weight-only on the CPU
+    before the move to the device (`quantize_int8`). A load first takes
     the lock (`hold_lock`), checks `memory` (the entry's GB at the peak, when set) against the free memory
     (`check_free`), caps the CUDA allocator (`cap_memory`) and checks the weights against the free
     memory (`check_memory`). After waiting for the lock, a check that fails reads the free memory again for up to
@@ -98,14 +101,14 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
     import diffusers
     import torch
 
-    skip = tuple(skip)
-    key = f"{repo}#{inpaint or ''}#{cls}#{','.join(skip)}"
+    skip, quantize = tuple(skip), tuple(quantize)
+    key = f"{repo}#{inpaint or ''}#{cls}#{','.join(skip)}#{','.join(quantize)}"
     with _load_lock:
         if key in _pipes:
             return _pipes[key]
         if inpaint:
             # from_pipe casts the shared modules to float32 unless given the loaded dtype
-            base = pipeline(repo, cls=cls, skip=skip, memory=memory)
+            base = pipeline(repo, cls=cls, skip=skip, memory=memory, quantize=quantize)
             _pipes[key] = getattr(diffusers, inpaint).from_pipe(base, dtype=torch.bfloat16)
             return _pipes[key]
         waited = hold_lock()
@@ -115,9 +118,11 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
             cap_memory(dev, free)
             klass = getattr(diffusers, cls)
             if issubclass(klass, diffusers.ModularPipeline):
-                pipe = _modular(klass, repo, skip)
+                pipe = _modular(klass, repo, skip, quantize)
             else:
                 pipe = _from_pretrained(klass, repo, dev, dtype=torch.bfloat16, **dict.fromkeys(skip))
+                for name in quantize:
+                    quantize_int8(component(pipe, name, repo))
             weights = weight_bytes(pipe.components.values())
             if waited and weights > free:
                 free = wait_for_memory(dev, weights)
@@ -340,8 +345,19 @@ def weight_bytes(modules: Iterable[Any]) -> int:
     """The bytes of every parameter and buffer of the torch modules in `modules`; other objects count 0."""
     import torch
 
-    return sum(t.numel() * t.element_size() for m in modules if isinstance(m, torch.nn.Module)
+    return sum(tensor_bytes(t) for m in modules if isinstance(m, torch.nn.Module)
                for t in itertools.chain(m.parameters(), m.buffers()))
+
+
+def tensor_bytes(t) -> int:
+    """The bytes `t` holds. A tensor subclass (a torchao quantized weight, whose `dtype` is the dtype it computes in)
+    counts the tensors it is made of (`__tensor_flatten__`)."""
+    import torch
+
+    data = t.data if isinstance(t, torch.nn.Parameter) else t
+    if type(data) is not torch.Tensor and hasattr(data, "__tensor_flatten__"):
+        return sum(tensor_bytes(getattr(data, name)) for name in data.__tensor_flatten__()[0])
+    return data.numel() * data.element_size()
 
 
 def free_memory(dev: str) -> int:
@@ -598,14 +614,41 @@ def wait_for_ollama(dev: str, need: int) -> int:
     return free
 
 
-def _modular(cls, repo: str, skip: Sequence[str]):
+def _modular(cls, repo: str, skip: Sequence[str], quantize: Sequence[str] = ()):
     """The `ModularPipeline` class `cls` of `repo` (`modular_model_index.json`) with its components loaded in
-    bfloat16 on the CPU, except those in `skip`."""
+    bfloat16 on the CPU, except those in `skip`. The components in `quantize` load last, one at a time, each
+    quantized (`quantize_int8`) before the next loads, so at most one of them is held in bfloat16."""
     import torch
 
     pipe = cls.from_pretrained(str(local_folder(repo) or repo))
-    pipe.load_components([n for n in pipe.pretrained_component_names if n not in skip], dtype=torch.bfloat16)
+    names = [n for n in pipe.pretrained_component_names if n not in skip]
+    if unknown := [n for n in quantize if n not in names]:
+        raise ConfigError(f"model repo {repo!r}: quantize names {', '.join(unknown)}, not a loaded component")
+    pipe.load_components([n for n in names if n not in quantize], dtype=torch.bfloat16)
+    for name in quantize:
+        pipe.load_components([name], dtype=torch.bfloat16)
+        quantize_int8(getattr(pipe, name))
+        gc.collect()
     return pipe
+
+
+def component(pipe, name: str, repo: str):
+    """The torch module `name` of `pipe`; `ConfigError` when the pipeline has no such module."""
+    import torch
+
+    module = pipe.components.get(name)
+    if not isinstance(module, torch.nn.Module):
+        raise ConfigError(f"model repo {repo!r}: quantize names {name}, not a loaded component")
+    return module
+
+
+def quantize_int8(module) -> None:
+    """Quantize the linear layers of `module` in place to int8 weight-only (torchao `Int8WeightOnlyConfig`: int8
+    weights with a scale per output channel, activations in bfloat16). The memory-mapped bfloat16 weights are read
+    once; the int8 weights are in process memory."""
+    from torchao.quantization import Int8WeightOnlyConfig, quantize_
+
+    quantize_(module, Int8WeightOnlyConfig())
 
 
 def local_folder(repo: str) -> Path | None:
@@ -676,14 +719,15 @@ def device_components(source: str, dev: str, given: dict[str, Any]) -> dict[str,
 def to_device(pipe, dev: str):
     """`pipe` moved to `dev`, each CPU weight first copied to process memory. `from_pretrained` leaves the
     weights memory-mapped from the safetensors files, and a host-to-device copy from a file mapping is
-    about 100 times slower than from process memory on a unified-memory GPU (docs/ai_models.md)."""
+    about 100 times slower than from process memory on a unified-memory GPU (docs/ai_models.md). A quantized weight
+    (a tensor subclass, `quantize_int8`) is already in process memory and moves with `pipe.to`."""
     import torch
 
     with torch.no_grad():
         for module in pipe.components.values():
             if isinstance(module, torch.nn.Module):
                 for t in itertools.chain(module.parameters(), module.buffers()):
-                    if t.device.type == "cpu":
+                    if t.device.type == "cpu" and type(t.data) is torch.Tensor:
                         t.data = t.data.clone().to(dev)
     return pipe.to(dev)
 
@@ -801,10 +845,12 @@ class DiffusersMusicModel:
 
 def audio_rate(pipe) -> int:
     """The sample rate of the audio a pipeline returns: its vocoder's output rate (`output_sampling_rate`, else
-    `sampling_rate` of the vocoder config), else the pipeline's `audio_sample_rate`, else its `sample_rate`."""
+    `sampling_rate` of the vocoder config), else the pipeline's `audio_sample_rate`, else its `audio_sampling_rate`
+    (MiniMax-H3), else its `sample_rate`."""
     vocoder = getattr(getattr(pipe, "vocoder", None), "config", None)
     for rate in (getattr(vocoder, "output_sampling_rate", None), getattr(vocoder, "sampling_rate", None),
-                 getattr(pipe, "audio_sample_rate", None), getattr(pipe, "sample_rate", None)):
+                 getattr(pipe, "audio_sample_rate", None), getattr(pipe, "audio_sampling_rate", None),
+                 getattr(pipe, "sample_rate", None)):
         if rate:
             return int(rate)
     raise AIModelsError(f"{type(pipe).__name__} returns audio but names no sample rate")
@@ -814,9 +860,12 @@ def animate(model_id: str, image: bytes, prompt: str, *, seconds: float, width: 
             height: int | None = None, aspect: float | None = None, seed: int | None = None) -> bytes:
     """An MP4 (H.264) of the image-to-video model `model_id` (a diffusers model), at `width` x `height`, else
     the model's size, reshaped to `aspect` when given (`video.clip_size`). The image is cropped to
-    the clip's aspect ratio and scaled to its size. When the pipeline output has `audio` (a sound track generated
-    with the frames, (channels, samples) or (samples,) per video, a tensor or an array), the clip carries it as an AAC
-    stream at the pipeline's rate (`audio_rate`); else it has no audio stream. Encoded with diffusers' `encode_video`."""
+    the clip's aspect ratio and scaled to its size. A `ModularPipeline` is called with `output=[spec.output, "audio"]`
+    and its videos are the `spec.output` output; another pipeline's are `frames`. When the pipeline output has `audio`
+    (a sound track generated with the frames, (channels, samples) or (samples,) per video, a tensor or an array), the
+    clip carries it as an AAC stream at the pipeline's rate (`audio_rate`); else it has no audio stream. Encoded with
+    diffusers' `encode_video`."""
+    import diffusers
     from diffusers.utils import encode_video
     from PIL import Image, ImageOps
 
@@ -826,15 +875,23 @@ def animate(model_id: str, image: bytes, prompt: str, *, seconds: float, width: 
     w, h = clip_size(spec, width, height, aspect)
     frames_n = frame_count(seconds, spec.fps, spec.frame_step, spec.max_frames)
     extra: dict[str, Any] = {"width": w, "height": h, "num_frames": frames_n, "seed": seed}
-    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, memory=spec.memory)
+    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, memory=spec.memory, quantize=spec.quantize)
+    modular = isinstance(pipe, diffusers.ModularPipeline)
+    if modular and not spec.output:
+        raise ConfigError(f"video model {model_id!r}: {spec.pipeline} is a ModularPipeline class and needs `output`")
     still = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
+    call = {"image": still, "prompt": prompt, "output_type": "np", **pipe_kwargs(spec, extra)}
     with out_of_memory(spec.repo):
-        result = pipe(image=still, prompt=prompt, output_type="np", **pipe_kwargs(spec, extra))
-    audio = getattr(result, "audio", None)
+        if modular:
+            got = pipe(output=[spec.output, "audio"], **call)
+            videos, audio = got[spec.output], got["audio"]
+        else:
+            result = pipe(**call)
+            videos, audio = result.frames, getattr(result, "audio", None)
     track = {} if audio is None else {"audio": waveform(audio[0]), "audio_sample_rate": audio_rate(pipe)}
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "clip.mp4"
-        encode_video(result.frames[0], fps=spec.fps, output_path=str(out), **track)
+        encode_video(videos[0], fps=spec.fps, output_path=str(out), **track)
         return out.read_bytes()
 
 

@@ -421,6 +421,8 @@ required; the schema names each missing one at load, and `config.resolve` refuse
 | `frame_step` | the frame count is the smallest `frame_step * k + 1` (k >= 1) that covers `seconds * fps` |
 | `width`, `height` | size when the caller gives none; with `aspect` (width / height), reshaped to that ratio at the same pixel count (`video.clip_size`) |
 | `max_frames` | the longest clip; a longer request is cut to it |
+| `output` | optional: the output of a `ModularPipeline` class that holds the videos; required for such a class |
+| `quantize` | optional: components quantized to int8 weight-only with torchao (`Int8WeightOnlyConfig`) on the CPU at load |
 
 The frame count is cut to `max_frames`, rounded down to the `frame_step * k + 1` form.
 
@@ -428,7 +430,7 @@ The image is cropped to the clip's aspect ratio and scaled to its size (`ImageOp
 diffusers' `encode_video` (PyAV, H.264). A pipeline whose output has `audio` (LTX-2 generates a sound track with the
 frames) gets it muxed in as an AAC stereo stream at the rate `local.audio_rate` reads from the pipeline: its vocoder
 config's `output_sampling_rate`, else `sampling_rate`, else the pipeline's `audio_sample_rate` (Kandinsky 6), else its
-`sample_rate`. The track may be (channels, samples) or (samples,) per video, a tensor or a NumPy array
+`audio_sampling_rate` (MiniMax-H3), else its `sample_rate`. The track may be (channels, samples) or (samples,) per video, a tensor or a NumPy array
 (`local.waveform`). A pipeline without `audio`
 gives a clip without an audio stream. The caller decides what to do with the track (media:short-video mixes it under
 the narration as ambience). The `diffusers` extra installs `av` for the encoder; some image-to-video pipelines also
@@ -453,7 +455,15 @@ biased upward to keep the head, `local.presenter_still`) and passed with its `wi
 
 `local.pipeline` loads a `ModularPipeline` class (`modular_model_index.json`, Kandinsky S2V) with `from_pretrained`
 then `load_components(dtype=bfloat16)` of every component outside `skip`, under the same lock, memory check of the
-loaded components' weights and CUDA cap as a `DiffusionPipeline`. diffusers 0.43 is the first release with the
+loaded components' weights and CUDA cap as a `DiffusionPipeline`. The components in a video model's `quantize` load
+last, one at a time, and each is quantized before the next loads, so at most one of them is held in bfloat16; the
+memory check counts a quantized weight at its int8 size plus scales (`local.tensor_bytes`). `animate` calls a modular
+pipeline with `output=[output, "audio"]`. MiniMax-H3 (`MiniMaxH3ModularPipeline`, 33B transformer and Qwen3-VL text
+encoder, about 66 GB each in bfloat16, about 34 GB each in int8) makes 5 to 15 s clips of
+`17 * n + 5` frames at 24 fps with a stereo 32 kHz sound track, so its entry has `frame_step` 17 (the pipeline adds
+4 frames) and `max_frames` 341. The video test with quantization uses `tiny-random/minimax-h3` (127 MB, random weights), copied by
+`tests/tiny_minimax_h3.py` to a folder whose `modular_model_index.json` points the components at that folder: the
+published index points them at the folder the repository was saved from. diffusers 0.43 is the first release with the
 Kandinsky S2V modular pipeline.
 
 The models, their repositories and these keys are in `config.yaml`; `config.example.yaml` has a real model and a

@@ -92,6 +92,30 @@ def test_ltx2_clip_carries_its_sound_track(tmp_path):
         [double, double]
 
 
+@requires(HAS_GPU, f"local video models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")
+@requires(shutil.which("ffprobe"), "ffprobe (FFmpeg) not installed")
+def test_quantized_modular_clip(tmp_path, tiny_minimax_h3_folder):
+    """animate with a ModularPipeline video model (`minimax-h3-tiny`: MiniMax-H3, random weights) whose `quantize`
+    names the transformer: every linear weight of the transformer holds int8 data on the device (torchao), the text
+    encoder keeps plain bfloat16 weights, and the clip is an MP4 at the spec's 64x64 from the pipeline's `videos`
+    output, 124 frames (frame_step 17 gives 120, which MiniMax-H3 rounds up to 17 * 7 + 5), with its `audio` output as
+    a stereo AAC stream at 32 kHz (docs/ai_models.md, Video)."""
+    model = "local:minimax-h3-tiny"
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(video.animate(red_png(80, 60), "a red square", seconds=5, model=model, seed=1))
+    found = {s["codec_type"]: s for s in streams(clip)}
+    assert (found["video"]["codec_name"], found["video"]["width"], found["video"]["height"]) == ("h264", 64, 64)
+    assert int(found["video"]["nb_frames"]) == 124
+    assert (found["audio"]["codec_name"], int(found["audio"]["sample_rate"]), found["audio"]["channels"]) == \
+        ("aac", 32000, 2)
+    spec = config.diffusers_model(model, DiffusersRole.VIDEO)
+    pipe = local.pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, quantize=spec.quantize)  # the cached one
+    linears = [m.weight for m in pipe.transformer.modules() if isinstance(m, torch.nn.Linear)]
+    assert linears and all(w.qdata.dtype == torch.int8 and w.device.type == local.device() for w in linears)
+    text = [m.weight for m in pipe.text_encoder.modules() if isinstance(m, torch.nn.Linear)]
+    assert text and all(type(w) is torch.nn.Parameter and w.dtype == torch.bfloat16 for w in text)
+
+
 @requires(HAS_GPU, f"local presenter models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")
 @requires(shutil.which("ffprobe"), "ffprobe (FFmpeg) not installed")
 def test_tiny_presenter_clip(tmp_path):
