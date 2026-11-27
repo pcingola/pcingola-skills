@@ -616,9 +616,8 @@ def wait_for_ollama(dev: str, need: int) -> int:
 
 def _modular(cls, repo: str, skip: Sequence[str], quantize: Sequence[str] = ()):
     """The `ModularPipeline` class `cls` of `repo` (`modular_model_index.json`) with its components loaded in
-    bfloat16 on the CPU, except those in `skip`. The components in `quantize` load last, one at a time, with the
-    int8 config of their library (`int8_config`): each weight is quantized as it is read from its shard, so a
-    component never exists whole in bfloat16 (MiniMax-H3: 66 GB in bfloat16 per component, 33 GB in int8)."""
+    bfloat16 on the CPU, except those in `skip`. The components in `quantize` load last, one at a time, each
+    quantized (`quantize_int8`) before the next loads, so at most one of them is held in bfloat16."""
     import torch
 
     pipe = cls.from_pretrained(str(local_folder(repo) or repo))
@@ -627,22 +626,10 @@ def _modular(cls, repo: str, skip: Sequence[str], quantize: Sequence[str] = ()):
         raise ConfigError(f"model repo {repo!r}: quantize names {', '.join(unknown)}, not a loaded component")
     pipe.load_components([n for n in names if n not in quantize], dtype=torch.bfloat16)
     for name in quantize:
-        pipe.load_components([name], dtype=torch.bfloat16, quantization_config=int8_config(pipe, name))
+        pipe.load_components([name], dtype=torch.bfloat16)
+        quantize_int8(getattr(pipe, name))
         gc.collect()
     return pipe
-
-
-def int8_config(pipe, name: str):
-    """The load-time int8 weight-only config (torchao `Int8WeightOnlyConfig`) for component `name` of the modular
-    `pipe`: transformers' `TorchAoConfig` for a transformers class, diffusers' otherwise."""
-    from torchao.quantization import Int8WeightOnlyConfig
-
-    library = (pipe._component_specs[name].type_hint.__module__ or "").split(".")[0]
-    if library == "transformers":
-        from transformers import TorchAoConfig
-    else:
-        from diffusers import TorchAoConfig
-    return TorchAoConfig(Int8WeightOnlyConfig())
 
 
 def component(pipe, name: str, repo: str):
