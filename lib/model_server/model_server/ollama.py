@@ -8,6 +8,9 @@ the model list: `GET /v1/models/{tag}`, and its role from the `capabilities` of 
 `chat`), kept for the process. `resident`, `size` and `unload` are the memory calls of `Residency`: `GET /api/ps`,
 the size of a pulled model in `GET /api/tags`, and `POST /api/generate` with `keep_alive: 0`, which unloads any
 model, embedding models included.
+
+A forwarded request is a job of the scheduler; its cancel closes the request to Ollama (`forward`), and Ollama stops
+the generation when the connection closes.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from fastapi import Request
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
+from .job import Job
 from .model_role import ModelRole
 from .ollama_resident import OllamaResident
 from .server_error import ErrorType, ServerError
@@ -73,6 +77,17 @@ async def rewritten(chunks: AsyncIterator[bytes], media_type: str, model: str) -
             yield chunk
 
 
+def cancelled_line(error: ServerError, media_type: str) -> bytes:
+    """The last line of a stream that a cancel ends: `data: {"error": <ErrorObject>}` for server-sent events (the
+    `openai` SDK raises it as `APIError`), `{"error": "<message>"}` for NDJSON (Ollama's form), nothing for another
+    type, whose body is cut."""
+    if media_type == "text/event-stream":
+        return b"data: " + json.dumps({"error": error.error.model_dump()}).encode() + b"\n\n"
+    if media_type == "application/x-ndjson":
+        return json.dumps({"error": error.error.message}).encode() + b"\n"
+    return b""
+
+
 class Ollama:
     """An HTTP client of the Ollama server at `url` (no `/v1`), with `timeout` seconds per request."""
 
@@ -90,16 +105,19 @@ class Ollama:
                            "ollama_unreachable")
 
     async def forward(self, request: Request, body: bytes, done: Callable[[], None] | None = None,
-                      model: str | None = None) -> StreamingResponse:
+                      model: str | None = None, job: Job | None = None) -> StreamingResponse:
         """Ollama's answer to `request` (with `body`, already read), streamed, with `model` in the answer's JSON
         objects when given (module docstring). `done` runs when the answer ends, also when the client goes away or
         Ollama does not answer; it may be called twice (the stream's end and the response's background task), so it
-        must be idempotent (`Lease.release`)."""
+        must be idempotent (`Lease.release`). A cancel of `job` closes the request to Ollama: before Ollama's
+        answer starts, the request raises `job.cancelled_error`; during the answer, the stream ends with one error
+        object in its format (`cancelled_line`)."""
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_HEADERS}
         req = self.http.build_request(request.method, request.url.path, params=request.query_params,
                                       headers=headers, content=body)
         try:
-            resp = await self.http.send(req, stream=True)
+            sent = self.http.send(req, stream=True)
+            resp = await (sent if job is None else job.interruptible(sent))
         except httpx.HTTPError as e:
             if done is not None:
                 done()
@@ -110,7 +128,16 @@ class Ollama:
         async def chunks() -> AsyncIterator[bytes]:
             try:
                 body = resp.aiter_bytes()
-                async for chunk in (body if model is None else rewritten(body, media_type, model)):
+                source = aiter(body if model is None else rewritten(body, media_type, model))
+                while True:
+                    step = anext(source)
+                    try:
+                        chunk = await (step if job is None else job.interruptible(step))
+                    except StopAsyncIteration:
+                        break
+                    except ServerError as e:
+                        yield cancelled_line(e, media_type)
+                        break
                     yield chunk
             finally:
                 await resp.aclose()

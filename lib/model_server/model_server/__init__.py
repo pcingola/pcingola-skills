@@ -4,11 +4,12 @@
     __main__       `python -m model_server`: uvicorn on `model_server.host` and `port`
     server         `Server`: settings, scheduler, residency, Ollama, video jobs
     model_ref      `ModelRef`: the routing of a request's `model` (`<provider>:<model>`)
-    scheduler      `Scheduler`: one model at a time, one FIFO queue; `Lease`
+    scheduler      `Scheduler`: one model at a time, one FIFO queue, the jobs and their cancel; `Lease`
+    job            `Job` (`JobState`, `JobInfo`): one request of the scheduler, its cancel signal
     residency      `Residency`: keep-alive and room in memory before a load
     ollama         `Ollama`: forwarding and the memory calls of Ollama
     catalog        the local models as `openai.types.Model`
-    routes_*       the endpoints: images, audio (speech, music, alignments), videos, models, Ollama forwarding
+    routes_*       the endpoints: images, audio (speech, music, alignments), videos, jobs, models, Ollama forwarding
 """
 
 from .app import create_app

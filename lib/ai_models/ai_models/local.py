@@ -25,6 +25,9 @@ device's free memory raises `AIModelsError` before any weight moves to the devic
 allocator is capped at the memory free before the load (`cap_memory`), and an out-of-memory error becomes the same
 `AIModelsError` (`out_of_memory`). `unload_model` drops one model and releases the lock once no model that took it
 is loaded.
+
+Cancellation: each pipeline call runs in `cancel.stoppable`, so a call with a cancel signal (`cancel.signal`) stops
+with `Cancelled` at the end of the step after the signal is set.
 """
 
 from __future__ import annotations
@@ -58,7 +61,7 @@ from pydantic_ai.exceptions import UserError
 from pydantic_ai.images import GeneratedImage, ImageGenerationModel, ImageGenerationResult
 from pydantic_ai.messages import BinaryImage
 
-from . import config
+from . import cancel, config
 from .errors import AIModelsError, ConfigError, LocalMemoryError
 
 _pipes: dict[str, Any] = {}
@@ -757,7 +760,7 @@ class DiffusersImageModel(ImageGenerationModel):
             kwargs["image"] = pics
         pipe = pipeline(self.spec.repo, self.spec.inpaint if self.mask is not None else None, skip=self.spec.skip,
                         memory=self.spec.memory)
-        with out_of_memory(self.spec.repo):
+        with out_of_memory(self.spec.repo), cancel.stoppable(pipe, kwargs):
             images = pipe(prompt=prompt, **kwargs).images
         out = []
         for img in images:
@@ -788,8 +791,9 @@ class DiffusersMusicModel:
                 raise ConfigError(f"diffusers model {self.name!r} has no `lyrics_arg` for lyrics")
             extra[self.spec.lyrics_arg] = lyrics
         pipe = pipeline(self.spec.repo, skip=self.spec.skip, memory=self.spec.memory)
-        with out_of_memory(self.spec.repo):
-            audio = pipe(prompt=prompt, output_type="pt", **pipe_kwargs(self.spec, extra)).audios[0]  # (channels, samples)
+        kwargs = pipe_kwargs(self.spec, extra)
+        with out_of_memory(self.spec.repo), cancel.stoppable(pipe, kwargs):
+            audio = pipe(prompt=prompt, output_type="pt", **kwargs).audios[0]  # (channels, samples)
         pcm = (audio.float().clamp(-1, 1) * 32767).to(torch.int16).T.contiguous().cpu().numpy().tobytes()
         buf = io.BytesIO()
         with wave.open(buf, "wb") as w:
@@ -833,8 +837,9 @@ def animate(model_id: str, image: bytes | None, prompt: str, *, seconds: float, 
     else:
         pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, memory=spec.memory)
         extra["image"] = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
-    with out_of_memory(spec.repo):
-        result = pipe(prompt=prompt, output_type="np", **pipe_kwargs(spec, extra))
+    kwargs = pipe_kwargs(spec, extra)
+    with out_of_memory(spec.repo), cancel.stoppable(pipe, kwargs):
+        result = pipe(prompt=prompt, output_type="np", **kwargs)
     audio = getattr(result, "audio", None)
     track = {} if audio is None else {"audio": waveform(audio[0]), "audio_sample_rate": audio_rate(pipe)}
     with tempfile.TemporaryDirectory() as tmp:
@@ -913,9 +918,9 @@ def present(model_id: str, image: bytes, speech: bytes, *, aspect: float | None 
     if prompt:
         extra["prompt"] = prompt
     pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, memory=spec.memory)
-    with out_of_memory(spec.repo):
-        frames = pipe(image=still, audio=drive[0].numpy(), output=spec.output, output_type="np",
-                      **pipe_kwargs(spec, extra))[0]
+    kwargs = pipe_kwargs(spec, extra)
+    with out_of_memory(spec.repo), cancel.stoppable(pipe, kwargs):
+        frames = pipe(image=still, audio=drive[0].numpy(), output=spec.output, output_type="np", **kwargs)[0]
     seconds = len(frames) / spec.fps
     track = track[:, : round(seconds * rate)]
     with tempfile.TemporaryDirectory() as tmp:

@@ -16,7 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from plugin_settings import ModelServerSettings
 
-from . import routes_audio, routes_images, routes_models, routes_ollama, routes_videos
+from . import routes_audio, routes_images, routes_jobs, routes_models, routes_ollama, routes_videos
 from .server import Server
 from .server_error import ErrorType, ServerError
 
@@ -39,7 +39,7 @@ def create_app(settings: ModelServerSettings) -> FastAPI:
 
     app = FastAPI(title="model-server", lifespan=lifespan)
     app.state.server = server
-    for module in (routes_images, routes_audio, routes_videos, routes_models, routes_ollama):
+    for module in (routes_images, routes_audio, routes_videos, routes_jobs, routes_models, routes_ollama):
         app.include_router(module.router)
 
     @app.exception_handler(ServerError)

@@ -13,6 +13,9 @@ A voice is `default` (the model's built-in voice) or the path of a reference rec
 microphone and room. The output is a 24 kHz WAV file with Resemble's Perth watermark (inaudible). There is no speed
 or style control.
 
+Cancellation: with a cancel signal (`cancel.signal`) the synthesis stops with `Cancelled` before the next forward of
+the T3 transformer (`t3.tfmr`, once per speech token).
+
 A model server's chatterbox model takes the recording in the speech request (`reference_field`): the request field
 `REFERENCE_FIELD`, `{"data": <base64>, "format": <REFERENCE_FORMATS>}`, the shape of OpenAI's `input_audio`.
 """
@@ -27,7 +30,7 @@ from typing import Any
 
 from plugin_settings import ChatterboxModel, ChatterboxProvider, ProviderKind
 
-from . import config, cpu, local, weights
+from . import cancel, config, cpu, local, weights
 from .errors import AIModelsError
 
 KIND = ProviderKind.CHATTERBOX
@@ -152,5 +155,7 @@ def speak(spec: ChatterboxProvider, entry: ChatterboxModel, name: str, model: st
     with _lock, cpu.performance_threads():
         m = _load(spec, entry, model)
         use_voice(m, ref)
-        audio = m.tts.generate(text).detach().cpu().numpy()
+        cancel.check()
+        with cancel.hooked(m.tts.t3.tfmr):
+            audio = m.tts.generate(text).detach().cpu().numpy()
     return float_wav(audio, int(getattr(m.tts, "sr", SAMPLE_RATE)))

@@ -20,6 +20,10 @@ class LocalMemoryError(AIModelsError):
     """A local model does not fit in the free memory (`local.memory_error`)."""
 
 
+class Cancelled(AIModelsError):
+    """An in-process model call stopped because its cancel signal was set (`cancel`)."""
+
+
 # HTTP statuses of a request the server refuses for its credentials.
 REFUSED = (401, 403)
 

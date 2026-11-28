@@ -8,6 +8,8 @@ default 4), `size` (`WxH`; video: width and height, else the model's), and two f
 `openai.types.VideoCreateParams`: `audio` (presenter: the narration recording, required) and `aspect` (width / height;
 video: reshapes the size to it at the same pixel count; presenter: the bucket nearest it, default the image's), plus
 `seed`. The answer is the job as `openai.types.Video`, `status: queued`; the job runs when the scheduler admits it.
+The video's id is also its job's id in the scheduler (`GET /v1/jobs`); a cancelled job ends `failed` with the error
+code `cancelled`.
 Retrieve answers the job; content answers the MP4 (`video/mp4`) once the job is `completed`.
 """
 
@@ -20,6 +22,7 @@ from fastapi.responses import JSONResponse, Response
 from openai.types import VideoCreateParams
 
 from .forms import extras, one_file, parse_size, text_fields
+from .job import Job
 from .model_ref import ModelRef
 from .model_role import ModelRole
 from .requests import server_of
@@ -65,13 +68,14 @@ def planned_presenter(ref: ModelRef, image: bytes, audio: bytes, aspect: float |
     return f"{track.shape[1] / rate:g}", f"{w}x{h}"
 
 
-async def run_job(srv: Server, ref: ModelRef, job: VideoJob, call: Any) -> None:
-    """Run the job when the scheduler admits it; the MP4, or the error, goes to the job."""
+async def run_job(srv: Server, ref: ModelRef, job: VideoJob, queued: Job, call: Any) -> None:
+    """Run the job when the scheduler admits its scheduler job `queued` (of the same id); the MP4, or the error,
+    goes to the job (`cancelled` for a cancelled job)."""
     from ai_models import AIModelsError
 
     ttl = srv.settings.video_ttl
     try:
-        async with srv.running(ref):
+        async with srv.running(ref, queued):
             job.start()
             content = await call()
     except ServerError as e:
@@ -123,7 +127,7 @@ async def create(request: Request) -> JSONResponse:
         def call():
             return video.apresent(image, audio, model=ref.id, aspect=aspect, prompt=prompt or None, seed=seed)
     job = srv.videos.add(VideoJob(ref.id, prompt, *planned))
-    srv.spawn(run_job(srv, ref, job, call))
+    srv.spawn(run_job(srv, ref, job, srv.submit(ref, job.id), call))
     return JSONResponse(job.video().model_dump(mode="json"))
 
 

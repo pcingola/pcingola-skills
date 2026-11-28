@@ -17,6 +17,7 @@
     music    `compose` (Google predict and stream models, local diffusers, a model server)
     video    `animate`, `aanimate` (image or prompt to video), `present`, `apresent` (portrait and speech to video), local diffusers
     local    diffusers image, music, video and presenter models (extra `ai-models[diffusers]`)
+    cancel   the cancel signal of an in-process call (`signal`, `check`), set by the model server
     tls      certifi roots plus `network.extra_ca_cert` for remote clients
 
 Every error of this package is an `AIModelsError`.
@@ -24,9 +25,9 @@ Every error of this package is an `AIModelsError`.
 
 import os
 
-from .errors import AIModelsError, ConfigError, LocalMemoryError
+from .errors import AIModelsError, Cancelled, ConfigError, LocalMemoryError
 
 # Pydantic-AI prints a banner on the first agent run; the skills' output is read by programs.
 os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
-__all__ = ["AIModelsError", "ConfigError", "LocalMemoryError"]
+__all__ = ["AIModelsError", "Cancelled", "ConfigError", "LocalMemoryError"]

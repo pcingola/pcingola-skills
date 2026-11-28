@@ -8,6 +8,9 @@ no listed prefix is refused, and `voices` lists only the voices of the listed pr
 instructions; the speed is 0.5 to 2. The audio is a 24 kHz WAV file. The model stays loaded for the life of the
 process or until `local.unload_model` drops it; it needs no GPU and no local-model lock. A load of a model whose
 entry sets `memory` is refused when the system's available memory is below it (`local.check_free`).
+
+Cancellation: a cancel signal (`cancel.signal`) is checked before `Kokoro.create` only; kokoro-onnx synthesizes its
+batches without returning to the caller, so a synthesis that has started runs to its end.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from typing import Any
 
 from plugin_settings import KokoroModel, KokoroProvider, ProviderKind
 
-from . import config, espeak, local, weights
+from . import cancel, config, espeak, local, weights
 from .errors import AIModelsError
 
 KIND = ProviderKind.KOKORO
@@ -95,5 +98,6 @@ def speak(spec: KokoroProvider, entry: KokoroModel, name: str, bare: str, text: 
     k = model(spec, entry, bare)
     if voice not in k.get_voices():
         raise AIModelsError(f"{name}:{bare} has no voice {voice!r}; `voices` lists them")
+    cancel.check()
     samples, rate = k.create(text, voice=voice, speed=speed, lang=language)
     return float_wav(samples, rate)

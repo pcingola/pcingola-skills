@@ -12,6 +12,9 @@ refused when the system's available memory is below it (`local.check_free`).
 
 A model of a provider of kind `openai` is the torchaudio aligner of a model server (`served`): `aligner` returns a
 `ServedAligner`, which sends each clip to `POST <base_url>/audio/alignments`.
+
+Cancellation: with a cancel signal (`cancel.signal`) `Aligner.align` stops with `Cancelled` before the acoustic model
+and before the forced alignment.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from plugin_settings import ProviderKind, Task, TorchaudioModel, TorchaudioProvider
 
-from . import config, local, weights
+from . import cancel, config, local, weights
 from .errors import AIModelsError, ConfigError
 from .served_aligner import ServedAligner
 
@@ -65,8 +68,10 @@ class Aligner:
         wav = torch.from_numpy(np.ascontiguousarray(samples, dtype=np.float32)).unsqueeze(0)
         if rate != self.sample_rate:
             wav = self._resample(wav, rate, self.sample_rate)
+        cancel.check()
         with torch.inference_mode():
             emission, _ = self.model(wav)
+        cancel.check()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=".*forced_align has been deprecated.*")
             spans = self.aligner(emission[0], self.tokenizer(list(tokens)))

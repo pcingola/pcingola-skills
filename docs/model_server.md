@@ -20,11 +20,12 @@ its environment settings (`plugin_settings.export`) and listens on `model_server
 | `server.py` | `Server`: settings, scheduler, residency, Ollama client, video jobs; `running(ref)` |
 | `model_ref.py` | `ModelRef`: the routing of a request's `model` |
 | `model_role.py`, `route.py` | `ModelRole` (image, music, video, presenter, speech, align; chat, embedding for Ollama models), `Route` (local, ollama) |
-| `scheduler.py`, `lease.py` | `Scheduler`: one model at a time, one FIFO queue; `Lease`: one admitted request |
+| `scheduler.py`, `lease.py` | `Scheduler`: one model at a time, one FIFO queue, the jobs and their cancel; `Lease`: one admitted request |
+| `job.py`, `job_state.py`, `job_info.py` | `Job`: one request of the scheduler and its cancel signal; `JobState` (queued, running); `JobInfo`: a job as `/v1/jobs` answers it |
 | `residency.py` | `Residency`: keep-alive, room in memory before a load |
 | `ollama.py`, `ollama_resident.py` | `Ollama`: forwarding with the answer's `model` rewritten, one model and its role, `/api/ps`, `/api/tags`, unload |
 | `catalog.py` | the local models as `openai.types.Model`, Ollama's models with the server's ids |
-| `routes_images.py`, `routes_audio.py`, `routes_videos.py`, `routes_models.py`, `routes_ollama.py` | the endpoints |
+| `routes_images.py`, `routes_audio.py`, `routes_videos.py`, `routes_jobs.py`, `routes_models.py`, `routes_ollama.py` | the endpoints |
 | `music_create_params.py`, `alignment.py` | the request type of music and the answer type of alignments |
 | `video_job.py`, `video_jobs.py` | `VideoJob` (shown as `openai.types.Video`), `VideoJobs` |
 | `forms.py`, `requests.py`, `server_error.py` | request parsing, `ServerError` and its JSON body |
@@ -292,7 +293,9 @@ Every error is an OpenAI-style JSON body, which the `openai` SDK raises as `open
 |---|---|---|
 | 400 | `invalid_request_error` | a field is missing or wrong (`param` names it); a model of another role (`code` `model_not_supported`); an `AIModelsError` of the model call (`code` `model_error`: a voice the model lacks, a speed out of range, a failed pipeline call); a Pydantic-AI `UserError` |
 | 404 | `not_found_error` | a model a local provider lacks, an Ollama model Ollama lacks (`GET /v1/models/{id}`), a bare Ollama tag or another id that names no local provider and not the Ollama prefix (`model_not_found`); an unknown or expired video (`video_not_found`); a local model on an Ollama path (`model_not_supported`) |
+| 404 | `not_found_error` | a job id that is not queued or running (`job_not_found`, `DELETE /v1/jobs/{id}`) |
 | 409 | `invalid_request_error` | the content of a video that is not completed (`video_not_ready`) |
+| 499 | `cancelled_error` | a request whose job was cancelled (`cancelled`, Jobs below) |
 | 500 | `server_error` | any other exception; an invalid config file |
 | 502 | `upstream_error` | Ollama does not answer (`ollama_unreachable`) |
 | 507 | `insufficient_memory_error` | a model that does not fit in memory (`insufficient_memory`, Memory below), or `ai_models.LocalMemoryError` of a load |
@@ -316,6 +319,39 @@ wait for the video. A client that goes away while its request waits leaves the q
 
 The in-process calls run in worker threads (`asyncio.to_thread`, as `ai_models` runs them), so the event loop keeps
 serving polls, listings and Ollama streams while a model runs.
+
+## Jobs
+
+Every request that takes a slot of the scheduler is a job (`Job`): images, edits, speech, music, alignments, videos,
+presenters and Ollama requests that name a model. A job is listed from its submission until its slot is released.
+A video or presenter job's id is the video's id.
+
+| Endpoint | Answer |
+|---|---|
+| `GET /v1/jobs` | `{"object": "list", "data": [job]}`, oldest first |
+| `DELETE /v1/jobs/{id}` | the job, `cancelled: true`; 404 `job_not_found` for an id that is not queued or running |
+| `DELETE /v1/jobs` | the list of the cancelled jobs, the queued ones first |
+
+A job is `{"object": "job", "id", "model", "role", "state", "created_at", "started_at", "cancelled"}`: `state` is
+`queued` or `running`, the times are Unix seconds (`started_at` null while queued), `role` is null for an Ollama
+model whose role Ollama did not answer.
+
+A queued job that is cancelled leaves the queue and the list at once, and the queue moves on. A running job that is
+cancelled has its signal set (`ai_models.cancel`) and stays listed, `cancelled: true`, until its call stops and
+releases its slot. The request of a cancelled job answers 499 `cancelled_error` with code `cancelled` (the HTTP
+status of google.rpc `CANCELLED`; the `openai` SDK does not retry it); a cancelled video or presenter job ends
+`failed` with error code `cancelled`. Where a running call stops:
+
+| Runtime | Stop point |
+|---|---|
+| diffusers (image, music, video, presenter) | before the pipeline call, then at the end of each denoising step: `callback_on_step_end`, else a forward pre-hook on the pipeline's `transformer` or `unet` (a `ModularPipeline`) |
+| chatterbox | before the synthesis, then before each forward of the T3 transformer (one per speech token) |
+| fish | before each span and after each chunk `generate_long` yields |
+| kokoro | before `Kokoro.create` only; a synthesis that has started runs to its end and its result is discarded |
+| torchaudio aligner | before the acoustic model and before the forced alignment |
+| Ollama | the server closes its request to Ollama, which stops the generation; a streamed answer ends with one error object (`data: {"error": ...}` for server-sent events, `{"error": "..."}` for NDJSON) |
+
+A call that returns after its job was cancelled has its result discarded and answers the 499.
 
 ## Keep-alive
 
@@ -405,6 +441,8 @@ request is mostly that lookup.
 ```
 model-client [--url URL | --provider NAME] models [--tests] [ID]
 model-client [--url URL | --provider NAME] status VIDEO_ID
+model-client [--url URL | --provider NAME] jobs
+model-client [--url URL | --provider NAME] cancel (ID | --all)
 model-client [--url URL | --provider NAME] video --model ID [--image FILE] --prompt TEXT [--seconds S] [--aspect A] [--size WxH] [--seed N] [-o OUT]
 model-client [--url URL | --provider NAME] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
 model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voice V] [-o OUT]
@@ -415,6 +453,8 @@ model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voic
 | `models` | `GET /v1/models` | `server: <provider or URL>`, then `<role> <runtime> <id>` per model, grouped by role; test models only with `--tests` |
 | `models ID` | `GET /v1/models/{id}` | a local model's `kind`, `role`, `test`, `entry` (and `voices`) as YAML; an Ollama model's `kind` and `role` |
 | `status VIDEO_ID` | `GET /v1/videos/{id}` | `<id> <status> <progress>%`, with the error of a failed job |
+| `jobs` | `GET /v1/jobs` | `<id> <state> <role> <model> <age>` per queued or running job; `(cancelling)` after a running job with a cancel asked |
+| `cancel ID`, `cancel --all` | `DELETE /v1/jobs/{id}`, `DELETE /v1/jobs` | the cancelled jobs, as `jobs` prints them |
 | `video` | `POST /v1/videos`, then `GET /v1/videos/{id}` every 0.5 s, then `GET /v1/videos/{id}/content` | the job's status at creation and at each change, then the MP4's path and the wall time; without `--image` the request has no `input_reference` (a video from the prompt alone) |
 | `image` | `POST /v1/images/generations` | the PNG's path and the wall time |
 | `speech` | `POST /v1/audio/speech` | the WAV file's path and the wall time |
@@ -457,7 +497,7 @@ model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voic
 ## Tests
 
 Unit tests (`tests/unit/model_server/`) cover the routing (`ModelRef` on tests/config.yaml: local ids, `ollama:<tag>`,
-the 404 of a bare tag), the scheduler with no model, request parsing, the rewriting of `model` in forwarded bodies and
+the 404 of a bare tag), the scheduler with no model (the job list, the cancel of a queued job, which leaves the queue, of a running job, which sets its signal, `cancel_all` and `Job.interruptible`), request parsing, the rewriting of `model` in forwarded bodies and
 answers (JSON, server-sent events, NDJSON), error bodies, video jobs and the model list. Integration tests
 (`tests/integration/model_server/`) start the real app on uvicorn on a free port in a thread of the test process with
 tests/config.yaml, and call every endpoint with the tiny models through the `openai` SDK where it has the call (httpx

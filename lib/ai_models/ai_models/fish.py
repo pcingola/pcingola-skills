@@ -20,6 +20,9 @@ to the model behind the span's speaker tag, so the reference and the request nam
 reads an untagged transcript or text as speaker 0). The answer is one WAV file at the codec's rate (44.1 kHz), the
 spans joined in order. `style` (optional) is a format string with `{instructions}` and `{text}`
 that puts the caller's instructions into each span without a style tag of its own.
+
+Cancellation: with a cancel signal (`cancel.signal`) the synthesis stops with `Cancelled` before each span and after
+each chunk that `generate_long` yields.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ from typing import Any
 
 from plugin_settings import FishModel, FishProvider, ProviderKind
 
-from . import local
+from . import cancel, local
 from .errors import AIModelsError
 from .fish_span import Span, split_spans
 from .fish_take import Take
@@ -134,8 +137,12 @@ def _codes(m: Loaded, span: Span, text: str, reference: Take | None, max_frames:
     ref = {} if reference is None else {"prompt_text": [span.with_speaker(reference.text)],
                                         "prompt_tokens": [reference.codes]}
     cap = {} if max_frames is None else {"max_new_tokens": max_frames}
-    codes = [r.codes for r in generate_long(model=m.model, device=DEVICE, decode_one_token=m.decode_one_token,
-                                            text=text, compile=False, **ref, **cap) if r.action == "sample"]
+    codes = []
+    for r in generate_long(model=m.model, device=DEVICE, decode_one_token=m.decode_one_token, text=text,
+                           compile=False, **ref, **cap):
+        cancel.check()
+        if r.action == "sample":
+            codes.append(r.codes)
     if not codes:
         raise AIModelsError(f"the model answered no audio for {text[:80]!r}")
     return torch.cat(codes, 1)
@@ -156,6 +163,7 @@ def _span_audio(m: Loaded, model_id: str, span: Span, entry: FishModel, instruct
     speaker tag number) when that voice has none."""
     from fish_speech.models.text2semantic.inference import decode_to_audio
 
+    cancel.check()
     reference = takes.get(model_id, speaker, span.speaker_id)
     codes = _codes(m, span, span.said(entry.style, instructions), reference, entry.max_frames)
     audio = decode_to_audio(codes.to(m.model.device), m.codec).float().cpu().numpy()

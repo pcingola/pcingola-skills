@@ -4,7 +4,8 @@ body with `model` set to the tag, and the answer's JSON objects carry the id the
 
 A request whose JSON body names a `model` runs as one request to that model: it waits for its turn in the scheduler,
 idle in-process models make room for it (`Residency.begin`), and its slot ends when the answer ends, a streamed chat
-included. A request without a model (`GET /api/tags`, `GET /api/ps`) goes to Ollama at once, unchanged. A model id
+included. Such a request is a job of the scheduler, of role chat or embedding (`Ollama.role`); its cancel closes
+the request to Ollama (`Ollama.forward`). A request without a model (`GET /api/tags`, `GET /api/ps`) goes to Ollama at once, unchanged. A model id
 of a local provider on one of these paths is an error (404): the local models have their own endpoints.
 """
 
@@ -43,9 +44,10 @@ async def forward(request: Request) -> Response:
         raise ServerError(404, f"{request.url.path} does not serve the local model {ref.id}; it has its own "
                           "endpoint (docs: model_server)", ErrorType.NOT_FOUND, "model_not_supported", "model")
     body = with_model(body, ref.tag)
-    lease = await srv.admit(ref)
+    job = srv.submit(ref, role=await srv.ollama.role(ref.tag))
+    lease = await srv.admit(ref, job)
     try:
-        return await srv.ollama.forward(request, body, lease.release, ref.id)
+        return await srv.ollama.forward(request, body, lease.release, ref.id, job)
     except BaseException:
         lease.release()
         raise

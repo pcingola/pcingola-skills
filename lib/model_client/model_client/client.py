@@ -3,6 +3,8 @@
 
     model-client [--url URL | --provider NAME] models [--tests] [ID]
     model-client [--url URL | --provider NAME] status VIDEO_ID
+    model-client [--url URL | --provider NAME] jobs
+    model-client [--url URL | --provider NAME] cancel (ID | --all)
     model-client [--url URL | --provider NAME] video --model ID [--image FILE] --prompt TEXT [--seconds S]
                                                      [--aspect A] [--size WxH] [--seed N] [-o OUT]
     model-client [--url URL | --provider NAME] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
@@ -12,7 +14,9 @@ The server's `/v1` base URL is, in order: `--url`, the `base_url` of the provide
 the provider `model_client.provider`, `http://localhost:<model_server.port>/v1` (`plugin_settings`). Model
 ids are the server's, as `GET /v1/models` lists them: `<runtime>:<model>`. `models` prints `server: <provider or
 URL>`, then one line per model, `<role> <runtime> <id>`, grouped by role in `ROLES` order; it hides the test models
-(`test: true`) unless `--tests`. A generated file goes to `-o`, else to the current directory
+(`test: true`) unless `--tests`. `jobs` prints one line per queued or running job of the server (`GET /v1/jobs`),
+`<id> <state> <role> <model> <age>`; `cancel` cancels one job (`DELETE /v1/jobs/{id}`) or every job
+(`DELETE /v1/jobs`) and prints the cancelled jobs the same way. A generated file goes to `-o`, else to the current directory
 as `<model id, ':' and '/' as '_'>_<YYYYmmdd-HHMMSS>.<ext>`; an existing file is never overwritten.
 
 The calls are the `openai` SDK's on a client with `base_url` the URL, as `ai_models.video` makes them. This is a direct
@@ -153,6 +157,56 @@ def status_line(job: Video) -> str:
     return line + (f": {job.error.code}: {job.error.message}" if job.error else "")
 
 
+@dataclass(frozen=True)
+class Job:
+    """A job of `GET /v1/jobs`: its id, state (queued, running), role (None when the server names none), model,
+    creation time (Unix seconds) and whether a cancel was asked."""
+
+    id: str
+    state: str
+    role: str | None
+    model: str
+    created_at: float
+    cancelled: bool
+
+    @classmethod
+    def of(cls, data: dict[str, Any]) -> Job:
+        return cls(data["id"], data["state"], data.get("role"), data["model"], float(data["created_at"]),
+                   bool(data.get("cancelled")))
+
+
+def _jobs(got: dict[str, Any]) -> list[Job]:
+    return [Job.of(j) for j in got.get("data") or []]
+
+
+def jobs(client: openai.OpenAI) -> list[Job]:
+    """The queued and running jobs of the server (`GET /v1/jobs`), oldest first."""
+    with answered():
+        return _jobs(client.get("/jobs", cast_to=object))
+
+
+def cancel(client: openai.OpenAI, job_id: str) -> Job:
+    """Cancel the job `job_id` (`DELETE /v1/jobs/{id}`); the job as the server answers it. `ClientError` (HTTP
+    404 `job_not_found`) when no such job is queued or running."""
+    with answered():
+        return Job.of(client.delete(f"/jobs/{job_id}", cast_to=object))
+
+
+def cancel_all(client: openai.OpenAI) -> list[Job]:
+    """Cancel every job of the server (`DELETE /v1/jobs`); the cancelled jobs."""
+    with answered():
+        return _jobs(client.delete("/jobs", cast_to=object))
+
+
+def job_lines(listed: list[Job], now: float) -> list[str]:
+    """`<id> <state> <role> <model> <age>` per job, in aligned columns: `-` for a missing role, the age since the
+    job was created at `now` (Unix seconds) as `<s>s`, and `(cancelling)` after a running job with a cancel asked."""
+    rows = [(j.id, j.state, j.role or "-", j.model, f"{max(0.0, now - j.created_at):.0f}s"
+             + (" (cancelling)" if j.cancelled and j.state == "running" else "")) for j in listed]
+    widths = [max((len(r[i]) for r in rows), default=0) for i in range(4)]
+    return [" ".join(f"{r[i]:<{widths[i]}}" for i in range(4)) + f" {r[4]}" for r in rows]
+
+
 def image_file(image: bytes) -> tuple[str, bytes, str]:
     """The multipart file of an image: (name, bytes, media type), PNG unless the bytes are JPEG."""
     return ("image.jpg", image, "image/jpeg") if image[:3] == b"\xff\xd8\xff" else ("image.png", image, "image/png")
@@ -237,6 +291,11 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("id", nargs="?")
     s = sub.add_parser("status", help="the status of a video job")
     s.add_argument("id")
+    sub.add_parser("jobs", help="the queued and running jobs of the server")
+    c = sub.add_parser("cancel", help="cancel a job of the server, or every job")
+    which = c.add_mutually_exclusive_group(required=True)
+    which.add_argument("id", nargs="?", help="the job's id, as `jobs` lists it (a video job's is the video's id)")
+    which.add_argument("--all", action="store_true", help="cancel every queued and running job")
     v = sub.add_parser("video", help="an MP4 of a prompt, or of an image animated as the prompt describes")
     v.add_argument("--model", required=True)
     v.add_argument("--image", type=Path, help="the first frame, PNG or JPEG (optional: without it the video comes "
@@ -273,6 +332,15 @@ def run(args: argparse.Namespace) -> None:
         return
     if args.command == "status":
         print(status_line(status(client, args.id)))
+        return
+    if args.command in ("jobs", "cancel"):
+        if args.command == "jobs":
+            listed = jobs(client)
+        else:
+            listed = cancel_all(client) if args.all else [cancel(client, args.id)]
+        lines = job_lines(listed, time.time())
+        if lines:
+            print("\n".join(lines))
         return
     ext = {"video": "mp4", "image": "png", "speech": "wav"}[args.command]
     path = output_path(args.output, args.model, ext, Path.cwd(), datetime.now())

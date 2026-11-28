@@ -303,6 +303,18 @@ model). It prints a line on stderr, reads the free memory every 5 s and the unlo
 request moves them), and stops when the free memory suffices or `SETTLE_SECONDS` after the last unload time. It
 unloads nothing.
 
+## Cancellation
+
+`ai_models.cancel` is the cancel signal of an in-process call, a `threading.Event`. `cancel.signal(event)` makes it
+the signal of the calls of a block, through a context variable that `asyncio.to_thread` copies into its worker
+thread. `cancel.check()` raises `Cancelled` (an `AIModelsError`) when the signal is set; the runtimes call it where
+control returns to this package: diffusers pipelines at each denoising step (`cancel.stoppable`:
+`callback_on_step_end`, else a forward pre-hook on the `transformer` or `unet`, `cancel.hooked`), chatterbox before
+each T3 forward, fish before each span and after each chunk, kokoro before `Kokoro.create`, the torchaudio aligner
+before the acoustic model and the alignment. Without a signal, as in a skill's own process, `check` does nothing and
+no hook or callback is added. The model server sets the signal of a job it cancels (docs/model_server.md, Jobs).
+`tests/unit/ai_models/test_cancel.py` checks `check` and `hooked` on a `torch.nn.Linear`.
+
 ## Local speech and alignment
 
 A speech model's entry (`providers.<p>.models.<m>`, any class deriving `Voices`) takes `voice` (its default voice;

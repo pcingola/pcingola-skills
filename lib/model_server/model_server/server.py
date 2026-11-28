@@ -1,5 +1,5 @@
-"""`Server`: the state of one model server: its settings, the scheduler, the in-process models, Ollama, the
-video jobs and the reference recordings of speech requests."""
+"""`Server`: the state of one model server: its settings, the scheduler and its jobs, the in-process models, Ollama,
+the video jobs and the reference recordings of speech requests."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from typing import Any
 import plugin_settings
 from plugin_settings import Config, ModelServerSettings
 
+from .job import Job, cancelled_error
 from .lease import Lease
 from .model_ref import ModelRef
 from .model_role import ModelRole
@@ -47,10 +48,18 @@ class Server:
         ref = ModelRef.parse(model, self.config())
         return ref.require(*roles) if roles else ref
 
-    async def admit(self, ref: ModelRef) -> Lease:
-        """A scheduler slot for `ref` with room made for it (`Residency.begin`); the caller ends it with `finish`."""
-        lease = await self.scheduler.acquire(ref.id, ref.parallel)
+    def submit(self, ref: ModelRef, job_id: str | None = None, role: ModelRole | None = None) -> Job:
+        """A new queued job of `ref` (`Scheduler.submit`), of `role`, else of the model's role."""
+        return self.scheduler.submit(ref.id, ref.parallel, role or ref.role, job_id)
+
+    async def admit(self, ref: ModelRef, job: Job | None = None) -> Lease:
+        """A scheduler slot for the job `job` of `ref` (a new one when None) with room made for it
+        (`Residency.begin`); the caller ends it with `finish`. `cancelled_error` when the job is cancelled before
+        it runs."""
+        lease = await self.scheduler.acquire(job or self.submit(ref))
         try:
+            if lease.job.cancelled:
+                raise cancelled_error(lease.job.id)
             await self.residency.begin(ref)
         except BaseException:
             lease.release()
@@ -64,11 +73,21 @@ class Server:
             lease.release()
 
     @asynccontextmanager
-    async def running(self, ref: ModelRef) -> AsyncIterator[None]:
-        """Run the block as one request to `ref`: admitted by the scheduler, with room made in memory."""
-        lease = await self.admit(ref)
+    async def running(self, ref: ModelRef, job: Job | None = None) -> AsyncIterator[Job]:
+        """Run the block as the job `job` of `ref` (a new one when None): admitted by the scheduler, with room made
+        in memory, the job's signal the `ai_models.cancel` signal of the block's in-process calls. A cancelled job
+        raises `cancelled_error`: when its call stops with `ai_models.Cancelled`, and when it returns after the
+        cancel (its result is discarded). The slot is released once the block ends."""
+        from ai_models import Cancelled, cancel
+
+        lease = await self.admit(ref, job)
         try:
-            yield
+            with cancel.signal(lease.job.signal):
+                yield lease.job
+            if lease.job.cancelled:
+                raise cancelled_error(lease.job.id)
+        except Cancelled:
+            raise cancelled_error(lease.job.id) from None
         finally:
             await self.finish(ref, lease)
 

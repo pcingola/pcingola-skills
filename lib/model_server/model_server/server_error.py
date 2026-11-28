@@ -16,6 +16,7 @@ class ErrorType(StrEnum):
     INSUFFICIENT_MEMORY = "insufficient_memory_error"
     UPSTREAM = "upstream_error"
     SERVER = "server_error"
+    CANCELLED = "cancelled_error"
 
 
 class ServerError(Exception):
