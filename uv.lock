@@ -16,6 +16,7 @@ resolution-markers = [
 overrides = [
     { name = "diffusers", specifier = "==0.43.0" },
     { name = "numpy", specifier = "==2.4.4" },
+    { name = "plugin-settings", editable = "lib/plugin_settings" },
     { name = "protobuf", specifier = ">=6.31.1" },
     { name = "safetensors", specifier = "==0.8.0" },
     { name = "torch", marker = "sys_platform != 'linux'", specifier = "==2.11.*" },
@@ -1817,6 +1818,23 @@ wheels = [
 ]
 
 [[package]]
+name = "model-client"
+version = "0.1.0"
+source = { editable = "lib/model_client" }
+dependencies = [
+    { name = "openai" },
+    { name = "plugin-settings" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "openai", specifier = ">=2.3" },
+    { name = "plugin-settings", git = "https://github.com/pcingola/pcingola-skills?subdirectory=lib%2Fplugin_settings&branch=main" },
+    { name = "pyyaml", specifier = ">=6" },
+]
+
+[[package]]
 name = "model-server"
 version = "0.1.0"
 source = { editable = "lib/model_server" }
@@ -3248,6 +3266,7 @@ dev = [
     { name = "kokoro-onnx" },
     { name = "librosa" },
     { name = "lxml" },
+    { name = "model-client" },
     { name = "model-server", extra = ["align", "chatterbox", "diffusers", "kokoro"] },
     { name = "num2words" },
     { name = "numpy" },
@@ -3285,6 +3304,7 @@ dev = [
     { name = "kokoro-onnx", specifier = ">=0.6.1,<0.7" },
     { name = "librosa", specifier = ">=0.11" },
     { name = "lxml", specifier = ">=5.0" },
+    { name = "model-client", editable = "lib/model_client" },
     { name = "model-server", extras = ["diffusers", "kokoro", "chatterbox", "align"], editable = "lib/model_server" },
     { name = "num2words" },
     { name = "numpy", specifier = ">=2" },

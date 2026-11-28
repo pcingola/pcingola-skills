@@ -4,7 +4,7 @@ Maintainer documentation. Agent-facing documentation is in each skill's `SKILL.m
 
 - [architecture.md](architecture.md): the repository rules, their reasons and the tests that enforce them.
 - [ai_models.md](ai_models.md): `lib/ai_models`, every model call of the skills, its providers and model routes.
-- [model_server.md](model_server.md): `lib/model_server`, the OpenAI-compatible server of the local models, its endpoints, routing, scheduling and memory.
+- [model_server.md](model_server.md): `lib/model_server`, the OpenAI-compatible server of the local models, its endpoints, routing, scheduling and memory; `lib/model_client`, its command-line client `model-client`.
 - [plugin_settings.md](plugin_settings.md): `lib/plugin_settings`, the settings file `config.yaml` and the plugin data directories.
 - [brand.md](brand.md): `brand:brand`, brand folders and their lookup.
 - [style.md](style.md): `brand:style`, the catalogue of visual styles.

@@ -1,4 +1,4 @@
-"""`model_server.client` (`model-client`, docs/model_server.md, Command-line client): its core functions in process
+"""`model_client.client` (`model-client`, docs/model_server.md, Command-line client): its core functions in process
 against the real server of tests/config.yaml (`serve`) on a free port, with the tiny models: the model list, one
 model's entry, a video job, an image, speech, the default output name, the refusal to overwrite and a failed video
 job's error."""
@@ -10,7 +10,7 @@ import pytest
 import torch
 from PIL import Image
 
-from model_server import client as cli
+from model_client import client as cli
 from tests.integration.model_server.conftest import serve
 from tests.media import clip, png
 from tests.prereq import requires

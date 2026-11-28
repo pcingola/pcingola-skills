@@ -9,7 +9,6 @@
     ollama         `Ollama`: forwarding and the memory calls of Ollama
     catalog        the local models as `openai.types.Model`
     routes_*       the endpoints: images, audio (speech, music, alignments), videos, models, Ollama forwarding
-    client         `model-client`: a command-line client of a server at a URL
 """
 
 from .app import create_app

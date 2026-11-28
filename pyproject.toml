@@ -17,6 +17,7 @@ dev = [
     "ai-models[diffusers]",
     "plugin-settings",
     "model-server[diffusers,kokoro,chatterbox,align]",
+    "model-client",
     "psutil",
     # batch-run
     "pydantic>=2",
@@ -63,6 +64,9 @@ override-dependencies = [
     "numpy==2.4.4",
     "safetensors==0.8.0",
     "protobuf>=6.31.1",
+    # lib/model_client declares a git source for plugin-settings (it installs alone with `uv tool install`); this
+    # override, resolved with the path source below, replaces that requirement (docs/architecture.md, Shared packages)
+    "plugin-settings",
 ]
 dependency-metadata = [
     { name = "fish-speech", version = "3.0.0", requires-dist = [
@@ -78,6 +82,7 @@ dependency-metadata = [
 ai-models = { path = "lib/ai_models", editable = true }
 plugin-settings = { path = "lib/plugin_settings", editable = true }
 model-server = { path = "lib/model_server", editable = true }
+model-client = { path = "lib/model_client", editable = true }
 fish-speech = { git = "https://github.com/fishaudio/fish-speech", rev = "0f8a12e8a651062fdee9c33a894bdccd3a8513f1" }
 # CUDA 13.0 builds on Linux (aarch64 and x86_64); PyPI's default build on macOS (MPS)
 torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]

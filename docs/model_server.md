@@ -29,7 +29,6 @@ its environment settings (`plugin_settings.export`) and listens on `model_server
 | `video_job.py`, `video_jobs.py` | `VideoJob` (shown as `openai.types.Video`), `VideoJobs` |
 | `forms.py`, `requests.py`, `server_error.py` | request parsing, `ServerError` and its JSON body |
 | `references.py` | `References`: the reference recordings of speech requests, as files |
-| `client.py` | `model-client`: the command-line client of a server at a URL |
 
 ## Routing
 
@@ -363,11 +362,19 @@ The server's models are the local providers of the same file. Each model entry o
 
 ## Command-line client
 
-`model_server.client` is a client of a server at a URL, run as `model-client` (the console script of the package) or
-`python -m model_server.client`. In the server's environment it is `.venv/bin/model-client`; in this repository,
-`uv run --group dev model-client ...` from the repository root (`lib/model_server` alone has no uv sources for
-`ai-models` and `plugin-settings`). Each request to a `.local` name from macOS spends about 5 s resolving it (no A
-record over mDNS), so the printed wall time of a short request is mostly that lookup.
+`lib/model_client` (distribution `model-client`, module `model_client.client`) is a client of a server at a URL. It
+depends on `openai`, `pyyaml` and `plugin-settings` (the default URL's port), not on the server, and installs as the
+command `model-client` on the `PATH`, run from any directory:
+
+```
+uv tool install "git+https://github.com/pcingola/pcingola-skills#subdirectory=lib/model_client"
+uv tool upgrade model-client
+```
+
+`uv tool upgrade` reinstalls from the same git URL at the head of `main`. In this repository it also runs as
+`uv run --group dev model-client ...` or `python -m model_client` from the repository root. Each request to a
+`.local` name from macOS spends about 5 s resolving it (no A record over mDNS), so the printed wall time of a short
+request is mostly that lookup.
 
 ```
 model-client [--url URL] models [ID]

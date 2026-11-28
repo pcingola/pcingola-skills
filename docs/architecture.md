@@ -101,7 +101,7 @@ each one is listed here with its reason:
   for a presenter job, whose narration is a second file that `videos.create` cannot send. The model attributes a
   client needs come from `GET /models/{id}` over HTTP (httpx), no model call; Pydantic-AI has no call for a model's
   metadata.
-- The model server's command-line client (`model_server.client`, `docs/model_server.md`, Command-line client). It
+- The model server's command-line client (`lib/model_client`, `docs/model_server.md`, Command-line client). It
   calls a server at a URL given on its command line with the OpenAI SDK (`images.generate`, `audio.speech.create`,
   `videos.create`, `retrieve`, `download_content`, `models.list`, `models.retrieve`), the calls `ai_models.video`
   makes. `ai_models` reaches a server only through a provider of `config.yaml`, and this tool exists to call a server
@@ -129,6 +129,12 @@ The shared Python packages have one source each, in `lib/`. `plugins/<plugin>/li
 "<origin URL>", subdirectory = "lib/<dir>", branch = "main" }`, with no `rev`, `tag` or path source
 (`test_lib_sources_follow_main`). A shared package declares no `[tool.uv.sources]` of its own, so a project that
 installs `ai-models` also declares the `plugin-settings` source.
+
+`lib/model_client` is the one exception: it is a command, installed alone with `uv tool install` from its git
+subdirectory, where no project declares sources for it, so it declares the `plugin-settings` git source itself. The
+root project depends on both with path sources, and uv refuses two URLs for one package; the root's
+`override-dependencies` lists `plugin-settings`, and the override, resolved with the root's path source, replaces the
+git requirement of `model-client` in the `dev` environment.
 
 uv fetches the packages from the git origin when it builds a skill's environment, so a plugin, in place or as a
 cache copy, needs no file outside its directory. The access this needs is in `README.md`: building an environment

@@ -18,10 +18,6 @@ dependencies = [
     "psutil",
 ]
 
-[project.scripts]
-# The command-line client of a server at a URL (model_server.client)
-model-client = "model_server.client:main"
-
 [project.optional-dependencies]
 # The extras of ai-models, one per local runtime the server runs in process
 diffusers = ["ai-models[diffusers]"]

@@ -1,4 +1,4 @@
-"""`model-client` (`python -m model_server.client`): a command-line client of a model server at a URL
+"""`model-client` (`python -m model_client`): a command-line client of a model server at a URL
 (docs/model_server.md, Command-line client).
 
     model-client [--url URL] models [ID]
@@ -107,14 +107,17 @@ def status_line(job: Video) -> str:
     return line + (f": {job.error.code}: {job.error.message}" if job.error else "")
 
 
+def image_file(image: bytes) -> tuple[str, bytes, str]:
+    """The multipart file of an image: (name, bytes, media type), PNG unless the bytes are JPEG."""
+    return ("image.jpg", image, "image/jpeg") if image[:3] == b"\xff\xd8\xff" else ("image.png", image, "image/png")
+
+
 def video(client: openai.OpenAI, model_id: str, image: bytes, prompt: str, *, seconds: float | None = None,
           aspect: float | None = None, size: str | None = None, seed: int | None = None,
           on_status: Callable[[Video], None] | None = None) -> bytes:
     """The MP4 of a video job (`POST /v1/videos`) of `image` (PNG or JPEG bytes) animated as `prompt` describes,
     polled until it completes; `on_status` gets the job at creation and at each change of status. `ClientError`
     with the job's error when it fails."""
-    from ai_models.video import image_file
-
     extra = {k: v for k, v in (("aspect", aspect), ("seed", seed)) if v is not None}
     with video_calls():
         job = client.videos.create(model=model_id, prompt=prompt, input_reference=image_file(image),
