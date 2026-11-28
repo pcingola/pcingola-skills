@@ -31,10 +31,10 @@ def test_template_validates():
     cfg = Config.model_validate(yaml.safe_load(TEMPLATE.read_text(encoding="utf-8")))
     assert cfg.model_entry("vertex:lyria-002").predict
     assert cfg.model_entry("azure:gpt-image-2").image.always_sized
-    assert isinstance(cfg.model_entry("local:flux2-klein-4b"), DiffusersImageModel)
-    assert isinstance(cfg.model_entry("local:ace-step-sft"), DiffusersMusicModel)
-    assert isinstance(cfg.model_entry("local:ltx-2.5"), DiffusersVideoModel)
-    assert isinstance(cfg.model_entry("local:kandinsky-s2v"), DiffusersPresenterModel)
+    assert isinstance(cfg.model_entry("diffusers:flux2-klein-4b"), DiffusersImageModel)
+    assert isinstance(cfg.model_entry("diffusers:ace-step-sft"), DiffusersMusicModel)
+    assert isinstance(cfg.model_entry("diffusers:ltx-2.5"), DiffusersVideoModel)
+    assert isinstance(cfg.model_entry("diffusers:kandinsky-s2v"), DiffusersPresenterModel)
     assert cfg.model_entry("kokoro:kokoro-v1.0").voice == "af_heart"
     assert cfg.model_entry("torchaudio:MMS_FA").url.startswith("https://")
 
@@ -314,6 +314,17 @@ def test_memory_on_every_local_model_entry():
     assert unset.model_entry("d:m").memory is None and unset.model_entry("t:m").memory is None
     assert problems({"providers": {"d": {"kind": "diffusers", "models": {"m": {"repo": "r", "memory": 0}}}}}) == [
         "providers.d.models.m.memory: Input should be greater than 0"]
+
+
+def test_test_marker_on_local_providers_only():
+    """Every provider of a local kind takes `test` (false by default; true marks its models as test models); a
+    remote kind does not."""
+    kinds = ("diffusers", "kokoro", "chatterbox", "torchaudio", "fish")
+    cfg = Config.model_validate({"providers": {k: {"kind": k, "test": True} for k in kinds} | {"d": {
+        "kind": "diffusers"}}})
+    assert [cfg.providers[k].test for k in (*kinds, "d")] == [True] * len(kinds) + [False]
+    assert problems({"providers": {"o": {"kind": "ollama", "test": True}}}) == [
+        "providers.o.test: not a setting of kind ollama"]
 
 
 def test_model_client_provider_is_a_server():

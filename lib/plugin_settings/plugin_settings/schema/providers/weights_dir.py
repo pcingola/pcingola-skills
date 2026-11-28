@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Self
 
-from ..base import Strict
 from ..fields import UserPath
+from .local import LocalProvider
 
 
-class WeightsDir(Strict):
+class WeightsDir(LocalProvider):
     """`dir`: the weights directory; a model's files go to `<dir>/<model lowercased>/`. None: the caller's
     default (`with_dir`)."""
 

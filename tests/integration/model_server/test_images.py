@@ -57,7 +57,7 @@ def test_wrong_role_and_unknown_model_are_openai_errors(running):
         running.client.images.generate(model=task_model("video"), prompt="a cat")
     assert e.value.code == "model_not_supported"
     with pytest.raises(openai.NotFoundError) as e:
-        running.client.images.generate(model="local:no-such-model", prompt="a cat")
+        running.client.images.generate(model="diffusers:no-such-model", prompt="a cat")
     assert e.value.code == "model_not_found"
     with pytest.raises(openai.BadRequestError) as e:
         running.client.images.generate(model=MODEL, prompt="a cat", response_format="url")

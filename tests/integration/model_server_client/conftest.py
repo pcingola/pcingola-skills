@@ -26,16 +26,11 @@ class Client:
     config: Path
 
 
-def server_id(model_id: str) -> str:
-    """The server's id of a model of tests/config.yaml: an Ollama tag without the `ollama:` provider, else the
-    local model's `<provider>:<model>`."""
-    provider, model = model_id.split(":", 1)
-    return model if config_sections()["providers"][provider]["kind"] == "ollama" else model_id
-
-
 def client_id(task: str) -> str:
-    """The client's model id of the model of `task` in tests/config.yaml, on `SERVER`."""
-    return f"{SERVER}:{server_id(config_sections()['tasks'][task])}"
+    """The client's model id of the model of `task` in tests/config.yaml, on `SERVER`: the server's ids are the
+    tasks' ids, `ollama:<tag>` for an Ollama model (the server's provider of kind `ollama` is named `ollama`) and
+    `<provider>:<model>` for a local one."""
+    return f"{SERVER}:{config_sections()['tasks'][task]}"
 
 
 def client_sections(url: str) -> dict:

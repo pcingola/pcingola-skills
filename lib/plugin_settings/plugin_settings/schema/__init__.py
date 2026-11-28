@@ -27,8 +27,9 @@ from .openai_image_limits import OpenAIImageLimits
 from .openai_model import OpenAIModel
 from .provider_kind import API_KINDS, IMAGE_LIMIT_KINDS, LOCAL_KINDS, OPENAI_KINDS, SPEECH_KINDS, ProviderKind
 from .providers import (OLLAMA_URL, AzureProvider, ChatterboxProvider, DiffusersProvider, FishProvider,
-                        GoogleProvider, KokoroProvider, OllamaProvider, OpenAIKindProvider, OpenAIProvider,
-                        OpenRouterProvider, Provider, RemoteProvider, TimedProvider, TorchaudioProvider, WeightsDir)
+                        GoogleProvider, KokoroProvider, LocalProvider, OllamaProvider, OpenAIKindProvider,
+                        OpenAIProvider, OpenRouterProvider, Provider, RemoteProvider, TimedProvider,
+                        TorchaudioProvider, WeightsDir)
 from .quality import Quality
 from .second_opinion import SecondOpinionSettings
 from .studio import StudioSettings
@@ -44,7 +45,7 @@ __all__ = [
     "DiffusersEntry", "DiffusersImageLimits", "DiffusersImageModel", "DiffusersModel", "DiffusersMusicModel",
     "DiffusersPresenterModel", "DiffusersProvider", "DiffusersRole", "DiffusersVideoModel", "FishModel",
     "FishProvider", "GoogleModel",
-    "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "LocalMemory", "LocalModels", "ModelClientSettings", "ModelId", "ModelServerSettings", "Network",
+    "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "LocalMemory", "LocalProvider", "LocalModels", "ModelClientSettings", "ModelId", "ModelServerSettings", "Network",
     "OllamaProvider", "OpenAIImageLimits", "OpenAIKindProvider", "OpenAIModel", "OpenAIProvider",
     "OpenRouterProvider", "Provider", "ProviderKind", "Quality", "RemoteProvider", "SecondOpinionSettings", "Strict",
     "StudioSettings", "Task", "TimedProvider", "TorchaudioModel", "TorchaudioProvider",

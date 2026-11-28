@@ -17,7 +17,7 @@ from tests.prereq import requires
 from tests.settings_env import TEST_CONFIG
 
 # The tests/config.yaml entry of the LTX-2 model, whose pipeline generates a sound track with the frames.
-LTX2 = "local:ltx2-tiny"
+LTX2 = "diffusers:ltx2-tiny"
 HAS_GPU = torch.cuda.is_available() or torch.backends.mps.is_available()
 
 

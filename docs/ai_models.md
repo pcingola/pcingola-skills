@@ -53,7 +53,7 @@ modules below do not check a provider's kind again. The functions of `config` lo
 
 | Function | Returns |
 |---|---|
-| `split_id(model_id)` | (provider name, model); the first colon splits, so `ollama:d3:4b` is the Ollama tag `d3:4b` |
+| `split_id(model_id)` | (provider name, model); the first colon splits, so `ollama:d3:4b` is the Ollama tag `d3:4b` and `srv:ollama:d3:4b` the server model `ollama:d3:4b` |
 | `model_for(task)`, `resolve(model, task)` | `tasks.<task>`; `resolve` returns `model` when given, after `Config.task_error` |
 | `provider(name)` | the typed provider `providers.<name>` |
 | `model_entry(model_id)` | `providers.<p>.models.<m>`, None when the provider has no entry for the model |
@@ -130,9 +130,9 @@ second-opinion (`chat`, `vision`). Each `SKILL.md` has a "Model routes" section 
 goes to the call as `--model`. Skills that load image-gen (infographic, pptx-author, studio, video-effects) route
 through image-gen, by the tier they ask for.
 
-The template rows come from wall-time and quality measurements on an NVIDIA GB10 with the `local` models of
+The template rows come from wall-time and quality measurements on an NVIDIA GB10 with the `diffusers` models of
 `config.example.yaml`. Each template default row names the config template's `tasks.<task>`
-(`local:flux2-klein-4b` for `image`, `local:ltx-2.5` for `video`, `local:ace-step-sft` for `music`,
+(`diffusers:flux2-klein-4b` for `image`, `diffusers:ltx-2.5` for `video`, `diffusers:ace-step-sft` for `music`,
 `kokoro:kokoro-v1.0` for `speech`). A user without one of the escalation models has that row dropped.
 
 Sizes and wall times of the template's local models on the GB10 (crest factors of the music models: `docs/music.md`):
@@ -464,9 +464,10 @@ RoPE has 128 positions, so its config passes a short `prompt` in `args`.
 ## Model server
 
 A provider of kind `openai` whose `base_url` is the `/v1` of a model server (`lib/model_server`,
-`docs/model_server.md`) serves every task: the server runs its local models and forwards the other models to
-Ollama. A client's model id is the provider name, then the server's model id, split at the first colon:
-`srv:local:ltx-video` (a local diffusers model), `srv:kokoro:kokoro-v1.0`, `srv:gemma3:270m` (an Ollama tag).
+`docs/model_server.md`) serves every task: the server runs its local models and forwards the Ollama models to
+Ollama. A client's model id is the provider name, then the server's model id `<runtime>:<model>`, split at the first
+colon: `srv:diffusers:ltx-video` (a local diffusers model), `srv:kokoro:kokoro-v1.0`, `srv:ollama:gemma3:270m` (the
+Ollama tag `gemma3:270m`).
 Chat, vision, audio input, embeddings, System-1 (`<base_url>/systemone`, which the server forwards to Ollama),
 images and speech take the paths of the `openai` kind. The schema takes `openai` for align, music, video and
 presenter only with a `base_url` (`SERVER_TASKS`).

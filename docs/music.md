@@ -37,8 +37,8 @@ with the audio (lyrics or song structure).
 
 ACE-Step 1.5 XL turbo (`ACE-Step/acestep-v15-xl-turbo-diffusers`, 8 steps) generates loud, compressed audio at 8,
 16 and 32 steps. The XL SFT model (`ACE-Step/acestep-v15-xl-sft-diffusers`, 50 steps, guidance 7) takes about 12 s
-per 30 s clip and won a listening test against turbo. The config template's `tasks.music` is `local:ace-step-sft`;
-the turbo model `local:ace-step` is for quick drafts. The tests use a random-weight ACE-Step pipeline built from
+per 30 s clip and won a listening test against turbo. The config template's `tasks.music` is `diffusers:ace-step-sft`;
+the turbo model `diffusers:ace-step` is for quick drafts. The tests use a random-weight ACE-Step pipeline built from
 diffusers' test components (`tests/tiny_ace_step.py`), which makes noise; the crest tests set their thresholds from
 that noise.
 

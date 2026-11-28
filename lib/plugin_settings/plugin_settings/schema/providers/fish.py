@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from ..base import Strict
 from ..fields import Catalogue
 from ..fish_model import FishModel
+from .local import LocalProvider
 
 
-class FishProvider(Strict):
+class FishProvider(LocalProvider):
     kind: Literal["fish"]
     models: Catalogue[FishModel] = {}

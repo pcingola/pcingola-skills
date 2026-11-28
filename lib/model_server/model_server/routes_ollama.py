@@ -1,10 +1,11 @@
-"""Every other path under `/v1/` and `/api/`: forwarded to Ollama unchanged (`Ollama.forward`), the answer streamed
-back as Ollama sends it.
+"""Every other path under `/v1/` and `/api/`: forwarded to Ollama (`Ollama.forward`), the answer streamed back as
+Ollama sends it. The `model` of a JSON body is an Ollama model id, `<prefix>:<tag>` (`ModelRef`); Ollama gets the
+body with `model` set to the tag, and the answer's JSON objects carry the id the client sent.
 
 A request whose JSON body names a `model` runs as one request to that model: it waits for its turn in the scheduler,
 idle in-process models make room for it (`Residency.begin`), and its slot ends when the answer ends, a streamed chat
-included. A request without a model (`GET /api/tags`, `GET /api/ps`) goes to Ollama at once. A model id of a local
-provider on one of these paths is an error (404): the local models have their own endpoints.
+included. A request without a model (`GET /api/tags`, `GET /api/ps`) goes to Ollama at once, unchanged. A model id
+of a local provider on one of these paths is an error (404): the local models have their own endpoints.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import json
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
+from .ollama import with_model
 from .requests import server_of
 from .server_error import ErrorType, ServerError
 
@@ -40,9 +42,10 @@ async def forward(request: Request) -> Response:
     if ref.local:
         raise ServerError(404, f"{request.url.path} does not serve the local model {ref.id}; it has its own "
                           "endpoint (docs: model_server)", ErrorType.NOT_FOUND, "model_not_supported", "model")
+    body = with_model(body, ref.tag)
     lease = await srv.admit(ref)
     try:
-        return await srv.ollama.forward(request, body, lease.release)
+        return await srv.ollama.forward(request, body, lease.release, ref.id)
     except BaseException:
         lease.release()
         raise

@@ -1,7 +1,7 @@
 """`model_client.client` (`model-client`, docs/model_server.md, Command-line client): its core functions in process
-against the real server of tests/config.yaml (`serve`) on a free port, with the tiny models: the model list, one
-model's entry, a video job, an image, speech, the default output name, the refusal to overwrite and a failed video
-job's error."""
+against the real server of tests/config.yaml (`serve`) on a free port, with the tiny models: the model list with and
+without the test models, one model's entry, a video job, an image, speech, the default output name, the refusal to
+overwrite and a failed video job's error."""
 
 import io
 from datetime import datetime
@@ -30,14 +30,26 @@ def server():
         c.close()
 
 
-def test_models_lists_the_local_models_and_one_entry(server):
-    """`models` lists every local model of tests/config.yaml by its server id; `model` of the video model gives its
-    kind, role and the entry's keys of tests/config.yaml."""
-    ids = cli.models(server)
-    assert {task_model("image"), task_model("video"), task_model("speech")} <= set(ids)
+def test_models_hides_test_models_and_groups_by_role(server):
+    """`models` hides the test models (every local model of tests/config.yaml) and lists them with `tests`, each
+    with its role and runtime, grouped in `ROLES` order; `model_lines` prints `server: <name>`, then one aligned
+    line per model. `model` of the video model gives its kind, role, test marker and the entry's keys of
+    tests/config.yaml."""
+    local = {task_model(t) for t in ("image", "video", "presenter", "music", "speech", "align")}
+    assert not local & {m.id for m in cli.models(server)}
+    listed = cli.models(server, tests=True)
+    by_id = {m.id: m for m in listed}
+    assert local <= by_id.keys() and all(by_id[m].test for m in local)
+    assert (by_id[task_model("video")].role, by_id[task_model("video")].runtime) == ("video", "diffusers")
+    assert (by_id[task_model("speech")].role, by_id[task_model("speech")].runtime) == ("speech", "kokoro")
+    ranks = [cli.ROLES.index(m.role) if m.role in cli.ROLES else len(cli.ROLES) for m in listed]
+    assert ranks == sorted(ranks)
+    lines = cli.model_lines("srv", [by_id[task_model("image")], by_id[task_model("speech")]])
+    assert lines == ["server: srv", f"image   diffusers  {task_model('image')}",
+                     f"speech  kokoro     {task_model('speech')}"]
     got = cli.model(server, task_model("video"))
     want = model_entry("video")
-    assert (got["kind"], got["role"]) == ("diffusers", "video")
+    assert (got["kind"], got["role"], got["test"]) == ("diffusers", "video", True)
     assert {k: got["entry"][k] for k in ("fps", "width", "height", "max_frames")} == {
         k: want[k] for k in ("fps", "width", "height", "max_frames")}
 
@@ -73,13 +85,13 @@ def test_default_output_name_and_no_overwrite(tmp_path):
     """Without `-o` the file is `<model id, ':' and '/' as '_'>_<YYYYmmdd-HHMMSS>.<ext>` in the directory; an
     existing file, given or generated, is a `ClientError` and is not written."""
     when = datetime(2026, 1, 2, 3, 4, 5)
-    path = cli.output_path(None, "local:org/model", "png", tmp_path, when)
-    assert path == tmp_path / "local_org_model_20260102-030405.png"
+    path = cli.output_path(None, "diffusers:org/model", "png", tmp_path, when)
+    assert path == tmp_path / "diffusers_org_model_20260102-030405.png"
     assert cli.save(b"one", path) == path
     with pytest.raises(cli.ClientError, match="exists"):
-        cli.output_path(None, "local:org/model", "png", tmp_path, when)
+        cli.output_path(None, "diffusers:org/model", "png", tmp_path, when)
     with pytest.raises(cli.ClientError, match="exists"):
-        cli.output_path(path, "local:other", "png", tmp_path, when)
+        cli.output_path(path, "diffusers:other", "png", tmp_path, when)
     with pytest.raises(cli.ClientError, match="exists"):
         cli.save(b"two", path)
     assert path.read_bytes() == b"one"
@@ -98,4 +110,4 @@ def test_failed_video_job_raises_its_error(server):
 def test_request_errors_are_one_line(server):
     """A model the server lacks is a `ClientError` naming the HTTP status and the error code."""
     with pytest.raises(cli.ClientError, match="HTTP 404 model_not_found"):
-        cli.image(server, "local:no-such-model", "a cat")
+        cli.image(server, "diffusers:no-such-model", "a cat")

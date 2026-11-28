@@ -54,11 +54,11 @@ what is about where and how its models run; each model's own attributes are on i
 |---|---|---|---|
 | `ollama`, `openrouter`, `openai`, `azure` | `api_key`, `base_url`, `timeout`; azure `api_version` | `OpenAIModel` | `image` (`OpenAIImageLimits`), `voice`, `voices` |
 | `google` | `api_key`, `base_url`, `timeout`, `vertex`, `credentials`, `project`, `location` | `GoogleModel` | `predict` (served by the Vertex `:predict` endpoint), `voice`, `voices` |
-| `diffusers` | none | `DiffusersEntry`: the class of the entry's role | `repo` (required), the pipeline fields of the role, `memory` |
-| `kokoro` | `dir` | `KokoroModel` | `model_url`, `voices_url`, `langs`, `voice`, `voices`, `memory` |
-| `torchaudio` | `dir` | `TorchaudioModel` | `url`, `memory` |
-| `chatterbox` | `dir` | `ChatterboxModel` | `url`, `files`, `voice`, `voices`, `memory` |
-| `fish` | none | `FishModel` | `repo` (required: a Hugging Face repository or a local folder, absolute or `~`), `memory` (GB at the peak, default `DRAMA3_PEAK_GB`, 44), `style`, `max_frames`, `voice`, `voices` |
+| `diffusers` | `test` | `DiffusersEntry`: the class of the entry's role | `repo` (required), the pipeline fields of the role, `memory` |
+| `kokoro` | `dir`, `test` | `KokoroModel` | `model_url`, `voices_url`, `langs`, `voice`, `voices`, `memory` |
+| `torchaudio` | `dir`, `test` | `TorchaudioModel` | `url`, `memory` |
+| `chatterbox` | `dir`, `test` | `ChatterboxModel` | `url`, `files`, `voice`, `voices`, `memory` |
+| `fish` | `test` | `FishModel` | `repo` (required: a Hugging Face repository or a local folder, absolute or `~`), `memory` (GB at the peak, default `DRAMA3_PEAK_GB`, 44), `style`, `max_frames`, `voice`, `voices` |
 
 `memory` of every local model entry is `LocalMemory` (`schema/local_memory.py`): the GB the model takes at its peak,
 optional, unset by default; `FishModel` declares its own with Drama 3's default. `ai_models.local.check_free` and
@@ -66,7 +66,9 @@ the model server read it (`docs/model_server.md`, Memory).
 
 The provider fields shared by several kinds are declared once, in classes the provider classes derive from:
 `TimedProvider` (`timeout`), `RemoteProvider` (`api_key`, `base_url`), `OpenAIKindProvider` (`models` of
-`OpenAIModel`), `WeightsDir` (`dir`, `with_dir`). `Voices` holds
+`OpenAIModel`), `LocalProvider` (`test`, on every local kind: true marks its models as test models, which a model
+server lists with `test: true` and `model-client models` hides without `--tests`), `WeightsDir` (`dir`, `with_dir`,
+a `LocalProvider`). `Voices` holds
 `voice` and `voices` for every model class that may be a speech model. Every provider class has `models`, so
 `provider.models.get(model)` needs no check of the kind.
 

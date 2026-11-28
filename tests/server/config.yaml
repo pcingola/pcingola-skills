@@ -4,35 +4,36 @@
 # so this file has no base_url and is not a valid settings file by itself.
 #
 # The models are the server's tiny models: the providers of tests/config.yaml in the server's config under the
-# names tiny_<provider>, and the Ollama tags of tests/config.yaml pulled on the server's Ollama
-# (docs/model_server.md, Tests). An entry holds no attribute: the client reads them from GET /v1/models/{id}.
+# names test_<provider>, and the Ollama models of tests/config.yaml pulled on the server's Ollama, whose ids are
+# ollama:<tag> (the server's provider of kind ollama is named ollama; docs/model_server.md, Tests). An entry
+# holds no attribute: the client reads them from GET /v1/models/{id}.
 providers:
   server:
     kind: openai
     # Every tiny model the suite calls, by the server's model id.
     models:
-      "tiny_local:klein-tiny":
-      "tiny_local:ltx-tiny":
-      "tiny_local:ltx2-tiny":
-      "tiny_local:ace-step-tiny":
-      "tiny_local:s2v-tiny":
-      "tiny_kokoro:kokoro-v1.0-int8":
-      "tiny_chatterbox:chatterbox-turbo":
-      "tiny_fish:drama-3-tiny":
-      "tiny_torchaudio:MMS_FA":
-      "gemma3:270m":
-      "laya:421m-english-bf16":
-      "all-minilm:22m":
-      "lfm3-audio:2b-q4_K_M":
+      "test_diffusers:klein-tiny":
+      "test_diffusers:ltx-tiny":
+      "test_diffusers:ltx2-tiny":
+      "test_diffusers:ace-step-tiny":
+      "test_diffusers:s2v-tiny":
+      "test_kokoro:kokoro-v1.0-int8":
+      "test_chatterbox:chatterbox-turbo":
+      "test_fish:drama-3-tiny":
+      "test_torchaudio:MMS_FA":
+      "ollama:gemma3:270m":
+      "ollama:laya:421m-english-bf16":
+      "ollama:all-minilm:22m":
+      "ollama:lfm3-audio:2b-q4_K_M":
 tasks:
-  chat: server:gemma3:270m
-  system1: server:laya:421m-english-bf16
-  embed: server:all-minilm:22m
-  audio: server:lfm3-audio:2b-q4_K_M
-  image: server:tiny_local:klein-tiny
-  image_edit: server:tiny_local:klein-tiny
-  video: server:tiny_local:ltx-tiny
-  presenter: server:tiny_local:s2v-tiny
-  music: server:tiny_local:ace-step-tiny
-  speech: server:tiny_kokoro:kokoro-v1.0-int8
-  align: server:tiny_torchaudio:MMS_FA
+  chat: server:ollama:gemma3:270m
+  system1: server:ollama:laya:421m-english-bf16
+  embed: server:ollama:all-minilm:22m
+  audio: server:ollama:lfm3-audio:2b-q4_K_M
+  image: server:test_diffusers:klein-tiny
+  image_edit: server:test_diffusers:klein-tiny
+  video: server:test_diffusers:ltx-tiny
+  presenter: server:test_diffusers:s2v-tiny
+  music: server:test_diffusers:ace-step-tiny
+  speech: server:test_kokoro:kokoro-v1.0-int8
+  align: server:test_torchaudio:MMS_FA

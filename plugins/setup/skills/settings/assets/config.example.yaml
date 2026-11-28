@@ -50,13 +50,16 @@
 # server also reads it to unload idle models until the model fits. Unset: no
 # check of its own (fish: 44, Drama 3's); a diffusers load still checks its
 # weights against the free memory.
+# test (default false): a provider of a local kind with test: true holds test
+# models (the tiny models of a test suite); a model server lists them with
+# test: true and model-client models shows them only with --tests.
 # A task's model must be of a kind that serves the task (an image task takes
 # an image model; tasks below).
 #
 # Delete the providers you do not use; replace each replace-me with a key.
-# Without a GPU, also delete the local provider and the tasks that name local:
-# a provider of kind diffusers makes the image-gen, music and short-video
-# wrappers install PyTorch and diffusers.
+# Without a GPU, also delete the diffusers provider and the tasks that name
+# diffusers: a provider of kind diffusers makes the image-gen, music and
+# short-video wrappers install PyTorch and diffusers.
 # azure and vertex below point at a company (enterprise) gateway that serves
 # Azure OpenAI and Vertex AI; for the services themselves, set base_url to the
 # Azure resource or remove it for Vertex. Keys come only from this file:
@@ -91,8 +94,12 @@ providers:
   # model_server below): a provider of kind openai whose base_url is the
   # server's /v1 serves every task, the local models of the server and the
   # Ollama models it forwards. A model id is this provider's name, then the
-  # server's model id (split at the first colon): server:local:ltx-video,
-  # server:kokoro:kokoro-v1.0, server:gemma3:4b. The model attributes (video
+  # server's model id <runtime>:<model> (split at the first colon):
+  # server:diffusers:ltx-video, server:kokoro:kokoro-v1.0,
+  # server:ollama:gemma3:4b. Named after the server's machine, the provider
+  # makes a model id say where and how the model runs. The server's own
+  # machine can have the same provider, with base_url at its own /v1, so its
+  # tasks use the same ids as the clients'. The model attributes (video
   # sizes and frames, image limits, voices) come from the server, so the
   # entries stay on the server's machine. Tasks: see the server lines in tasks.
   #server:
@@ -148,7 +155,7 @@ providers:
   # pipeline output that holds the videos).
   # The first run downloads the weights to the Hugging Face cache
   # (huggingface.home below).
-  local:
+  diffusers:
     kind: diffusers
     models:
       # FLUX.2 klein 4B, the default local image model; garbles text
@@ -369,53 +376,53 @@ tasks:
   chat: openrouter:google/gemini-3.1-pro-preview
   vision: ollama:gemma4:31b
   system1: ollama:d3:4b
-  image: local:flux2-klein-4b
-  image_edit: local:flux2-klein-4b
+  image: diffusers:flux2-klein-4b
+  image_edit: diffusers:flux2-klein-4b
   image_best: azure:gpt-image-2
   image_multi_ref: azure:gpt-image-2
   speech: kokoro:kokoro-v1.0
   #speech: azure:gpt-4o-mini-tts
   align: torchaudio:MMS_FA
-  music: local:ace-step-sft
+  music: diffusers:ace-step-sft
   #music: vertex:lyria-002
   audio: vertex:gemini-3.1-pro-preview
-  video: local:ltx-2.5
+  video: diffusers:ltx-2.5
   film_critic: vertex:gemini-3.1-pro-preview
-  # Local models on a GPU (Ollama and the local provider above), in place of
-  # the cloud lines above:
+  # Local models on a GPU (Ollama and the diffusers provider above), in place
+  # of the cloud lines above:
   #speech: fish:drama-3
   #speech: chatterbox:chatterbox-turbo
-  #image_best: local:qwen-image
-  #image_edit: local:qwen-image
-  #image_multi_ref: local:qwen-image
-  #video: local:ltx-video
-  #video: local:kandinsky-6
-  #presenter: local:kandinsky-s2v
+  #image_best: diffusers:qwen-image
+  #image_edit: diffusers:qwen-image
+  #image_multi_ref: diffusers:qwen-image
+  #video: diffusers:ltx-video
+  #video: diffusers:kandinsky-6
+  #presenter: diffusers:kandinsky-s2v
   # Every task on the model server provider above, in place of the lines
   # above (the models of the server's config.yaml and its Ollama):
-  #chat: server:gemma3:4b
-  #vision: server:gemma3:4b
-  #system1: server:d3:4b
-  #embed: server:all-minilm:22m
-  #image: server:local:flux2-klein-4b
-  #image_edit: server:local:flux2-klein-4b
-  #image_best: server:local:qwen-image
-  #image_multi_ref: server:local:qwen-image
+  #chat: server:ollama:gemma3:4b
+  #vision: server:ollama:gemma3:4b
+  #system1: server:ollama:d3:4b
+  #embed: server:ollama:all-minilm:22m
+  #image: server:diffusers:flux2-klein-4b
+  #image_edit: server:diffusers:flux2-klein-4b
+  #image_best: server:diffusers:qwen-image
+  #image_multi_ref: server:diffusers:qwen-image
   #speech: server:kokoro:kokoro-v1.0
   #align: server:torchaudio:MMS_FA
-  #music: server:local:ace-step-sft
-  #video: server:local:ltx-video
-  #presenter: server:local:kandinsky-s2v
+  #music: server:diffusers:ace-step-sft
+  #video: server:diffusers:ltx-video
+  #presenter: server:diffusers:kandinsky-s2v
   # Small local models for a quick draft or test film: real
   # models at small size and few steps, low quality output.
-  #image: local:flux2-klein-4b
-  #image_best: local:flux2-klein-4b
-  #image_edit: local:flux2-klein-4b
-  #image_multi_ref: local:flux2-klein-4b
+  #image: diffusers:flux2-klein-4b
+  #image_best: diffusers:flux2-klein-4b
+  #image_edit: diffusers:flux2-klein-4b
+  #image_multi_ref: diffusers:flux2-klein-4b
   #speech: ollama:lfm3-audio   # drafts only: odd, uncontrolled intonation, no style or speed
-  #music: local:ace-step
-  #video: local:ltx-video-small
-  #presenter: local:kandinsky-s2v-lite
+  #music: diffusers:ace-step
+  #video: diffusers:ltx-video-small
+  #presenter: diffusers:kandinsky-s2v-lite
 
 
 # === network =================================================================
@@ -500,8 +507,12 @@ second_opinion:
 
 # === model_server ============================================================
 # The OpenAI-compatible model server (python -m model_server): it runs the
-# models of the local providers above in its process and forwards every other
-# model to Ollama. Only the machine that runs the server reads this section.
+# models of the local providers above in its process and forwards the Ollama
+# models to Ollama. Its model ids are <provider>:<model> of a local provider
+# and <ollama provider>:<tag> of an Ollama model, the provider of kind ollama
+# above (ollama when there is none): ollama:gemma3:4b is the tag gemma3:4b.
+# Name each local provider after its runtime (diffusers, kokoro, chatterbox,
+# fish, torchaudio). Only the machine that runs the server reads this section.
 model_server:
   # The address it listens on. Default 127.0.0.1 (this machine only); 0.0.0.0
   # serves the network, without authentication.

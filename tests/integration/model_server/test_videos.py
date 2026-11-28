@@ -14,7 +14,7 @@ from tests.wav import read
 
 NEEDS_GPU = requires(torch.cuda.is_available() or torch.backends.mps.is_available(),
                      f"local video models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")
-LTX2 = "local:ltx2-tiny"
+LTX2 = "diffusers:ltx2-tiny"
 
 
 @NEEDS_GPU

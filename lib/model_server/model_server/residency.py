@@ -187,9 +187,9 @@ class Residency:
                               "insufficient_memory")
 
     async def _room_for_ollama(self, ref: ModelRef) -> None:
-        if any(r.name in (ref.id, f"{ref.id}:latest") for r in await self.ollama.resident()):
+        if any(r.name in (ref.tag, f"{ref.tag}:latest") for r in await self.ollama.resident()):
             return
-        need = await self.ollama.size(ref.id)
+        need = await self.ollama.size(ref.tag)
         if need is None or not self.loaded:
             return
         free = await asyncio.to_thread(free_bytes, True)

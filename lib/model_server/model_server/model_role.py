@@ -1,4 +1,5 @@
-"""`ModelRole`: what a local model makes, and so which endpoint serves it."""
+"""`ModelRole`: what a model makes. A local model's role picks the endpoint that serves it; an Ollama model's
+(chat or embedding) only describes it in the model list."""
 
 from __future__ import annotations
 
@@ -14,6 +15,8 @@ class ModelRole(StrEnum):
     PRESENTER = "presenter"
     SPEECH = "speech"
     ALIGN = "align"
+    CHAT = "chat"
+    EMBEDDING = "embedding"
 
     @classmethod
     def of(cls, kind: ProviderKind, entry: object) -> ModelRole:

@@ -2,8 +2,8 @@
 
 `lib/model_server` (distribution `model-server`) is an OpenAI-compatible HTTP server. It runs the models of the local
 providers of its `config.yaml` (kinds `diffusers`, `fish`, `kokoro`, `chatterbox`, `torchaudio`) in its own process
-with the `lib/ai_models` code, and forwards every other request to an Ollama server. One model runs at a time, and
-an in-process model stays loaded between requests. The reason it exists is in
+with the `lib/ai_models` code, and forwards the requests for Ollama models to an Ollama server. One model runs at a
+time, and an in-process model stays loaded between requests. The reason it exists is in
 [architecture.md](architecture.md#local-models-in-process).
 
 Run it with `python -m model_server` in an environment that has `model-server` with the extras of its models
@@ -19,11 +19,11 @@ its environment settings (`plugin_settings.export`) and listens on `model_server
 | `app.py` | `create_app(settings)`: the FastAPI app, its routers, its error bodies, start and stop |
 | `server.py` | `Server`: settings, scheduler, residency, Ollama client, video jobs; `running(ref)` |
 | `model_ref.py` | `ModelRef`: the routing of a request's `model` |
-| `model_role.py`, `route.py` | `ModelRole` (image, music, video, presenter, speech, align), `Route` (local, ollama) |
+| `model_role.py`, `route.py` | `ModelRole` (image, music, video, presenter, speech, align; chat, embedding for Ollama models), `Route` (local, ollama) |
 | `scheduler.py`, `lease.py` | `Scheduler`: one model at a time, one FIFO queue; `Lease`: one admitted request |
 | `residency.py` | `Residency`: keep-alive, room in memory before a load |
-| `ollama.py`, `ollama_resident.py` | `Ollama`: forwarding, `/api/ps`, `/api/tags`, unload |
-| `catalog.py` | the local models as `openai.types.Model` |
+| `ollama.py`, `ollama_resident.py` | `Ollama`: forwarding with the answer's `model` rewritten, one model and its role, `/api/ps`, `/api/tags`, unload |
+| `catalog.py` | the local models as `openai.types.Model`, Ollama's models with the server's ids |
 | `routes_images.py`, `routes_audio.py`, `routes_videos.py`, `routes_models.py`, `routes_ollama.py` | the endpoints |
 | `music_create_params.py`, `alignment.py` | the request type of music and the answer type of alignments |
 | `video_job.py`, `video_jobs.py` | `VideoJob` (shown as `openai.types.Video`), `VideoJobs` |
@@ -33,20 +33,29 @@ its environment settings (`plugin_settings.export`) and listens on `model_server
 ## Routing
 
 A request names its model in the `model` field (JSON body or multipart field; the path of
-`GET /v1/models/{id}`). A model id is `<provider>:<model>`, split at the first colon:
+`GET /v1/models/{id}`). A model id is `<runtime>:<model>`, split at the first colon; the part before it is a
+provider name of the server's config, and each provider is named after its runtime:
 
-- When `<provider>` is a provider of a local kind in the server's config, the request runs in process. `<model>`
+- When `<runtime>` is a provider of a local kind in the server's config, the request runs in process. `<model>`
   must be an entry of that provider's `models`, else the answer is 404 `model_not_found`. Example:
-  `local:flux2-klein-4b`, `kokoro:kokoro-v1.0`, `torchaudio:MMS_FA`.
-- Any other id goes to Ollama unchanged. An Ollama tag is written as Ollama names it: `gemma3:270m`, its colon
-  included. A provider of kind `ollama` in the server's config is not a local kind, so `ollama:gemma3:270m` is
-  forwarded as `ollama:gemma3:270m`, which Ollama does not know.
-- A local provider's name hides the Ollama models whose name before the colon is the same.
+  `diffusers:flux2-klein-4b`, `kokoro:kokoro-v1.0`, `torchaudio:MMS_FA`.
+- When `<runtime>` is the Ollama prefix, the request goes to Ollama with `<model>` as the Ollama tag:
+  `ollama:gemma3:270m` is the tag `gemma3:270m`. The prefix is the name of the first provider of kind `ollama` in
+  the server's config, `ollama` when the config has none. The server sends Ollama the tag and writes the client's
+  id into Ollama's answer (Ollama below).
+- Any other id is a 404 `model_not_found`. A bare Ollama tag (`gemma3:270m`) is one; the message names its
+  prefixed form, `ollama:gemma3:270m`.
+
+The prefixes `diffusers`, `kokoro`, `chatterbox`, `fish`, `torchaudio` and `ollama` name the runtime because the
+server's config names its providers after their kinds; the code reads the names from the config.
 
 A client with a provider of kind `openai` whose `base_url` is the server's `/v1` writes the server's model id after
-its own provider name: `server:local:flux2-klein-4b`, `server:gemma3:270m`. Its client library sends the part after
-the first colon. `lib/ai_models` serves every task from such a provider and reads the model attributes it needs from
-`GET /v1/models/{id}` ([ai_models.md](ai_models.md#model-server)).
+its own provider name: `server:diffusers:flux2-klein-4b`, `server:ollama:gemma3:270m` for a provider `server`. Its
+client library sends the part after the first colon. `lib/ai_models` serves every task from such a provider and
+reads the model attributes it needs from `GET /v1/models/{id}` ([ai_models.md](ai_models.md#model-server)). The
+server's own machine can have the same provider, with `base_url` at its
+own `/v1`, so its tasks name a model as the clients do and run through the server; it keeps its provider of kind
+`ollama` beside it for the Ollama prefix and for `ai_models.local.resident_ollama_models`.
 
 Each endpoint of a local model takes models of its roles only (`ModelRole`, from the entry: a diffusers entry's
 role, speech for `fish`, `kokoro` and `chatterbox`, align for `torchaudio`); another model is a 400
@@ -71,7 +80,7 @@ Every path is under the server's base URL. The `openai` SDK reaches the ones it 
 | `GET /v1/videos/{id}/content` | `variant=video` | `video/mp4` | `videos.download_content` |
 | `GET /v1/models` | | `{"object": "list", "data": [Model]}` | `models.list` |
 | `GET /v1/models/{id}` | | `Model` | `models.retrieve` |
-| any other `/v1/*`, `/api/*` | as Ollama takes it | Ollama's answer, streamed | `chat.completions.create`, `embeddings.create`, ... |
+| any other `/v1/*`, `/api/*` | as Ollama takes it, `model` an Ollama model id | Ollama's answer, streamed, with the client's `model` | `chat.completions.create`, `embeddings.create`, ... |
 
 The request and answer types are those of `openai.types` (`openai.types.image_generate_params`,
 `openai.types.image_edit_params`, `openai.types.audio.SpeechCreateParams`, `openai.types.VideoCreateParams`,
@@ -195,7 +204,7 @@ the multipart body itself:
 ```python
 from openai.types import Video
 
-client.post("/videos", cast_to=Video, body={"model": "local:kandinsky-s2v", "prompt": "", "aspect": 1.0},
+client.post("/videos", cast_to=Video, body={"model": "diffusers:kandinsky-s2v", "prompt": "", "aspect": 1.0},
             files=[("input_reference", ("face.png", png, "image/png")), ("audio", ("say.wav", wav, "audio/wav"))],
             options={"headers": {"Content-Type": "multipart/form-data"}})
 ```
@@ -203,7 +212,7 @@ client.post("/videos", cast_to=Video, body={"model": "local:kandinsky-s2v", "pro
 The answer is the job as `openai.types.Video`, with `status: "queued"`, and the clip's planned length and size:
 
 ```json
-{"id": "video_<hex>", "object": "video", "model": "local:ltx-video", "prompt": "waves", "status": "queued",
+{"id": "video_<hex>", "object": "video", "model": "diffusers:ltx-video", "prompt": "waves", "status": "queued",
  "progress": 0, "created_at": 1790000000, "completed_at": null, "expires_at": null, "error": null,
  "seconds": "0.375", "size": "768x512", "remixed_from_video_id": null}
 ```
@@ -223,35 +232,52 @@ model makes one or for a presenter) once the job is `completed`, else a 409 `vid
 ### Models
 
 `GET /v1/models` answers `{"object": "list", "data": [...]}`: every model of every local provider of the config, then
-the `data` of Ollama's `GET /v1/models` (none when Ollama does not answer). A local model is an `openai.types.Model`
-with three more fields:
+the models of Ollama's `GET /v1/models` (none when Ollama does not answer). A local model is an `openai.types.Model`
+with four more fields:
 
 ```json
-{"id": "local:ltx-video", "object": "model", "created": 0, "owned_by": "local", "kind": "diffusers", "role": "video",
+{"id": "diffusers:ltx-video", "object": "model", "created": 0, "owned_by": "diffusers", "kind": "diffusers",
+ "role": "video", "test": false,
  "entry": {"repo": "Lightricks/LTX-Video-0.9.5", "pipeline": "LTXImageToVideoPipeline", "steps": 30,
            "guidance": 3.0, "args": {}, "skip": [], "memory": null, "fps": 24, "size_multiple": 32,
            "frame_step": 8, "width": 768, "height": 512, "max_frames": 121}}
 ```
 
-`kind` is the provider kind, `role` the `ModelRole`, and `entry` the model's entry of the config with every key and
+`kind` is the provider kind, `role` the `ModelRole`, `test` the provider's `test` (true: a test model, which
+`model-client models` lists only with `--tests`), and `entry` the model's entry of the config with every key and
 default, as JSON: a video model's `fps`, `size_multiple`, `frame_step`, `width`, `height`, `max_frames`; a presenter's
 `fps`, `buckets` (a list of `[width, height]`), `audio_rate`; an image model's `inpaint` and `image` limits
 (`max_edge`, `min_edge`); a music model's `duration_arg`, `lyrics_arg`, `min_crest_db`; a speech model's `voice`,
 `voices` (and a kokoro model's `langs`); every model's `memory`. The SDK keeps these fields
-(`client.models.retrieve(id).entry`). `GET /v1/models/{id}` answers one local model's object, and Ollama's answer for
-another id. The object of one speech model also has `voices`, the names `ai_models.speech.voices` gives: the
-entry's `voices`, else a Kokoro model's voices of the `langs` prefixes, read from its voices file (downloaded when
-missing; the model is not loaded), else the default voice. The list of `GET /v1/models` has no `voices`.
+(`client.models.retrieve(id).entry`). The object of one speech model (`GET /v1/models/{id}`) also has `voices`, the
+names `ai_models.speech.voices` gives: the entry's `voices`, else a Kokoro model's voices of the `langs` prefixes,
+read from its voices file (downloaded when missing; the model is not loaded), else the default voice. The list of
+`GET /v1/models` has no `voices`.
+
+An Ollama model is Ollama's object with the server's id, `kind: "ollama"` and its `role`, `embedding` when the
+`capabilities` of Ollama's `POST /api/show` hold `embedding`, else `chat` (one request per model, kept for the
+server's process; no `role` when Ollama does not answer it):
+
+```json
+{"id": "ollama:gemma3:270m", "object": "model", "created": 1790000000, "owned_by": "library", "kind": "ollama",
+ "role": "chat"}
+```
+
+`GET /v1/models/{id}` answers one model's object: a local model's, or an Ollama model's from Ollama's
+`GET /v1/models/{tag}`; a 404 `model_not_found` when Ollama has no such model.
 
 ### Ollama
 
-Every other path under `/v1/` and `/api/` goes to Ollama at `model_server.ollama_url`, unchanged: method, path, query,
-body and headers except the hop headers (`Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`,
-`Content-Encoding`). The answer is streamed back as Ollama sends it, so a streamed chat (server-sent events) and
-`/v1/systemone` pass through as they are. A request whose JSON body has a `model` runs as one request to that model in
-the scheduler, and its slot ends when the answer ends; one without (`GET /api/tags`, `GET /api/ps`) goes at once. A
-local model id on one of these paths is a 404 `model_not_supported`. When Ollama does not answer, the answer is a 502
-`ollama_unreachable`.
+Every other path under `/v1/` and `/api/` goes to Ollama at `model_server.ollama_url`: method, path, query, body and
+headers except the hop headers (`Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`,
+`Content-Encoding`). A request whose JSON body has a `model` names an Ollama model id (Routing); Ollama gets the body
+with `model` set to the tag, and the request runs as one request to that model in the scheduler, its slot ending when
+the answer ends. The answer is streamed back as Ollama sends it, with the `model` of each JSON object set to the id
+the client sent: a JSON body (a chat completion, embeddings), each `data:` line of server-sent events (a streamed
+chat) and each line of NDJSON (`/api/chat`, `/api/generate`). So `out.model` of a chat through the server is
+`ollama:gemma3:270m`, as sent. A request without a model (`GET /api/tags`, `GET /api/ps`) goes at once and comes back
+unchanged, with Ollama's tags. A local model id on one of these paths is a 404 `model_not_supported`. When Ollama
+does not answer, the answer is a 502 `ollama_unreachable`.
 
 ## Errors
 
@@ -265,7 +291,7 @@ Every error is an OpenAI-style JSON body, which the `openai` SDK raises as `open
 | Status | `type` | When |
 |---|---|---|
 | 400 | `invalid_request_error` | a field is missing or wrong (`param` names it); a model of another role (`code` `model_not_supported`); an `AIModelsError` of the model call (`code` `model_error`: a voice the model lacks, a speed out of range, a failed pipeline call); a Pydantic-AI `UserError` |
-| 404 | `not_found_error` | a model a local provider lacks (`model_not_found`); an unknown or expired video (`video_not_found`); a local model on an Ollama path |
+| 404 | `not_found_error` | a model a local provider lacks, an Ollama model Ollama lacks (`GET /v1/models/{id}`), a bare Ollama tag or another id that names no local provider and not the Ollama prefix (`model_not_found`); an unknown or expired video (`video_not_found`); a local model on an Ollama path (`model_not_supported`) |
 | 409 | `invalid_request_error` | the content of a video that is not completed (`video_not_ready`) |
 | 500 | `server_error` | any other exception; an invalid config file |
 | 502 | `upstream_error` | Ollama does not answer (`ollama_unreachable`) |
@@ -377,7 +403,7 @@ uv tool upgrade model-client
 request is mostly that lookup.
 
 ```
-model-client [--url URL | --provider NAME] models [ID]
+model-client [--url URL | --provider NAME] models [--tests] [ID]
 model-client [--url URL | --provider NAME] status VIDEO_ID
 model-client [--url URL | --provider NAME] video --model ID --image FILE --prompt TEXT [--seconds S] [--aspect A] [--size WxH] [--seed N] [-o OUT]
 model-client [--url URL | --provider NAME] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
@@ -386,8 +412,8 @@ model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voic
 
 | Command | Endpoint | Prints |
 |---|---|---|
-| `models` | `GET /v1/models` | one id per line |
-| `models ID` | `GET /v1/models/{id}` | a local model's `kind`, `role`, `entry` (and `voices`) as YAML; Ollama's object for another id |
+| `models` | `GET /v1/models` | `server: <provider or URL>`, then `<role> <runtime> <id>` per model, grouped by role; test models only with `--tests` |
+| `models ID` | `GET /v1/models/{id}` | a local model's `kind`, `role`, `test`, `entry` (and `voices`) as YAML; an Ollama model's `kind` and `role` |
 | `status VIDEO_ID` | `GET /v1/videos/{id}` | `<id> <status> <progress>%`, with the error of a failed job |
 | `video` | `POST /v1/videos`, then `GET /v1/videos/{id}` every 0.5 s, then `GET /v1/videos/{id}/content` | the job's status at creation and at each change, then the MP4's path and the wall time |
 | `image` | `POST /v1/images/generations` | the PNG's path and the wall time |
@@ -399,29 +425,49 @@ model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voic
   `openai` with a `base_url`; another is an error (at load for `model_client.provider`). A machine whose
   `config.yaml` has the server's provider (`server`, with `base_url: http://model-server.example.com:8000/v1`) sets
   `model_client: {provider: server}` and runs `model-client` with no option.
-- Model ids are the server's, as `models` lists them: `local:ltx-2.5`, `kokoro:kokoro-v1.0`, an Ollama tag.
+- Model ids are the server's, `<runtime>:<model>`, as `models` lists them: `diffusers:ltx-2.5`,
+  `kokoro:kokoro-v1.0`, `ollama:qwen3.5:35b`.
+- `models` prints the server once, `server: <name>` (the provider of `--provider` or `model_client.provider`, else
+  the URL), then one line per model in aligned columns: its role, its runtime (the object's `kind`) and its id,
+  `-` for a field the object lacks. The groups follow the role order image, video, presenter, speech, music, align,
+  chat, embedding, then any other role; within a group the server's order. Test models (`test: true`) are hidden
+  unless `--tests`:
+
+  ```
+  server: http://model-server.example.com:8000/v1
+  image      diffusers   diffusers:flux2-klein-4b
+  video      diffusers   diffusers:ltx-2.5
+  speech     kokoro      kokoro:kokoro-v1.0
+  align      torchaudio  torchaudio:MMS_FA
+  chat       ollama      ollama:qwen3.5:35b
+  embedding  ollama      ollama:qwen3-embedding:8b
+  ```
 - `speech` without `--voice` sends the model's default voice: its entry's `voice`, else the first of its `voices`.
 - Output: `-o OUT`, else the current directory, as `<model id with ':' and '/' as '_'>_<YYYYmmdd-HHMMSS>.<ext>`
-  (`local_flux2-klein-4b_20261128-101500.png`). An existing file is an error, checked before the request and again
+  (`diffusers_flux2-klein-4b_20261128-101500.png`). An existing file is an error, checked before the request and again
   at the write; the client never overwrites.
 - An error (an error answer as `HTTP <status> <code>: <message>`, a failed video job, a server that does not answer)
   is one line on stderr and exit code 1.
-- Each command's core function (`models`, `model`, `status`, `video`, `image`, `speech`, `output_path`, `save`)
+- Each command's core function (`models`, `model_lines`, `model`, `status`, `video`, `image`, `speech`,
+  `output_path`, `save`)
   returns its result and raises `ClientError`; `main` prints, writes and sets the exit code. The calls are the
   `openai` SDK's on a client with `base_url` the URL, outside `ai_models`
   ([architecture.md](architecture.md#standard-paths-for-model-calls)). Timeout: 900 s per request, no retries.
 
 ## Tests
 
-Unit tests (`tests/unit/model_server/`) cover the routing (`ModelRef` on tests/config.yaml), the scheduler with no
-model, request parsing, error bodies, video jobs and the model list. Integration tests
+Unit tests (`tests/unit/model_server/`) cover the routing (`ModelRef` on tests/config.yaml: local ids, `ollama:<tag>`,
+the 404 of a bare tag), the scheduler with no model, request parsing, the rewriting of `model` in forwarded bodies and
+answers (JSON, server-sent events, NDJSON), error bodies, video jobs and the model list. Integration tests
 (`tests/integration/model_server/`) start the real app on uvicorn on a free port in a thread of the test process with
 tests/config.yaml, and call every endpoint with the tiny models through the `openai` SDK where it has the call (httpx
 for music and alignments): images and edits (klein-tiny), video jobs (ltx-tiny with a seed, ltx2-tiny, s2v-tiny), speech
 (kokoro, chatterbox with and without `reference_audio`, fish), music (ace-step-tiny), alignment (MMS_FA), Ollama chat, streamed chat, embeddings,
-`/v1/systemone`, `/api/tags` and the model list, keep-alive, the lock, the memory refusal and the unload of idle GPU
+`/v1/systemone`, `/api/tags`, `/api/chat` as NDJSON, the client's id in every Ollama answer, the 404 of a bare tag,
+the model list with the Ollama ids and roles, keep-alive, the lock, the memory refusal and the unload of idle GPU
 models. The fish test needs CUDA. `tests/integration/model_server_client/test_cli.py` calls the core functions of
-`model-client` against the same in-process server: the model list and one entry, a video job and a failed one, an
+`model-client` against the same in-process server: the model list with and without the test models, its grouping and
+lines, one entry, a video job and a failed one, an
 image, speech in the default and another voice, the default output name and the refusal to overwrite. `tests/unit/model_server_client/test_url.py`
 checks the order of the server URL (`--url`, `--provider`, `model_client.provider`, localhost) on written config
 files, and the error for a `--provider` that is not a model server's provider.
@@ -429,17 +475,18 @@ files, and the error for a `--provider` that is not a model server's provider.
 The suite `tests/server/` tests a deployed server over the network: `scripts/tests.sh server --server-url <url>`,
 `<url>` the server's `/v1` base URL. It calls each endpoint through the `ai_models` functions with a client config
 (`tests/server/config.yaml`, its provider `server` of kind `openai` at `<url>`) and checks the model list and each
-model's object, chat (plain and streamed), embeddings, System-1, audio input, images and edits with a mask, speech
-(Kokoro in another voice, Chatterbox with `reference_audio`, Fish with `speaker`), alignments, music, the video and
+model's object (the test marker, the Ollama ids and roles), chat (plain and streamed), embeddings, System-1, audio
+input, images and edits with a mask, speech (Kokoro in another voice, Chatterbox with `reference_audio`, Fish with `speaker`), alignments, music, the video and
 presenter jobs, the error answers, requests to several models at once and parallel requests to one model, and
 Ollama's `/api/ps`. The server keeps no listing of its loaded in-process models, so their keep-alive is not tested
 there. The suite passes when the server's config holds:
 
-- the providers of `tests/config.yaml` other than `ollama`, each renamed `tiny_<provider>` (`tiny_local`,
-  `tiny_kokoro`, `tiny_chatterbox`, `tiny_fish`, `tiny_torchaudio`) with its models' entries as written there, the
-  `kokoro`, `chatterbox` and `torchaudio` providers with their `dir`, and the tiny Fish and ACE-Step folders built on
-  the server's machine (`tests/tiny_fish.py`, `tests/tiny_ace_step.py`);
-- the Ollama models of the tasks of `tests/server/config.yaml` pulled on the server's Ollama (`gemma3:270m`,
-  `laya:421m-english-bf16`, `all-minilm:22m`, `lfm3-audio:2b-q4_K_M`).
+- the providers of `tests/config.yaml` other than `ollama`, each renamed `test_<provider>` (`test_diffusers`,
+  `test_kokoro`, `test_chatterbox`, `test_fish`, `test_torchaudio`) with `test: true` and its models' entries as
+  written there, the `kokoro`, `chatterbox` and `torchaudio` providers with their `dir`, and the tiny Fish and
+  ACE-Step folders built on the server's machine (`tests/tiny_fish.py`, `tests/tiny_ace_step.py`);
+- a provider of kind `ollama` named `ollama`, so the server's Ollama ids are `ollama:<tag>`, and the Ollama models of
+  the tasks of `tests/server/config.yaml` pulled on the server's Ollama (`gemma3:270m`, `laya:421m-english-bf16`,
+  `all-minilm:22m`, `lfm3-audio:2b-q4_K_M`).
 
 The Fish test needs CUDA on the server's machine.

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from ..base import Strict
 from ..diffusers_entry import DiffusersEntry
 from ..fields import Catalogue
+from .local import LocalProvider
 
 
-class DiffusersProvider(Strict):
+class DiffusersProvider(LocalProvider):
     kind: Literal["diffusers"]
     models: Catalogue[DiffusersEntry] = {}

@@ -9,7 +9,7 @@ from pydantic_ai import BinaryContent
 from pydantic_ai.models.decision import NoulQuestion
 
 from ai_models import models, speech, system1
-from tests.server.conftest import SERVER, TIMEOUT_SECONDS, server_root, task
+from tests.server.conftest import SERVER, TIMEOUT_SECONDS, ollama_tag, server_root, task
 
 pytestmark = pytest.mark.timeout(TIMEOUT_SECONDS)
 SETTINGS = {"max_tokens": 8}
@@ -59,7 +59,7 @@ def test_ollama_keep_alive_is_visible():
     the `expires_at` of Ollama's keep-alive. The server's in-process models have no such listing."""
     models.agent(model_settings=SETTINGS).run_sync("Say hi.")
     running = httpx2.get(f"{server_root()}/api/ps", timeout=10).json()["models"]
-    tag = task("chat").removeprefix(f"{SERVER}:")
+    tag = ollama_tag(task("chat"))
     held = {m["name"]: m for m in running}
     assert tag in held, f"/api/ps lists {sorted(held)}, not {tag}"
     assert held[tag]["expires_at"]

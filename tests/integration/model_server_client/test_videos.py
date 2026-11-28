@@ -32,7 +32,7 @@ def test_video_refuses_a_model_of_another_role_or_none(client):
     with pytest.raises(ConfigError, match="image model of its server"):
         video.animate(png(64, 64), "waves", seconds=0.3, model=client_id("image"))
     with pytest.raises(ConfigError, match="has no local model"):
-        video.animate(png(64, 64), "waves", seconds=0.3, model="srv:local:no-such-model")
+        video.animate(png(64, 64), "waves", seconds=0.3, model="srv:diffusers:no-such-model")
 
 
 @NEEDS_GPU

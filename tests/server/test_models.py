@@ -10,7 +10,7 @@ import pytest
 
 from ai_models import served
 from model_server.model_role import ModelRole
-from tests.server.conftest import SERVER, TIMEOUT_SECONDS, TINY, local_models, model, task
+from tests.server.conftest import SERVER, TEST, TIMEOUT_SECONDS, local_models, model, task
 from tests.settings_env import use_settings
 
 pytestmark = pytest.mark.timeout(TIMEOUT_SECONDS)
@@ -19,8 +19,8 @@ TINY_CONFIG = Path(__file__).resolve().parents[1] / "config.yaml"
 
 
 def tiny_entry(client_id: str):
-    """The (provider kind, typed entry) in tests/config.yaml of the server's model `tiny_<provider>:<model>`."""
-    name, bare = client_id.removeprefix(f"{SERVER}:").removeprefix(TINY).split(":", 1)
+    """The (provider kind, typed entry) in tests/config.yaml of the server's model `test_<provider>:<model>`."""
+    name, bare = client_id.removeprefix(f"{SERVER}:").removeprefix(TEST).split(":", 1)
     with use_settings(TINY_CONFIG):
         spec = plugin_settings.load_config().providers[name]
     return spec.kind, spec.models[bare]
@@ -33,16 +33,19 @@ async def listed() -> dict:
 
 def test_list_holds_every_tiny_model_with_kind_and_role():
     """`GET /v1/models` lists every tiny local model of tests/server/config.yaml with the `kind` and `role` of its
-    provider in tests/config.yaml, and the Ollama models of the suite's tasks after them."""
+    provider in tests/config.yaml and `test: true`, and the Ollama models of the suite's tasks after them as
+    `ollama:<tag>`, with kind `ollama` and role chat or embedding."""
     models = asyncio.run(listed())
     for client_id in local_models():
         kind, entry = tiny_entry(client_id)
         got = models.get(client_id.removeprefix(f"{SERVER}:"))
         assert got is not None, f"GET /v1/models lacks {client_id}"
-        assert (got.kind, got.role) == (kind, ModelRole.of(kind, entry)), client_id
-    for name in ("chat", "embed", "system1"):
-        tag = task(name).removeprefix(f"{SERVER}:")
-        assert tag in models or f"{tag}:latest" in models, f"GET /v1/models lacks the Ollama model {tag}"
+        assert (got.kind, got.role, got.test) == (kind, ModelRole.of(kind, entry), True), client_id
+    for name, role in (("chat", "chat"), ("embed", "embedding"), ("system1", "chat")):
+        server_id = task(name).removeprefix(f"{SERVER}:")
+        got = models.get(server_id) or models.get(f"{server_id}:latest")
+        assert got is not None, f"GET /v1/models lacks the Ollama model {server_id}"
+        assert (got.kind, got.role) == ("ollama", role), server_id
 
 
 @pytest.mark.parametrize("client_id", local_models())

@@ -13,6 +13,7 @@ from .diffusers import DiffusersProvider
 from .fish import FishProvider
 from .google import GoogleProvider
 from .kokoro import KokoroProvider
+from .local import LocalProvider
 from .ollama import OLLAMA_URL, OllamaProvider
 from .openai import OpenAIProvider
 from .openai_kind import OpenAIKindProvider
@@ -26,5 +27,5 @@ Provider = Annotated[Union[OllamaProvider, OpenRouterProvider, OpenAIProvider, A
                            FishProvider], Field(discriminator="kind")]
 
 __all__ = ["OLLAMA_URL", "AzureProvider", "ChatterboxProvider", "DiffusersProvider", "FishProvider",
-           "GoogleProvider", "KokoroProvider", "OllamaProvider", "OpenAIKindProvider", "OpenAIProvider",
-           "OpenRouterProvider", "Provider", "RemoteProvider", "TimedProvider", "TorchaudioProvider", "WeightsDir"]
+           "GoogleProvider", "KokoroProvider", "LocalProvider", "OllamaProvider", "OpenAIKindProvider",
+           "OpenAIProvider", "OpenRouterProvider", "Provider", "RemoteProvider", "TimedProvider", "TorchaudioProvider", "WeightsDir"]

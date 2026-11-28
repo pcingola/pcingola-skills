@@ -8,11 +8,11 @@ import pytest
 
 from ai_models import AIModelsError, ConfigError, align, served, video
 from tests.media import png
-from tests.server.conftest import SERVER, TIMEOUT_SECONDS, TINY, task
+from tests.server.conftest import SERVER, TEST, TIMEOUT_SECONDS, ollama_tag, task
 
 pytestmark = pytest.mark.timeout(TIMEOUT_SECONDS)
 # A model of a tiny local provider of the server that its config lacks.
-UNKNOWN = f"{SERVER}:{TINY}local:no-such-model"
+UNKNOWN = f"{SERVER}:{TEST}diffusers:no-such-model"
 
 
 def bare(client_id: str) -> str:
@@ -64,3 +64,17 @@ def test_local_model_on_an_ollama_path_is_404():
     with pytest.raises(openai.NotFoundError) as e:
         asyncio.run(chat())
     assert e.value.code == "model_not_supported"
+
+
+def test_bare_ollama_tag_is_404():
+    """A chat completion that names a bare Ollama tag is a 404 `model_not_found` whose message names the server's
+    id of it, `ollama:<tag>`."""
+    chat_id = task("chat")
+
+    async def chat():
+        return await served.client(chat_id).chat.completions.create(
+            model=ollama_tag(chat_id), messages=[{"role": "user", "content": "Hi."}], max_tokens=4)
+
+    with pytest.raises(openai.NotFoundError) as e:
+        asyncio.run(chat())
+    assert e.value.code == "model_not_found" and bare(chat_id) in e.value.message

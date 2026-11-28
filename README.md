@@ -100,7 +100,7 @@ tasks:
   align: torchaudio:MMS_FA
 ```
 
-The `image` entry gives image-gen the size limits of the model for `--size`. Kokoro speech and the torchaudio aligner run on the CPU with no key; their first use downloads about 1.6 GB. OpenRouter serves no image edits (`POST /images/edits` returns 404), so `image_edit`, `image_multi_ref` and every image-gen call with `--ref` need a provider of kind `azure`, `google` or `openai` (a server with image edits), or level 3. Music needs a provider of kind `google` (Lyria) or level 3. Copied unchanged, `config.example.yaml` is a level 3 file: its `local` provider of kind `diffusers` makes the image-gen, music and short-video wrappers install PyTorch and diffusers, and several of its tasks name local GPU models.
+The `image` entry gives image-gen the size limits of the model for `--size`. Kokoro speech and the torchaudio aligner run on the CPU with no key; their first use downloads about 1.6 GB. OpenRouter serves no image edits (`POST /images/edits` returns 404), so `image_edit`, `image_multi_ref` and every image-gen call with `--ref` need a provider of kind `azure`, `google` or `openai` (a server with image edits), or level 3. Music needs a provider of kind `google` (Lyria) or level 3. Copied unchanged, `config.example.yaml` is a level 3 file: its `diffusers` provider of kind `diffusers` makes the image-gen, music and short-video wrappers install PyTorch and diffusers, and several of its tasks name local GPU models.
 
 With no key, Ollama serves the chat models: `ollama pull <tag>` fetches each model the file names, and a skill that finds a model not pulled names the command. Images and music then need a provider of kind `diffusers` with its `models` (see the example file); the first run downloads the weights.
 

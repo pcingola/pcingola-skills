@@ -1,7 +1,7 @@
 """`model-client` (`python -m model_client`): a command-line client of a model server at a URL
 (docs/model_server.md, Command-line client).
 
-    model-client [--url URL | --provider NAME] models [ID]
+    model-client [--url URL | --provider NAME] models [--tests] [ID]
     model-client [--url URL | --provider NAME] status VIDEO_ID
     model-client [--url URL | --provider NAME] video --model ID --image FILE --prompt TEXT [--seconds S]
                                                      [--aspect A] [--size WxH] [--seed N] [-o OUT]
@@ -10,7 +10,9 @@
 
 The server's `/v1` base URL is, in order: `--url`, the `base_url` of the provider `--provider`, the `base_url` of
 the provider `model_client.provider`, `http://localhost:<model_server.port>/v1` (`plugin_settings`). Model
-ids are the server's, as `GET /v1/models` lists them. A generated file goes to `-o`, else to the current directory
+ids are the server's, as `GET /v1/models` lists them: `<runtime>:<model>`. `models` prints `server: <provider or
+URL>`, then one line per model, `<role> <runtime> <id>`, grouped by role in `ROLES` order; it hides the test models
+(`test: true`) unless `--tests`. A generated file goes to `-o`, else to the current directory
 as `<model id, ':' and '/' as '_'>_<YYYYmmdd-HHMMSS>.<ext>`; an existing file is never overwritten.
 
 The calls are the `openai` SDK's on a client with `base_url` the URL, as `ai_models.video` makes them. This is a direct
@@ -28,6 +30,7 @@ import time
 import warnings
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -39,28 +42,37 @@ from openai.types import Video
 
 TIMEOUT_SECONDS = 900.0
 POLL_SECONDS = 0.5
-MODEL_FIELDS = ("kind", "role", "entry", "voices")
+MODEL_FIELDS = ("kind", "role", "test", "entry", "voices")
+# The order of the role groups of `models`; a model of another role or none comes after them.
+ROLES = ("image", "video", "presenter", "speech", "music", "align", "chat", "embedding")
 
 
 class ClientError(Exception):
     """An error of a command: a failed video job, an output file that exists, a URL without a server."""
 
 
-def server_url(url: str | None = None, provider: str | None = None) -> str:
-    """The server's `/v1` URL, in order: `url`, the `base_url` of provider `provider`, the `base_url` of
-    `model_client.provider`, `http://localhost:<model_server.port>/v1`; the settings from the settings file.
-    `ClientError` when `provider` is not a provider of kind `openai` with a `base_url`."""
+def server(url: str | None = None, provider: str | None = None) -> tuple[str, str]:
+    """(the server's `/v1` URL, its name for `models`: the provider, else the URL), the URL in order: `url`, the
+    `base_url` of provider `provider`, the `base_url` of `model_client.provider`,
+    `http://localhost:<model_server.port>/v1`; the settings from the settings file. `ClientError` when `provider`
+    is not a provider of kind `openai` with a `base_url`."""
     if url:
-        return url
+        return url, url
     import plugin_settings
 
     cfg = plugin_settings.load_config()
     name = provider or cfg.model_client.provider
     if name is None:
-        return f"http://localhost:{cfg.model_server.port}/v1"
+        local = f"http://localhost:{cfg.model_server.port}/v1"
+        return local, local
     if e := cfg.server_error(name):
         raise ClientError(f"--provider: {e}")
-    return cfg.providers[name].base_url
+    return cfg.providers[name].base_url, name
+
+
+def server_url(url: str | None = None, provider: str | None = None) -> str:
+    """The server's `/v1` URL (`server`)."""
+    return server(url, provider)[0]
 
 
 def connect(url: str, timeout: float = TIMEOUT_SECONDS) -> openai.OpenAI:
@@ -91,15 +103,38 @@ def video_calls() -> Iterator[None]:
         yield
 
 
-def models(client: openai.OpenAI) -> list[str]:
-    """The ids of `GET /v1/models`, in the server's order."""
+@dataclass(frozen=True)
+class Listed:
+    """A model of `GET /v1/models`: its id, role and runtime (the object's `kind`), None when the object has none,
+    and whether it is a test model."""
+
+    id: str
+    role: str | None
+    runtime: str | None
+    test: bool
+
+
+def models(client: openai.OpenAI, tests: bool = False) -> list[Listed]:
+    """The models of `GET /v1/models`, grouped by role in `ROLES` order, in the server's order within a group;
+    without `tests`, no test model."""
     with answered():
-        return [m.id for m in client.models.list()]
+        got = [m.model_dump(mode="json") for m in client.models.list()]
+    listed = [Listed(m["id"], m.get("role"), m.get("kind"), bool(m.get("test"))) for m in got]
+    order = {role: i for i, role in enumerate(ROLES)}
+    return sorted((m for m in listed if tests or not m.test), key=lambda m: order.get(m.role, len(ROLES)))
+
+
+def model_lines(name: str, listed: list[Listed]) -> list[str]:
+    """`server: <name>`, then `<role> <runtime> <id>` per model in `listed`, in aligned columns (`-` for a missing
+    role or runtime)."""
+    rows = [(m.role or "-", m.runtime or "-", m.id) for m in listed]
+    widths = [max((len(r[i]) for r in rows), default=0) for i in range(2)]
+    return [f"server: {name}"] + [f"{r[0]:<{widths[0]}}  {r[1]:<{widths[1]}}  {r[2]}" for r in rows]
 
 
 def model(client: openai.OpenAI, model_id: str) -> dict[str, Any]:
-    """`GET /v1/models/{id}`: a local model's `kind`, `role`, `entry` (and a speech model's `voices`); the whole
-    object for another model (Ollama's)."""
+    """`GET /v1/models/{id}`: the model's `kind`, `role`, `test`, `entry` and a speech model's `voices`, those it
+    has (an Ollama model: `kind` and `role`); the whole object when it has none of them."""
     with answered():
         got = client.models.retrieve(model_id).model_dump(mode="json")
     picked = {k: got[k] for k in MODEL_FIELDS if got.get(k) is not None}
@@ -197,7 +232,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--provider", help="a provider of config.yaml of kind openai whose base_url is the server's /v1 "
                                       "(default model_client.provider, else http://localhost:<model_server.port>/v1)")
     sub = p.add_subparsers(dest="command", required=True)
-    m = sub.add_parser("models", help="the model ids, or one model's kind, role and entry")
+    m = sub.add_parser("models", help="the models with their role and runtime, or one model's kind, role and entry")
+    m.add_argument("--tests", action="store_true", help="also list the test models")
     m.add_argument("id", nargs="?")
     s = sub.add_parser("status", help="the status of a video job")
     s.add_argument("id")
@@ -226,12 +262,13 @@ def parser() -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace) -> None:
     """The command of `args`, its results printed."""
-    client = connect(server_url(args.url, args.provider))
+    url, name = server(args.url, args.provider)
+    client = connect(url)
     if args.command == "models":
         if args.id:
             print(yaml.safe_dump(model(client, args.id), sort_keys=False), end="")
         else:
-            print("\n".join(models(client)))
+            print("\n".join(model_lines(name, models(client, args.tests))))
         return
     if args.command == "status":
         print(status_line(status(client, args.id)))

@@ -3,14 +3,16 @@
 # (tests/settings_env.py). No remote provider, no api_key. Weights of the kokoro, chatterbox and torchaudio
 # providers go under ~/.cache/pcingola-skills-tests/; diffusers models use the default Hugging Face
 # cache. Tests read a copy with `~` expanded to the real home (settings_env.TEST_CONFIG), so child
-# processes, whose HOME is temporary, share these directories.
+# processes, whose HOME is temporary, share these directories. Every local provider has `test: true`: its
+# models are test models, which a model server of this file lists as such (`model-client models --tests`).
 huggingface:
   home: ~/.cache/huggingface
 providers:
   ollama:
     kind: ollama
-  local:
+  diffusers:
     kind: diffusers
+    test: true
     models:
       # Random weights, the FLUX.2 klein pipeline classes.
       klein-tiny:
@@ -65,6 +67,7 @@ providers:
         args: {prompt: A person speaks.}
   kokoro:
     kind: kokoro
+    test: true
     dir: ~/.cache/pcingola-skills-tests/kokoro
     models:
       kokoro-v1.0-int8:
@@ -75,6 +78,7 @@ providers:
   # Chatterbox Turbo, the smallest Chatterbox model (350M), on the CPU; not a task: tests name it by kind.
   chatterbox:
     kind: chatterbox
+    test: true
     dir: ~/.cache/pcingola-skills-tests/chatterbox
     models:
       chatterbox-turbo:
@@ -85,6 +89,7 @@ providers:
   # missing. It never ends on its own, so every request runs to `max_frames` (32 frames, 1.5 s).
   fish:
     kind: fish
+    test: true
     models:
       drama-3-tiny:
         repo: ~/.cache/pcingola-skills-tests/tiny-fish
@@ -92,6 +97,7 @@ providers:
         max_frames: 32
   torchaudio:
     kind: torchaudio
+    test: true
     dir: ~/.cache/pcingola-skills-tests/torchaudio
     models:
       MMS_FA:
@@ -103,13 +109,13 @@ tasks:
   # The Q4_K_M build by its full tag: `lfm3-audio` resolves to an MLX nvfp4 build on macOS, which answers no
   # structured output, and to this build elsewhere.
   audio: ollama:lfm3-audio:2b-q4_K_M
-  image: local:klein-tiny
-  image_best: local:klein-tiny
-  image_edit: local:klein-tiny
-  image_multi_ref: local:klein-tiny
-  video: local:ltx-tiny
-  presenter: local:s2v-tiny
-  music: local:ace-step-tiny
+  image: diffusers:klein-tiny
+  image_best: diffusers:klein-tiny
+  image_edit: diffusers:klein-tiny
+  image_multi_ref: diffusers:klein-tiny
+  video: diffusers:ltx-tiny
+  presenter: diffusers:s2v-tiny
+  music: diffusers:ace-step-tiny
   speech: kokoro:kokoro-v1.0-int8
   align: torchaudio:MMS_FA
 # A test waits at most this long for another process that holds the local models, below the 25 s
