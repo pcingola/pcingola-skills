@@ -29,6 +29,7 @@ its environment settings (`plugin_settings.export`) and listens on `model_server
 | `video_job.py`, `video_jobs.py` | `VideoJob` (shown as `openai.types.Video`), `VideoJobs` |
 | `forms.py`, `requests.py`, `server_error.py` | request parsing, `ServerError` and its JSON body |
 | `references.py` | `References`: the reference recordings of speech requests, as files |
+| `client.py` | `model-client`: the command-line client of a server at a URL |
 
 ## Routing
 
@@ -113,7 +114,7 @@ The answer of both:
 ### Speech
 
 `POST /v1/audio/speech`, JSON `SpeechCreateParams`: `model` (a local speech model), `input` (the text), `voice` (a
-string or `{"id": ...}`; unset: the model's default voice), `instructions` (fish models with `style`), `speed`
+string or `{"id": ...}`, required by the params type), `instructions` (fish models with `style`), `speed`
 (kokoro: 0.5 to 2), `response_format` (`wav` or unset; others are a 400), and two fields outside the params type:
 `speaker` (who speaks, for a fish model, which keeps one voice per speaker) and `reference_audio` (the recording a
 chatterbox model clones). Another field is a 400 naming it. The answer is a 16-bit mono WAV file,
@@ -360,6 +361,43 @@ The server's models are the local providers of the same file. Each model entry o
 (optional, GB at its peak; `fish` defaults to 44). Users find the keys in `setup:settings` and
 `plugins/setup/skills/settings/assets/config.example.yaml`.
 
+## Command-line client
+
+`model_server.client` is a client of a server at a URL, run as `model-client` (the console script of the package) or
+`python -m model_server.client`. In the server's environment it is `.venv/bin/model-client`; in this repository,
+`uv run --project lib/model_server model-client ...`.
+
+```
+model-client [--url URL] models [ID]
+model-client [--url URL] status VIDEO_ID
+model-client [--url URL] video --model ID --image FILE --prompt TEXT [--seconds S] [--aspect A] [--size WxH] [--seed N] [-o OUT]
+model-client [--url URL] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
+model-client [--url URL] speech --model ID --text TEXT [--voice V] [-o OUT]
+```
+
+| Command | Endpoint | Prints |
+|---|---|---|
+| `models` | `GET /v1/models` | one id per line |
+| `models ID` | `GET /v1/models/{id}` | a local model's `kind`, `role`, `entry` (and `voices`) as YAML; Ollama's object for another id |
+| `status VIDEO_ID` | `GET /v1/videos/{id}` | `<id> <status> <progress>%`, with the error of a failed job |
+| `video` | `POST /v1/videos`, then `GET /v1/videos/{id}` every 0.5 s, then `GET /v1/videos/{id}/content` | the job's status at creation and at each change, then the MP4's path and the wall time |
+| `image` | `POST /v1/images/generations` | the PNG's path and the wall time |
+| `speech` | `POST /v1/audio/speech` | the WAV file's path and the wall time |
+
+- `--url` is the server's `/v1` base URL. Default: `http://localhost:<model_server.port>/v1`, the port from the
+  settings file (8000 without one).
+- Model ids are the server's, as `models` lists them: `local:ltx-2.5`, `kokoro:kokoro-v1.0`, an Ollama tag.
+- `speech` without `--voice` sends the model's default voice: its entry's `voice`, else the first of its `voices`.
+- Output: `-o OUT`, else the current directory, as `<model id with ':' and '/' as '_'>_<YYYYmmdd-HHMMSS>.<ext>`
+  (`local_flux2-klein-4b_20261128-101500.png`). An existing file is an error, checked before the request and again
+  at the write; the client never overwrites.
+- An error (an error answer as `HTTP <status> <code>: <message>`, a failed video job, a server that does not answer)
+  is one line on stderr and exit code 1.
+- Each command's core function (`models`, `model`, `status`, `video`, `image`, `speech`, `output_path`, `save`)
+  returns its result and raises `ClientError`; `main` prints, writes and sets the exit code. The calls are the
+  `openai` SDK's on a client with `base_url` the URL, outside `ai_models`
+  ([architecture.md](architecture.md#standard-paths-for-model-calls)). Timeout: 900 s per request, no retries.
+
 ## Tests
 
 Unit tests (`tests/unit/model_server/`) cover the routing (`ModelRef` on tests/config.yaml), the scheduler with no
@@ -369,7 +407,9 @@ tests/config.yaml, and call every endpoint with the tiny models through the `ope
 for music and alignments): images and edits (klein-tiny), video jobs (ltx-tiny with a seed, ltx2-tiny, s2v-tiny), speech
 (kokoro, chatterbox with and without `reference_audio`, fish), music (ace-step-tiny), alignment (MMS_FA), Ollama chat, streamed chat, embeddings,
 `/v1/systemone`, `/api/tags` and the model list, keep-alive, the lock, the memory refusal and the unload of idle GPU
-models. The fish test needs CUDA.
+models. The fish test needs CUDA. `tests/integration/model_server_client/test_cli.py` calls the core functions of
+`model-client` against the same in-process server: the model list and one entry, a video job and a failed one, an
+image, speech in the default and another voice, the default output name and the refusal to overwrite.
 
 The suite `tests/server/` tests a deployed server over the network: `scripts/tests.sh server --server-url <url>`,
 `<url>` the server's `/v1` base URL. It calls each endpoint through the `ai_models` functions with a client config
