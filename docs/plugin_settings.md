@@ -36,6 +36,7 @@ The sections, each a class in `schema/`:
 | `voiceover` | `VoiceoverSettings` | `voices_dir` |
 | `second_opinion` | `SecondOpinionSettings` | `codex`: review with the Codex CLI when no `--model` is given |
 | `model_server` | `ModelServerSettings` | `host`, `port`, `keep_alive`, `ollama_url`, `timeout`, `video_ttl`, `weights_dir` of the model server (`docs/model_server.md`, Settings) |
+| `model_client` | `ModelClientSettings` | `provider`: the default server of `model-client`, a provider of kind `openai` with a `base_url` (`docs/model_server.md`, Command-line client) |
 
 Every class derives from `Strict` (`extra="forbid"`, frozen), so an unknown section or key fails with its path. A
 key that is empty or holds only comments parses as null; `Strict` gives it its default when that default is a
@@ -94,6 +95,11 @@ a kind not in `TASK_KINDS[task]`, is local and has no entry for the model, the e
 role, or a System-1 model's provider, or an `openai` provider of a task of `SERVER_TASKS`, has no `base_url`. After every section validates, `Config` runs it for each
 `tasks.<task>`; `ai_models.config.resolve` runs it for a model a caller names (`--model`). Each provider class
 checks its own required keys (`setup:settings` lists them).
+
+`Config.server_error(name)` says why provider `name` cannot be a model server's address: it is not in `providers`, is
+not of kind `openai`, or has no `base_url`. `Config` runs it for `model_client.provider` after every section validates
+(`model_client.provider: provider 'vertex' is of kind google; a model server's provider is of kind openai`), and
+`model-client` runs it for its `--provider`.
 
 `Config.provider(name)`, `Config.model_entry(model_id)` and `Config.task_model(task)` return None when absent;
 `ai_models.config` turns that into a `ConfigError` (`docs/ai_models.md`).

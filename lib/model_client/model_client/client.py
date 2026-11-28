@@ -1,21 +1,22 @@
 """`model-client` (`python -m model_client`): a command-line client of a model server at a URL
 (docs/model_server.md, Command-line client).
 
-    model-client [--url URL] models [ID]
-    model-client [--url URL] status VIDEO_ID
-    model-client [--url URL] video --model ID --image FILE --prompt TEXT [--seconds S] [--aspect A] [--size WxH]
-                                   [--seed N] [-o OUT]
-    model-client [--url URL] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
-    model-client [--url URL] speech --model ID --text TEXT [--voice V] [-o OUT]
+    model-client [--url URL | --provider NAME] models [ID]
+    model-client [--url URL | --provider NAME] status VIDEO_ID
+    model-client [--url URL | --provider NAME] video --model ID --image FILE --prompt TEXT [--seconds S]
+                                                     [--aspect A] [--size WxH] [--seed N] [-o OUT]
+    model-client [--url URL | --provider NAME] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
+    model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voice V] [-o OUT]
 
-`--url` is the server's `/v1` base URL, default `http://localhost:<model_server.port>/v1` (`plugin_settings`). Model
+The server's `/v1` base URL is, in order: `--url`, the `base_url` of the provider `--provider`, the `base_url` of
+the provider `model_client.provider`, `http://localhost:<model_server.port>/v1` (`plugin_settings`). Model
 ids are the server's, as `GET /v1/models` lists them. A generated file goes to `-o`, else to the current directory
 as `<model id, ':' and '/' as '_'>_<YYYYmmdd-HHMMSS>.<ext>`; an existing file is never overwritten.
 
 The calls are the `openai` SDK's on a client with `base_url` the URL, as `ai_models.video` makes them. This is a direct
 call, outside `ai_models`, because `ai_models` reaches a server only through a provider of config.yaml and this tool
-calls a server at a URL no provider names (docs/architecture.md, Standard paths for model calls). Each command's core
-function returns its result and raises on error; `main` prints, writes the file and sets the exit code.
+also calls a server at a URL no provider names (docs/architecture.md, Standard paths for model calls). Each command's
+core function returns its result and raises on error; `main` prints, writes the file and sets the exit code.
 """
 
 from __future__ import annotations
@@ -45,11 +46,21 @@ class ClientError(Exception):
     """An error of a command: a failed video job, an output file that exists, a URL without a server."""
 
 
-def default_url() -> str:
-    """`http://localhost:<model_server.port>/v1`, the port from the settings file."""
+def server_url(url: str | None = None, provider: str | None = None) -> str:
+    """The server's `/v1` URL, in order: `url`, the `base_url` of provider `provider`, the `base_url` of
+    `model_client.provider`, `http://localhost:<model_server.port>/v1`; the settings from the settings file.
+    `ClientError` when `provider` is not a provider of kind `openai` with a `base_url`."""
+    if url:
+        return url
     import plugin_settings
 
-    return f"http://localhost:{plugin_settings.load_config().model_server.port}/v1"
+    cfg = plugin_settings.load_config()
+    name = provider or cfg.model_client.provider
+    if name is None:
+        return f"http://localhost:{cfg.model_server.port}/v1"
+    if e := cfg.server_error(name):
+        raise ClientError(f"--provider: {e}")
+    return cfg.providers[name].base_url
 
 
 def connect(url: str, timeout: float = TIMEOUT_SECONDS) -> openai.OpenAI:
@@ -182,7 +193,9 @@ def save(data: bytes, path: Path) -> Path:
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="model-client", description="A client of a model server at a URL.")
-    p.add_argument("--url", help="the server's /v1 base URL (default http://localhost:<model_server.port>/v1)")
+    p.add_argument("--url", help="the server's /v1 base URL")
+    p.add_argument("--provider", help="a provider of config.yaml of kind openai whose base_url is the server's /v1 "
+                                      "(default model_client.provider, else http://localhost:<model_server.port>/v1)")
     sub = p.add_subparsers(dest="command", required=True)
     m = sub.add_parser("models", help="the model ids, or one model's kind, role and entry")
     m.add_argument("id", nargs="?")
@@ -213,7 +226,7 @@ def parser() -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace) -> None:
     """The command of `args`, its results printed."""
-    client = connect(args.url or default_url())
+    client = connect(server_url(args.url, args.provider))
     if args.command == "models":
         if args.id:
             print(yaml.safe_dump(model(client, args.id), sort_keys=False), end="")

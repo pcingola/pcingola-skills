@@ -12,6 +12,7 @@ from .brand import BrandSettings
 from .diffusers_model import DiffusersModel
 from .huggingface import HuggingFace
 from .local_models import LocalModels
+from .model_client import ModelClientSettings
 from .model_server import ModelServerSettings
 from .model_id import ModelId, split_id
 from .network import Network
@@ -37,6 +38,7 @@ class Config(Strict):
     voiceover: VoiceoverSettings = VoiceoverSettings()
     second_opinion: SecondOpinionSettings = SecondOpinionSettings()
     model_server: ModelServerSettings = ModelServerSettings()
+    model_client: ModelClientSettings = ModelClientSettings()
 
     @model_validator(mode="before")
     @classmethod
@@ -49,6 +51,8 @@ class Config(Strict):
     def _references(self) -> Config:
         errors = [f"tasks.{task}: {e}" for task, model_id in self.tasks.items()
                   if (e := self.task_error(task, model_id))]
+        if (name := self.model_client.provider) is not None and (e := self.server_error(name)):
+            errors.append(f"model_client.provider: {e}")
         if errors:
             raise ValueError("\n".join(errors))
         return self
@@ -75,6 +79,18 @@ class Config(Strict):
         if task in SERVER_TASKS and p.kind == ProviderKind.OPENAI and p.base_url is None:
             return (f"provider {name!r} has no base_url; task {task} takes a model of kind openai only from a "
                     "model server")
+        return None
+
+    def server_error(self, name: str) -> str | None:
+        """Why provider `name` is not a model server's address, None when it is: it is missing, is not of kind
+        `openai`, or has no `base_url`."""
+        p = self.providers.get(name)
+        if p is None:
+            return f"provider {name!r} is not in providers"
+        if p.kind != ProviderKind.OPENAI:
+            return f"provider {name!r} is of kind {p.kind}; a model server's provider is of kind openai"
+        if p.base_url is None:
+            return f"provider {name!r} has no base_url"
         return None
 
     def provider(self, name: str) -> Provider | None:

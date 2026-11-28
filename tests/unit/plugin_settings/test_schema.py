@@ -314,3 +314,21 @@ def test_memory_on_every_local_model_entry():
     assert unset.model_entry("d:m").memory is None and unset.model_entry("t:m").memory is None
     assert problems({"providers": {"d": {"kind": "diffusers", "models": {"m": {"repo": "r", "memory": 0}}}}}) == [
         "providers.d.models.m.memory: Input should be greater than 0"]
+
+
+def test_model_client_provider_is_a_server():
+    """`model_client.provider` is unset by default; set, it names a provider of kind `openai` with a `base_url` (a
+    model server's `/v1`); a missing provider, another kind or no `base_url` fails at load with its path
+    (docs/model_server.md, Command-line client)."""
+    assert Config().model_client.provider is None
+    srv = {"kind": "openai", "base_url": "http://model-server.example.com:8000/v1"}
+    cfg = Config.model_validate({"providers": {"srv": srv}, "model_client": {"provider": "srv"}})
+    assert cfg.model_client.provider == "srv" and cfg.server_error("srv") is None
+    providers = {"o": {"kind": "ollama"}, "api": {"kind": "openai", "api_key": "k"}}
+    assert problems({"providers": providers, "model_client": {"provider": "o"}}) == [
+        "model_client.provider: provider 'o' is of kind ollama; a model server's provider is of kind openai"]
+    assert problems({"providers": providers, "model_client": {"provider": "api"}}) == [
+        "model_client.provider: provider 'api' has no base_url"]
+    assert problems({"model_client": {"provider": "srv"}}) == [
+        "model_client.provider: provider 'srv' is not in providers"]
+    assert problems({"model_client": {"url": "x"}}) == ["model_client.url: not a setting"]

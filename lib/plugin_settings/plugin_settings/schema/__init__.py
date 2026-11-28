@@ -19,6 +19,7 @@ from .image_limits import ImageLimits
 from .kokoro_model import KokoroModel
 from .local_memory import LocalMemory
 from .local_models import LocalModels
+from .model_client import ModelClientSettings
 from .model_server import OLLAMA_LOCAL_URL, ModelServerSettings
 from .model_id import ModelId, split_id
 from .network import Network
@@ -43,7 +44,7 @@ __all__ = [
     "DiffusersEntry", "DiffusersImageLimits", "DiffusersImageModel", "DiffusersModel", "DiffusersMusicModel",
     "DiffusersPresenterModel", "DiffusersProvider", "DiffusersRole", "DiffusersVideoModel", "FishModel",
     "FishProvider", "GoogleModel",
-    "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "LocalMemory", "LocalModels", "ModelId", "ModelServerSettings", "Network",
+    "GoogleProvider", "HuggingFace", "ImageLimits", "KokoroModel", "KokoroProvider", "LocalMemory", "LocalModels", "ModelClientSettings", "ModelId", "ModelServerSettings", "Network",
     "OllamaProvider", "OpenAIImageLimits", "OpenAIKindProvider", "OpenAIModel", "OpenAIProvider",
     "OpenRouterProvider", "Provider", "ProviderKind", "Quality", "RemoteProvider", "SecondOpinionSettings", "Strict",
     "StudioSettings", "Task", "TimedProvider", "TorchaudioModel", "TorchaudioProvider",

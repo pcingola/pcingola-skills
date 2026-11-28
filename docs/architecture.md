@@ -102,10 +102,10 @@ each one is listed here with its reason:
   client needs come from `GET /models/{id}` over HTTP (httpx), no model call; Pydantic-AI has no call for a model's
   metadata.
 - The model server's command-line client (`lib/model_client`, `docs/model_server.md`, Command-line client). It
-  calls a server at a URL given on its command line with the OpenAI SDK (`images.generate`, `audio.speech.create`,
-  `videos.create`, `retrieve`, `download_content`, `models.list`, `models.retrieve`), the calls `ai_models.video`
-  makes. `ai_models` reaches a server only through a provider of `config.yaml`, and this tool exists to call a server
-  that no provider names.
+  calls a server at a URL given on its command line (or the `base_url` of a provider of kind `openai`) with the
+  OpenAI SDK (`images.generate`, `audio.speech.create`, `videos.create`, `retrieve`, `download_content`,
+  `models.list`, `models.retrieve`), the calls `ai_models.video` makes. `ai_models` reaches a server only through a
+  provider of `config.yaml`, and this tool also calls a server that no provider names.
 - The Codex review of second-opinion (`second_opinion_tool.codex`, `docs/second-opinion.md`). With
   `second_opinion.codex: true` the skill runs the Codex CLI (`codex exec`) as a subprocess. Codex is an agent that
   reads the repository and runs read-only commands while it reviews, which a single Pydantic-AI request cannot do,

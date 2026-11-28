@@ -15,6 +15,7 @@
 #     studio       the Studio
 #     voiceover    media:voiceover
 #     model_server the OpenAI-compatible model server (python -m model_server)
+#     model_client model-client, the command-line client of a model server
 #
 # The whole file is validated when a skill starts: a misspelt section or key, a
 # missing required key or a wrong type is an error naming its path. A section
@@ -520,3 +521,13 @@ model_server:
   # The weights directory of a kokoro, chatterbox or torchaudio provider
   # without dir (absolute or ~). Unset: such a provider needs dir.
   #weights_dir: /path/to/weights
+
+
+# === model_client ============================================================
+# model-client, the command-line client of a model server (installed with uv
+# tool install). Its server URL is, in order: --url, --provider, provider
+# below, http://localhost:<model_server.port>/v1.
+model_client:
+  # A provider above of kind openai with a base_url (a model server's /v1),
+  # the default server of model-client. Unset: localhost.
+  #provider: server

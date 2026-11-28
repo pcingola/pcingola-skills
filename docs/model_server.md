@@ -377,11 +377,11 @@ uv tool upgrade model-client
 request is mostly that lookup.
 
 ```
-model-client [--url URL] models [ID]
-model-client [--url URL] status VIDEO_ID
-model-client [--url URL] video --model ID --image FILE --prompt TEXT [--seconds S] [--aspect A] [--size WxH] [--seed N] [-o OUT]
-model-client [--url URL] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
-model-client [--url URL] speech --model ID --text TEXT [--voice V] [-o OUT]
+model-client [--url URL | --provider NAME] models [ID]
+model-client [--url URL | --provider NAME] status VIDEO_ID
+model-client [--url URL | --provider NAME] video --model ID --image FILE --prompt TEXT [--seconds S] [--aspect A] [--size WxH] [--seed N] [-o OUT]
+model-client [--url URL | --provider NAME] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
+model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voice V] [-o OUT]
 ```
 
 | Command | Endpoint | Prints |
@@ -393,8 +393,12 @@ model-client [--url URL] speech --model ID --text TEXT [--voice V] [-o OUT]
 | `image` | `POST /v1/images/generations` | the PNG's path and the wall time |
 | `speech` | `POST /v1/audio/speech` | the WAV file's path and the wall time |
 
-- `--url` is the server's `/v1` base URL. Default: `http://localhost:<model_server.port>/v1`, the port from the
-  settings file (8000 without one).
+- The server's `/v1` base URL is, in order: `--url`; the `base_url` of the provider `--provider` of the settings
+  file; the `base_url` of the provider `model_client.provider`; `http://localhost:<model_server.port>/v1`, the port
+  from the settings file (8000 without one). The provider of `--provider` or `model_client.provider` is of kind
+  `openai` with a `base_url`; another is an error (at load for `model_client.provider`). A machine whose
+  `config.yaml` has the server's provider (`server`, with `base_url: http://model-server.example.com:8000/v1`) sets
+  `model_client: {provider: server}` and runs `model-client` with no option.
 - Model ids are the server's, as `models` lists them: `local:ltx-2.5`, `kokoro:kokoro-v1.0`, an Ollama tag.
 - `speech` without `--voice` sends the model's default voice: its entry's `voice`, else the first of its `voices`.
 - Output: `-o OUT`, else the current directory, as `<model id with ':' and '/' as '_'>_<YYYYmmdd-HHMMSS>.<ext>`
@@ -418,7 +422,9 @@ for music and alignments): images and edits (klein-tiny), video jobs (ltx-tiny w
 `/v1/systemone`, `/api/tags` and the model list, keep-alive, the lock, the memory refusal and the unload of idle GPU
 models. The fish test needs CUDA. `tests/integration/model_server_client/test_cli.py` calls the core functions of
 `model-client` against the same in-process server: the model list and one entry, a video job and a failed one, an
-image, speech in the default and another voice, the default output name and the refusal to overwrite.
+image, speech in the default and another voice, the default output name and the refusal to overwrite. `tests/unit/model_server_client/test_url.py`
+checks the order of the server URL (`--url`, `--provider`, `model_client.provider`, localhost) on written config
+files, and the error for a `--provider` that is not a model server's provider.
 
 The suite `tests/server/` tests a deployed server over the network: `scripts/tests.sh server --server-url <url>`,
 `<url>` the server's `/v1` base URL. It calls each endpoint through the `ai_models` functions with a client config
