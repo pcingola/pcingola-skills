@@ -9,7 +9,7 @@ per concern). It has four parts:
 2. Adapters for what Pydantic-AI lacks: speech, music, video, alignment and image masks. One function per task, one
    branch per provider kind. The remote speech and music calls and the calls to a model server (Model server) are
    the documented exceptions to Pydantic-AI (`docs/architecture.md`, Standard paths for model calls).
-3. Local models with `diffusers`, in the caller's process: image, music and image-to-video models. The extra
+3. Local models with `diffusers`, in the caller's process: image, music and video models. The extra
    `ai-models[diffusers]` installs torch and diffusers, so only the skills that need it carry them.
 4. Local speech and alignment (Local speech and alignment), in the caller's process: Kokoro, Chatterbox Turbo and
    the torchaudio aligner on the CPU (extras `ai-models[kokoro]`, `ai-models[chatterbox]`, `ai-models[align]`), Fish
@@ -183,7 +183,7 @@ What each kind serves (the Kinds column is `TASK_KINDS`, checked at load and by 
 | speech | `speech.speak`: the OpenAI SDK `audio.speech` of the provider's client, Google `generate_content`, `fish.speak`, `kokoro.speak` or `chatterbox.speak` (the last three in a worker thread) | OpenAI kinds, `google`, `fish`, `kokoro`, `chatterbox` |
 | align | `align.aligner`; a model server's `POST /audio/alignments` (`ServedAligner`) | `torchaudio`, `openai` with a `base_url` |
 | music | `music.compose`: Google predict or stream, `local.DiffusersMusicModel`, or a model server's `POST /audio/music` | `google`, `diffusers`, `openai` with a `base_url` |
-| video | `video.animate`: `local.animate` (image to video), or a model server's video job (`POST /videos`) | `diffusers`, `openai` with a `base_url` |
+| video | `video.animate`: `local.animate` (image or prompt to video), or a model server's video job (`POST /videos`) | `diffusers`, `openai` with a `base_url` |
 | presenter | `video.present`: `local.present` (portrait and speech to video), or a model server's video job with the narration as a second file | `diffusers`, `openai` with a `base_url` |
 
 Remote clients are one `httpx2.AsyncClient` per provider object, with the provider's timeout and the context of
@@ -408,14 +408,15 @@ Instructions go through the model's `style`, a format string with `{instructions
 ## Video
 
 `video.animate(image, prompt, *, seconds, model=None, width=None, height=None, aspect=None, seed=None)` returns an MP4 of the
-image animated as the prompt says; `aanimate` runs it in a worker thread. The model is `model`, else `tasks.video`.
+image animated as the prompt says, or with `image=None` of the prompt alone; `aanimate` runs it in a worker thread. The model is `model`, else `tasks.video`.
 The `diffusers` kind serves video in process, and the `openai` kind from a model server (Model server). A video model is a `providers.<p>.models.<name>` entry of a `diffusers`
 provider of the video role (`DiffusersVideoModel`) with these keys besides `repo`, `steps` and `guidance`, all
-required; the schema names each missing one at load, and `config.resolve` refuses a model of another kind or role:
+required but `text_pipeline`; the schema names each missing one at load, and `config.resolve` refuses a model of another kind or role:
 
 | Key | Meaning |
 |---|---|
 | `pipeline` | the diffusers class to load; needed because `DiffusionPipeline.from_pretrained` returns the class of the repository's `model_index.json`, which can be text to video |
+| `text_pipeline` | optional: the diffusers class for a clip from the prompt alone, used when `image` is None (`local.text_pipe`). A class other than `pipeline` is built over the loaded modules of `pipeline` with `from_pipe`, as `inpaint` is for images, so both share one copy of the weights (`LTXPipeline` over `LTXImageToVideoPipeline`, `LTX2Pipeline` over `LTX2ImageToVideoPipeline`: the same components). The same class as `pipeline` calls that pipeline without `image`, for a class whose image is optional: `Kandinsky6TI2VAPipeline.__call__` takes `image=None` and conditions the first frame only when an image is given. Without the key, a call with no image is an `AIModelsError` naming the model |
 | `fps` | frames per second of the clip, passed to the encoder |
 | `size_multiple` | width and height are rounded to the nearest multiple of it, at least the multiple |
 | `frame_step` | the frame count is the smallest `frame_step * k + 1` (k >= 1) that covers `seconds * fps` |
@@ -424,7 +425,7 @@ required; the schema names each missing one at load, and `config.resolve` refuse
 
 The frame count is cut to `max_frames`, rounded down to the `frame_step * k + 1` form.
 
-The image is cropped to the clip's aspect ratio and scaled to its size (`ImageOps.fit`). The frames are encoded with
+The image, when given, is cropped to the clip's aspect ratio and scaled to its size (`ImageOps.fit`). The frames are encoded with
 diffusers' `encode_video` (PyAV, H.264). A pipeline whose output has `audio` (LTX-2 generates a sound track with the
 frames) gets it muxed in as an AAC stereo stream at the rate `local.audio_rate` reads from the pipeline: its vocoder
 config's `output_sampling_rate`, else `sampling_rate`, else the pipeline's `audio_sample_rate` (Kandinsky 6), else its
@@ -501,7 +502,7 @@ message:
 | Task | Call |
 |---|---|
 | music | `client.post("/audio/music", body=..., cast_to=httpx2.Response)`: `prompt`, `seconds`, `lyrics`, `seed`; a WAV file |
-| video | `client.videos.create` (`input_reference`, `seconds`, `size` from `clip_size` when the caller gives a width, height or aspect, `seed` in `extra_body`), `client.videos.poll` every 0.5 s, `client.videos.download_content` |
+| video | `client.videos.create` (`input_reference`, omitted when there is no image; `seconds`, `size` from `clip_size` when the caller gives a width, height or aspect, `seed` in `extra_body`), `client.videos.poll` every 0.5 s, `client.videos.download_content` |
 | presenter | `client.post("/videos", files=[input_reference, audio])` with `prompt`, `aspect`, `seed`; then poll and download as video |
 | align | `ServedAligner.align`: the clip as a 16-bit WAV at its own rate and the tokens joined by spaces to `client.post("/audio/alignments")`; one (start, end) per token |
 

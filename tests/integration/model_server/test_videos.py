@@ -83,15 +83,34 @@ def test_presenter_job_with_narration(running):
     assert (got.width, got.height, got.audio_codec) == (64, 64, "aac")
 
 
+@NEEDS_GPU
+def test_prompt_only_video_job(running):
+    """A video job without `input_reference` makes the clip from the prompt alone, with the entry's
+    `text_pipeline`: completed, at the model's size, with the planned 9 frames."""
+    model = task_model("video")
+    spec = entry(model)
+    job = running.client.videos.create(model=model, prompt="waves", seconds="0.3")
+    assert job.status == "queued" and job.size == f"{spec['width']}x{spec['height']}"
+    done = finished(running.client, job)
+    assert done.status == "completed", done.error
+    got = clip(running.client.videos.download_content(done.id).content)
+    assert (got.width, got.height, got.frames) == (spec["width"], spec["height"], 9)
+
+
 def test_video_errors(running):
-    """A presenter job without `audio`, a video model without `input_reference` and an unknown job are OpenAI
-    errors, raised before any model loads."""
+    """A presenter job without `audio` or without `input_reference`, a video model without `input_reference` whose
+    entry has no `text_pipeline`, and an unknown job are OpenAI errors, raised before any model loads."""
     with pytest.raises(openai.BadRequestError) as e:
         running.client.videos.create(model=task_model("presenter"), prompt="",
                                      input_reference=("face.png", png(64, 64), "image/png"))
     assert e.value.param == "audio"
     with pytest.raises(openai.BadRequestError) as e:
-        running.client.videos.create(model=task_model("video"), prompt="waves")
+        running.client.post("/videos", cast_to=Video, body={"model": task_model("presenter"), "prompt": ""},
+                            files=[("audio", ("say.wav", b"RIFF", "audio/wav"))],
+                            options={"headers": {"Content-Type": "multipart/form-data"}})
     assert e.value.param == "input_reference"
+    with pytest.raises(openai.BadRequestError) as e:
+        running.client.videos.create(model="diffusers:ltx-tiny-image-only", prompt="waves")
+    assert e.value.param == "input_reference" and "text_pipeline" in e.value.message
     with pytest.raises(openai.NotFoundError):
         running.client.videos.retrieve("video_none")

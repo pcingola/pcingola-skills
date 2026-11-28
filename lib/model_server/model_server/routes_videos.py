@@ -1,7 +1,9 @@
 """`POST /v1/videos`, `GET /v1/videos/{id}` and `GET /v1/videos/{id}/content`: asynchronous video jobs on a local
 diffusers video model (`ai_models.video.aanimate`) or presenter model (`ai_models.video.apresent`).
 
-Create (multipart): `model`, `prompt`, `input_reference` (the image, required), `seconds` (video: the clip's length,
+Create (multipart): `model`, `prompt`, `input_reference` (the image; required by a presenter model, optional for a
+video model: without it the clip comes from the prompt alone, which needs a model whose entry sets `text_pipeline`,
+else the request is a 400 naming `input_reference`), `seconds` (video: the clip's length,
 default 4), `size` (`WxH`; video: width and height, else the model's), and two fields outside
 `openai.types.VideoCreateParams`: `audio` (presenter: the narration recording, required) and `aspect` (width / height;
 video: reshapes the size to it at the same pixel count; presenter: the bucket nearest it, default the image's), plus
@@ -93,7 +95,7 @@ async def create(request: Request) -> JSONResponse:
     prompt = form.get("prompt") if isinstance(form.get("prompt"), str) else ""
     if more := extras(VideoCreateParams, fields, "audio", "aspect", "seed"):
         raise ServerError(400, f"{ref.id} takes no request fields {', '.join(sorted(more))}", param=next(iter(more)))
-    image = await one_file(form, "input_reference", required=True)
+    image = await one_file(form, "input_reference", required=ref.role == ModelRole.PRESENTER)
     aspect = number(fields, "aspect")
     seed = fields.get("seed")
     if seed is not None and not isinstance(seed, int):
@@ -101,6 +103,9 @@ async def create(request: Request) -> JSONResponse:
     if ref.role == ModelRole.VIDEO:
         if not prompt:
             raise ServerError(400, "a video model needs a `prompt`", param="prompt")
+        if image is None and not ref.entry.text_pipeline:
+            raise ServerError(400, f"{ref.id} needs an image (`input_reference`): its entry has no `text_pipeline`",
+                              param="input_reference")
         seconds = number(fields, "seconds", DEFAULT_SECONDS)
         size = parse_size(form.get("size"))
         planned = planned_video(ref, seconds, size, aspect)

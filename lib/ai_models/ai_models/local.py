@@ -13,7 +13,7 @@ length in seconds and the lyrics; without one, the model does not take that opti
 `min_crest_db` (`music.min_crest_db`; not read here), the crest factor below which the music skill sends the request
 again. A video model also has
 `pipeline` (the class to load), `fps`, `size_multiple`, `frame_step`, `width`, `height` and
-`max_frames` (see `video`); a presenter model `pipeline`, `fps`, `buckets`, `audio_rate` and `output` (see
+`max_frames`, and optionally `text_pipeline` (see `video`); a presenter model `pipeline`, `fps`, `buckets`, `audio_rate` and `output` (see
 `video`, `present`). `pipeline` may name a `ModularPipeline` class. The device is CUDA, else MPS; `to_device` moves the weights there.
 Pipelines stay loaded until the process exits or calls `unload`. torch and diffusers are
 imported only here.
@@ -52,7 +52,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import plugin_settings
-from plugin_settings import DiffusersModel, DiffusersRole, ProviderKind
+from plugin_settings import DiffusersModel, DiffusersRole, DiffusersVideoModel, ProviderKind
 from pydantic import BaseModel
 from pydantic_ai.exceptions import UserError
 from pydantic_ai.images import GeneratedImage, ImageGenerationModel, ImageGenerationResult
@@ -84,9 +84,10 @@ def device() -> str:
     raise AIModelsError(f"local models need a CUDA or Apple MPS GPU; torch {torch.__version__} sees neither")
 
 
-def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipeline", skip: Sequence[str] = (),
+def pipeline(repo: str, over: str | None = None, *, cls: str = "DiffusionPipeline", skip: Sequence[str] = (),
              memory: float | None = None):
-    """The loaded pipeline of `repo` in bfloat16, or the `inpaint` pipeline class over its modules. `repo` is a
+    """The loaded pipeline of `repo` in bfloat16, or the pipeline class `over` built over its modules with
+    `from_pipe` (an `inpaint` class, a video model's `text_pipeline`). `repo` is a
     Hugging Face repository id or a local folder (`local_folder`), which is loaded as is, with no cache lookup.
     `cls` is the diffusers class to load: a `DiffusionPipeline` class (`model_index.json`), or a `ModularPipeline`
     class (`modular_model_index.json`, loaded with `load_components`, `_modular`); the components in `skip` are
@@ -99,14 +100,14 @@ def pipeline(repo: str, inpaint: str | None = None, *, cls: str = "DiffusionPipe
     import torch
 
     skip = tuple(skip)
-    key = f"{repo}#{inpaint or ''}#{cls}#{','.join(skip)}"
+    key = f"{repo}#{over or ''}#{cls}#{','.join(skip)}"
     with _load_lock:
         if key in _pipes:
             return _pipes[key]
-        if inpaint:
+        if over:
             # from_pipe casts the shared modules to float32 unless given the loaded dtype
             base = pipeline(repo, cls=cls, skip=skip, memory=memory)
-            _pipes[key] = getattr(diffusers, inpaint).from_pipe(base, dtype=torch.bfloat16)
+            _pipes[key] = getattr(diffusers, over).from_pipe(base, dtype=torch.bfloat16)
             return _pipes[key]
         waited = hold_lock()
         try:
@@ -325,7 +326,7 @@ on_unload(_pipes, locked=True)
 
 @on_unload_model
 def _drop_pipes(model_id: str, weights_dir: Path | None) -> int:
-    """Drop the pipelines of the diffusers model `model_id` (its `repo`, with any `inpaint` pipeline built over it);
+    """Drop the pipelines of the diffusers model `model_id` (its `repo`, with any pipeline built over it);
     another model of the same `repo` shares them."""
     if provider_kind(model_id) != ProviderKind.DIFFUSERS:
         return 0
@@ -810,11 +811,12 @@ def audio_rate(pipe) -> int:
     raise AIModelsError(f"{type(pipe).__name__} returns audio but names no sample rate")
 
 
-def animate(model_id: str, image: bytes, prompt: str, *, seconds: float, width: int | None = None,
+def animate(model_id: str, image: bytes | None, prompt: str, *, seconds: float, width: int | None = None,
             height: int | None = None, aspect: float | None = None, seed: int | None = None) -> bytes:
-    """An MP4 (H.264) of the image-to-video model `model_id` (a diffusers model), at `width` x `height`, else
+    """An MP4 (H.264) of the video model `model_id` (a diffusers model), at `width` x `height`, else
     the model's size, reshaped to `aspect` when given (`video.clip_size`). The image is cropped to
-    the clip's aspect ratio and scaled to its size. When the pipeline output has `audio` (a sound track generated
+    the clip's aspect ratio and scaled to its size. Without an image the clip comes from the prompt alone, with the
+    model's `text_pipeline` (`text_pipe`). When the pipeline output has `audio` (a sound track generated
     with the frames, (channels, samples) or (samples,) per video, a tensor or an array), the clip carries it as an AAC
     stream at the pipeline's rate (`audio_rate`); else it has no audio stream. Encoded with diffusers' `encode_video`."""
     from diffusers.utils import encode_video
@@ -826,16 +828,29 @@ def animate(model_id: str, image: bytes, prompt: str, *, seconds: float, width: 
     w, h = clip_size(spec, width, height, aspect)
     frames_n = frame_count(seconds, spec.fps, spec.frame_step, spec.max_frames)
     extra: dict[str, Any] = {"width": w, "height": h, "num_frames": frames_n, "seed": seed}
-    pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, memory=spec.memory)
-    still = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
+    if image is None:
+        pipe = text_pipe(model_id, spec)
+    else:
+        pipe = pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip, memory=spec.memory)
+        extra["image"] = ImageOps.fit(Image.open(io.BytesIO(image)).convert("RGB"), (w, h))
     with out_of_memory(spec.repo):
-        result = pipe(image=still, prompt=prompt, output_type="np", **pipe_kwargs(spec, extra))
+        result = pipe(prompt=prompt, output_type="np", **pipe_kwargs(spec, extra))
     audio = getattr(result, "audio", None)
     track = {} if audio is None else {"audio": waveform(audio[0]), "audio_sample_rate": audio_rate(pipe)}
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "clip.mp4"
         encode_video(result.frames[0], fps=spec.fps, output_path=str(out), **track)
         return out.read_bytes()
+
+
+def text_pipe(model_id: str, spec: DiffusersVideoModel):
+    """The prompt-to-video pipeline of the video model `spec`: its `pipeline` when `text_pipeline` names the same
+    class (one that takes no image), else the `text_pipeline` class over the modules of `pipeline`; `AIModelsError`
+    when the entry has no `text_pipeline`."""
+    if not spec.text_pipeline:
+        raise AIModelsError(f"{model_id}: the model needs an image (its entry has no `text_pipeline`)")
+    over = None if spec.text_pipeline == spec.pipeline else spec.text_pipeline
+    return pipeline(spec.repo, over, cls=spec.pipeline, skip=spec.skip, memory=spec.memory)
 
 
 def waveform(audio):

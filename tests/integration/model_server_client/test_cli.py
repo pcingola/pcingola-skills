@@ -69,6 +69,15 @@ def test_video_reports_status_changes_and_returns_the_mp4(server):
 
 
 @NEEDS_GPU
+def test_video_without_image_is_made_from_the_prompt(server):
+    """`video` with no image sends no `input_reference`, and the server makes the clip from the prompt alone with
+    the entry's `text_pipeline`."""
+    spec = model_entry("video")
+    got = clip(cli.video(server, task_model("video"), None, "waves", seconds=0.3, seed=3))
+    assert (got.width, got.height, got.frames) == (spec["width"], spec["height"], 9)
+
+
+@NEEDS_GPU
 def test_image_returns_a_png_at_size(server):
     """`image` returns the PNG of the image model at the requested size."""
     data = cli.image(server, task_model("image"), "a red cat", size="256x256", seed=1)

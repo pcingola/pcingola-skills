@@ -11,7 +11,7 @@ import torch
 from PIL import Image
 from plugin_settings import DiffusersRole
 
-from ai_models import config, local, video
+from ai_models import AIModelsError, config, local, video
 from tests.media import frames
 from tests.prereq import requires
 from tests.settings_env import TEST_CONFIG
@@ -90,6 +90,32 @@ def test_ltx2_clip_carries_its_sound_track(tmp_path):
     double = local.DEVICE_CONFIG.get(local.device(), {}).get("rope_double_precision", True)
     assert [pipe.transformer.config.rope_double_precision, pipe.connectors.config.rope_double_precision] == \
         [double, double]
+
+
+@requires(HAS_GPU, f"local video models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")
+@requires(shutil.which("ffprobe"), "ffprobe (FFmpeg) not installed")
+@pytest.mark.parametrize("model, audio", [("diffusers:ltx-tiny", False), (LTX2, True)])
+def test_prompt_only_clip(tmp_path, model, audio):
+    """animate with no image makes the clip from the prompt alone with the entry's `text_pipeline` (`LTXPipeline`,
+    `LTX2Pipeline`), built with `from_pipe` over the modules of `pipeline`: 9 frames at the spec's 128x96, with the
+    LTX-2 sound track; the text pipeline shares the transformer of the image pipeline (docs/ai_models.md, Video)."""
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(video.animate(None, "a red square", seconds=0.3, model=model, seed=1))
+    found = {s["codec_type"]: s for s in streams(clip)}
+    assert (found["video"]["width"], found["video"]["height"], int(found["video"]["nb_frames"])) == (128, 96, 9)
+    assert ("audio" in found) == audio
+    spec = config.diffusers_model(model, DiffusersRole.VIDEO)
+    text = local.text_pipe(model, spec)
+    assert type(text).__name__ == spec.text_pipeline
+    assert text.transformer is local.pipeline(spec.repo, cls=spec.pipeline, skip=spec.skip).transformer
+
+
+def test_prompt_only_needs_text_pipeline():
+    """animate with no image on a video model whose entry has no `text_pipeline` is a one-line `AIModelsError`
+    naming the model, raised before any weights load."""
+    with pytest.raises(AIModelsError, match=r"^diffusers:ltx-tiny-image-only: the model needs an image") as e:
+        video.animate(None, "a red square", seconds=0.3, model="diffusers:ltx-tiny-image-only")
+    assert "\n" not in str(e.value)
 
 
 @requires(HAS_GPU, f"local presenter models need a CUDA or MPS GPU; torch {torch.__version__} sees neither")

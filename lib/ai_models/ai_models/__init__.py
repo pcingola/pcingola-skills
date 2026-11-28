@@ -15,7 +15,7 @@
     served   the local models of a model server through a provider of kind `openai` (`served`, `kind`, `client`)
     weights  weight files of the kokoro, chatterbox and torchaudio kinds
     music    `compose` (Google predict and stream models, local diffusers, a model server)
-    video    `animate`, `aanimate` (image to video), `present`, `apresent` (portrait and speech to video), local diffusers
+    video    `animate`, `aanimate` (image or prompt to video), `present`, `apresent` (portrait and speech to video), local diffusers
     local    diffusers image, music, video and presenter models (extra `ai-models[diffusers]`)
     tls      certifi roots plus `network.extra_ca_cert` for remote clients
 

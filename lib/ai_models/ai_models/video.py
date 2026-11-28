@@ -1,12 +1,18 @@
-"""Image to video (Pydantic-AI has no video call): `animate` (`local.animate`), an MP4 with the sound track the
-pipeline generates, or without audio when it generates none; and `present` (`local.present`), a portrait and a
+"""Video (Pydantic-AI has no video call): `animate` (`local.animate`), an MP4 of an image animated as a prompt
+describes, or of a prompt alone, with the sound track the pipeline generates, or without audio when it generates
+none; and `present` (`local.present`), a portrait and a
 speech recording to an MP4 of the person speaking, with the speech as its sound track.
 
 The model is `model`, else the model of task `video`. A video model is a diffusers model
-(`providers.<p>.models.<name>`) with these keys besides `repo`, `steps` and `guidance`, all required:
+(`providers.<p>.models.<name>`) with these keys besides `repo`, `steps` and `guidance`, all required but
+`text_pipeline`:
 
-    pipeline        the diffusers class to load (the repository's `model_index.json` names the
-                    text-to-video class)
+    pipeline        the diffusers class to load for a clip from an image (the repository's `model_index.json`
+                    names the text-to-video class)
+    text_pipeline   the diffusers class for a clip from the prompt alone, built over the modules of `pipeline` with
+                    `from_pipe` (LTXPipeline over LTXImageToVideoPipeline); the same class as `pipeline` when that
+                    class takes no image (Kandinsky6TI2VAPipeline). Without it, `animate` with no image raises
+                    `AIModelsError`
     fps             frames per second of the clip
     size_multiple   width and height are rounded to a multiple of this
     frame_step      frame counts are frame_step * k + 1
@@ -27,7 +33,7 @@ required:
     output          the name of the pipeline output that holds the videos (a modular pipeline's `output`)
 
 A model of a provider of kind `openai` is a video or presenter model of a model server (`served`): the job goes to
-`POST <base_url>/videos` (video: `client.videos.create`; presenter: `client.post` with the narration as a second file,
+`POST <base_url>/videos` (video: `client.videos.create`, with no `input_reference` when there is no image; presenter: `client.post` with the narration as a second file,
 which `videos.create` cannot send), is polled with `client.videos.poll` and downloaded with
 `client.videos.download_content`. The model's keys come from the server's entry (`config.diffusers_model`), so a
 size is computed here with `clip_size` and sent as `WxH`.
@@ -82,10 +88,10 @@ def clip_size(spec: DiffusersVideoModel, width: int | None = None, height: int |
     return frame_size(w, h, spec.size_multiple)
 
 
-def animate(image: bytes, prompt: str, *, seconds: float, model: str | None = None, width: int | None = None,
+def animate(image: bytes | None, prompt: str, *, seconds: float, model: str | None = None, width: int | None = None,
             height: int | None = None, aspect: float | None = None, seed: int | None = None) -> bytes:
-    """An MP4 of `image` (PNG or JPEG bytes) animated as `prompt` describes, at least `seconds` long unless
-    the model's `max_frames` is shorter. The size is `width` and `height`, else the model's; `aspect`
+    """An MP4 of `image` (PNG or JPEG bytes) animated as `prompt` describes, or with no image of `prompt` alone
+    (the model's `text_pipeline`), at least `seconds` long unless the model's `max_frames` is shorter. The size is `width` and `height`, else the model's; `aspect`
     (width / height) reshapes it to that ratio at the same pixel count."""
     model_id = config.resolve(model, "video")
     if _on_server(model_id):
@@ -123,13 +129,14 @@ def image_file(image: bytes) -> tuple[str, bytes, str]:
     return ("image.jpg", image, "image/jpeg") if image[:3] == b"\xff\xd8\xff" else ("image.png", image, "image/png")
 
 
-async def _server_animate(model_id: str, image: bytes, prompt: str, seconds: float, size: tuple[int, int] | None,
+async def _server_animate(model_id: str, image: bytes | None, prompt: str, seconds: float, size: tuple[int, int] | None,
                           seed: int | None) -> bytes:
     from openai import omit
 
     async def create(client):
         return await client.videos.create(model=config.split_id(model_id)[1], prompt=prompt,
-                                          input_reference=image_file(image), seconds=f"{seconds:g}",
+                                          input_reference=image_file(image) if image is not None else omit,
+                                          seconds=f"{seconds:g}",
                                           size=f"{size[0]}x{size[1]}" if size else omit,
                                           extra_body={"seed": seed} if seed is not None else None)
 
@@ -178,7 +185,7 @@ def _call(model_id: str, fn, *args, **kwargs) -> bytes:
         raise AIModelsError(f"{model_id}: {type(e).__name__}" + (f": {first}" if first else "")) from e
 
 
-async def aanimate(image: bytes, prompt: str, **kwargs) -> bytes:
+async def aanimate(image: bytes | None, prompt: str, **kwargs) -> bytes:
     """`animate` in a worker thread."""
     return await asyncio.to_thread(animate, image, prompt, **kwargs)
 

@@ -22,10 +22,11 @@ providers:
         inpaint: Flux2KleinInpaintPipeline
         # Small images keep the image-gen and video-effects tests fast.
         image: {max_edge: 512, min_edge: 256}
-      # Random weights, the LTX-Video 0.9.5 pipeline class.
+      # Random weights, the LTX-Video 0.9.5 pipeline classes.
       ltx-tiny:
         repo: optimum-intel-internal-testing/tiny-random-ltx-video-0.9.5
         pipeline: LTXImageToVideoPipeline
+        text_pipeline: LTXPipeline
         steps: 2
         guidance: 3.0
         fps: 24
@@ -38,6 +39,19 @@ providers:
       ltx2-tiny:
         repo: optimum-intel-internal-testing/tiny-random-ltx2
         pipeline: LTX2ImageToVideoPipeline
+        text_pipeline: LTX2Pipeline
+        steps: 2
+        guidance: 3.0
+        fps: 24
+        size_multiple: 32
+        frame_step: 8
+        width: 128
+        height: 96
+        max_frames: 9
+      # ltx-tiny without text_pipeline: a video model that needs an image (no weights load before the error).
+      ltx-tiny-image-only:
+        repo: optimum-intel-internal-testing/tiny-random-ltx-video-0.9.5
+        pipeline: LTXImageToVideoPipeline
         steps: 2
         guidance: 3.0
         fps: 24

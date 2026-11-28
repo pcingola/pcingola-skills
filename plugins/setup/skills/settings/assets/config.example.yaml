@@ -147,7 +147,10 @@ providers:
   # A video model also has, all required: pipeline (the diffusers class to
   # load), fps, size_multiple (width and height are rounded to it), frame_step
   # (frame counts are frame_step * k + 1), width, height (the default size) and
-  # max_frames.
+  # max_frames; and optionally text_pipeline: the diffusers class for a video
+  # from the prompt alone (no image), built over the weights of pipeline, or
+  # the same class as pipeline when that class takes no image (Kandinsky 6).
+  # Without text_pipeline the model needs an image.
   # A presenter model also has, all required: pipeline (a DiffusionPipeline or
   # ModularPipeline class), fps, buckets (the frame sizes the model makes,
   # [width, height]; a clip takes the one nearest the picture's aspect ratio),
@@ -197,11 +200,12 @@ providers:
         guidance: 1.0
         duration_arg: audio_duration
         lyrics_arg: lyrics
-      # LTX-Video 0.9.5 (2B), image to video; usable only for slow, near-static
+      # LTX-Video 0.9.5 (2B), image or prompt to video; usable only for slow, near-static
       # motion (fast motion pixelates and deforms). LTX-2.5 is the default.
       ltx-video:
         repo: Lightricks/LTX-Video-0.9.5
         pipeline: LTXImageToVideoPipeline
+        text_pipeline: LTXPipeline
         steps: 30
         guidance: 3.0
         fps: 24
@@ -210,12 +214,13 @@ providers:
         width: 768
         height: 512
         max_frames: 121
-      # LTX-2.5 distilled, image to video (gated: accept the license, set
+      # LTX-2.5 distilled, image or prompt to video (gated: accept the license, set
       # huggingface.token). The args are the distilled schedule and guidance
       # off, from the model card.
       ltx-2.5:
         repo: Lightricks/LTX-2.5-Diffusers
         pipeline: LTX2ImageToVideoPipeline
+        text_pipeline: LTX2Pipeline
         steps: 8
         guidance: 1.0
         fps: 24
@@ -237,6 +242,7 @@ providers:
       #kandinsky-6:
       #  repo: kandinskylab/Kandinsky-6.0-Pro-distill-5s-Diffusers
       #  pipeline: Kandinsky6TI2VAPipeline
+      #  text_pipeline: Kandinsky6TI2VAPipeline
       #  steps: 10
       #  guidance: 1.0
       #  fps: 24
@@ -268,6 +274,7 @@ providers:
       ltx-video-small:
         repo: Lightricks/LTX-Video-0.9.5
         pipeline: LTXImageToVideoPipeline
+        text_pipeline: LTXPipeline
         steps: 8
         guidance: 3.0
         fps: 24

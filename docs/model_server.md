@@ -190,7 +190,7 @@ it.
 |---|---|---|
 | `model` | required | required |
 | `prompt` | required | optional: replaces the model's default prompt; empty or unset: the default |
-| `input_reference` | the image to animate (file, required) | the portrait (file, required) |
+| `input_reference` | the image to animate (file, optional); unset: the clip comes from the prompt alone, with the entry's `text_pipeline`, and a model without one is a 400 naming `input_reference` | the portrait (file, required) |
 | `seconds` | the clip's length, a number as text (default 4); cut to the model's `max_frames` | not used: the clip is as long as `audio` |
 | `size` | `WxH`: width and height, rounded to `size_multiple`; unset: the model's `width` and `height` | `WxH`: its ratio is the `aspect` when `aspect` is unset |
 | `aspect` | width / height: reshapes the size to that ratio at the same pixel count | width / height: the bucket nearest it; unset: the portrait's |
@@ -240,12 +240,12 @@ with four more fields:
  "role": "video", "test": false,
  "entry": {"repo": "Lightricks/LTX-Video-0.9.5", "pipeline": "LTXImageToVideoPipeline", "steps": 30,
            "guidance": 3.0, "args": {}, "skip": [], "memory": null, "fps": 24, "size_multiple": 32,
-           "frame_step": 8, "width": 768, "height": 512, "max_frames": 121}}
+           "frame_step": 8, "width": 768, "height": 512, "max_frames": 121, "text_pipeline": "LTXPipeline"}}
 ```
 
 `kind` is the provider kind, `role` the `ModelRole`, `test` the provider's `test` (true: a test model, which
 `model-client models` lists only with `--tests`), and `entry` the model's entry of the config with every key and
-default, as JSON: a video model's `fps`, `size_multiple`, `frame_step`, `width`, `height`, `max_frames`; a presenter's
+default, as JSON: a video model's `fps`, `size_multiple`, `frame_step`, `width`, `height`, `max_frames`, `text_pipeline`; a presenter's
 `fps`, `buckets` (a list of `[width, height]`), `audio_rate`; an image model's `inpaint` and `image` limits
 (`max_edge`, `min_edge`); a music model's `duration_arg`, `lyrics_arg`, `min_crest_db`; a speech model's `voice`,
 `voices` (and a kokoro model's `langs`); every model's `memory`. The SDK keeps these fields
@@ -405,7 +405,7 @@ request is mostly that lookup.
 ```
 model-client [--url URL | --provider NAME] models [--tests] [ID]
 model-client [--url URL | --provider NAME] status VIDEO_ID
-model-client [--url URL | --provider NAME] video --model ID --image FILE --prompt TEXT [--seconds S] [--aspect A] [--size WxH] [--seed N] [-o OUT]
+model-client [--url URL | --provider NAME] video --model ID [--image FILE] --prompt TEXT [--seconds S] [--aspect A] [--size WxH] [--seed N] [-o OUT]
 model-client [--url URL | --provider NAME] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
 model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voice V] [-o OUT]
 ```
@@ -415,7 +415,7 @@ model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voic
 | `models` | `GET /v1/models` | `server: <provider or URL>`, then `<role> <runtime> <id>` per model, grouped by role; test models only with `--tests` |
 | `models ID` | `GET /v1/models/{id}` | a local model's `kind`, `role`, `test`, `entry` (and `voices`) as YAML; an Ollama model's `kind` and `role` |
 | `status VIDEO_ID` | `GET /v1/videos/{id}` | `<id> <status> <progress>%`, with the error of a failed job |
-| `video` | `POST /v1/videos`, then `GET /v1/videos/{id}` every 0.5 s, then `GET /v1/videos/{id}/content` | the job's status at creation and at each change, then the MP4's path and the wall time |
+| `video` | `POST /v1/videos`, then `GET /v1/videos/{id}` every 0.5 s, then `GET /v1/videos/{id}/content` | the job's status at creation and at each change, then the MP4's path and the wall time; without `--image` the request has no `input_reference` (a video from the prompt alone) |
 | `image` | `POST /v1/images/generations` | the PNG's path and the wall time |
 | `speech` | `POST /v1/audio/speech` | the WAV file's path and the wall time |
 

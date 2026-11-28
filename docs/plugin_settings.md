@@ -77,7 +77,7 @@ A remote provider serves any model id; its `models` holds attributes only. A mod
 
 A `diffusers` entry is one of four classes, one per `DiffusersRole`: `DiffusersImageModel` (`inpaint`, `image`),
 `DiffusersMusicModel` (`duration_arg` required, `lyrics_arg`, `min_crest_db`), `DiffusersVideoModel` (`pipeline`,
-`fps`, `size_multiple`, `frame_step`, `width`, `height`, `max_frames`, all required) and `DiffusersPresenterModel`
+`fps`, `size_multiple`, `frame_step`, `width`, `height`, `max_frames`, all required, and `text_pipeline`, optional) and `DiffusersPresenterModel`
 (`pipeline`, `fps`, `buckets`, `audio_rate`, `output`, all required); all share `repo`, `steps`, `guidance`, `args`
 and `skip` (`DiffusersModel`). The YAML has no role key: `diffusers_entry.role_of` reads the role from the keys
 (a presenter-only key, then a video-only key or `pipeline`/`fps`, then a music key, else image), and the class of

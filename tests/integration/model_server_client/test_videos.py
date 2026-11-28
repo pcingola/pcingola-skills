@@ -36,6 +36,15 @@ def test_video_refuses_a_model_of_another_role_or_none(client):
 
 
 @NEEDS_GPU
+def test_animate_without_image(client):
+    """`video.animate` with no image sends a job without `input_reference`: the server makes the clip from the
+    prompt alone (the entry's `text_pipeline`), at the entry's size with the planned frames."""
+    spec = config.diffusers_model(client_id("video"), DiffusersRole.VIDEO)
+    got = clip(video.animate(None, "waves", seconds=0.3))
+    assert (got.width, got.height, got.frames) == (spec.width, spec.height, 9)
+
+
+@NEEDS_GPU
 def test_animate(client):
     """`video.animate` with `aspect` 1 makes an H.264 MP4 at the square size `clip_size` gives from the server's
     entry, with the planned frames and no audio stream."""

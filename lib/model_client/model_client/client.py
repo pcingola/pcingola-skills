@@ -3,7 +3,7 @@
 
     model-client [--url URL | --provider NAME] models [--tests] [ID]
     model-client [--url URL | --provider NAME] status VIDEO_ID
-    model-client [--url URL | --provider NAME] video --model ID --image FILE --prompt TEXT [--seconds S]
+    model-client [--url URL | --provider NAME] video --model ID [--image FILE] --prompt TEXT [--seconds S]
                                                      [--aspect A] [--size WxH] [--seed N] [-o OUT]
     model-client [--url URL | --provider NAME] image --model ID --prompt TEXT [--size WxH] [--seed N] [-o OUT]
     model-client [--url URL | --provider NAME] speech --model ID --text TEXT [--voice V] [-o OUT]
@@ -158,15 +158,15 @@ def image_file(image: bytes) -> tuple[str, bytes, str]:
     return ("image.jpg", image, "image/jpeg") if image[:3] == b"\xff\xd8\xff" else ("image.png", image, "image/png")
 
 
-def video(client: openai.OpenAI, model_id: str, image: bytes, prompt: str, *, seconds: float | None = None,
+def video(client: openai.OpenAI, model_id: str, image: bytes | None, prompt: str, *, seconds: float | None = None,
           aspect: float | None = None, size: str | None = None, seed: int | None = None,
           on_status: Callable[[Video], None] | None = None) -> bytes:
     """The MP4 of a video job (`POST /v1/videos`) of `image` (PNG or JPEG bytes) animated as `prompt` describes,
-    polled until it completes; `on_status` gets the job at creation and at each change of status. `ClientError`
+    or with no image of `prompt` alone (no `input_reference`), polled until it completes; `on_status` gets the job at creation and at each change of status. `ClientError`
     with the job's error when it fails."""
     extra = {k: v for k, v in (("aspect", aspect), ("seed", seed)) if v is not None}
     with video_calls():
-        job = client.videos.create(model=model_id, prompt=prompt, input_reference=image_file(image),
+        job = client.videos.create(model=model_id, prompt=prompt, input_reference=image_file(image) if image is not None else omit,
                                    seconds=f"{seconds:g}" if seconds is not None else omit, size=size or omit,
                                    extra_body=extra or None)
         if on_status:
@@ -237,9 +237,10 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("id", nargs="?")
     s = sub.add_parser("status", help="the status of a video job")
     s.add_argument("id")
-    v = sub.add_parser("video", help="an MP4 of an image animated as a prompt describes")
+    v = sub.add_parser("video", help="an MP4 of a prompt, or of an image animated as the prompt describes")
     v.add_argument("--model", required=True)
-    v.add_argument("--image", required=True, type=Path)
+    v.add_argument("--image", type=Path, help="the first frame, PNG or JPEG (optional: without it the video comes "
+                   "from the prompt alone, on a model whose server entry sets `text_pipeline`)")
     v.add_argument("--prompt", required=True)
     v.add_argument("--seconds", type=float)
     v.add_argument("--aspect", type=float)
@@ -277,7 +278,7 @@ def run(args: argparse.Namespace) -> None:
     path = output_path(args.output, args.model, ext, Path.cwd(), datetime.now())
     start = time.monotonic()
     if args.command == "video":
-        data = video(client, args.model, args.image.read_bytes(), args.prompt, seconds=args.seconds,
+        data = video(client, args.model, args.image.read_bytes() if args.image else None, args.prompt, seconds=args.seconds,
                      aspect=args.aspect, size=args.size, seed=args.seed,
                      on_status=lambda job: print(status_line(job), flush=True))
     elif args.command == "image":
