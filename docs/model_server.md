@@ -365,7 +365,9 @@ The server's models are the local providers of the same file. Each model entry o
 
 `model_server.client` is a client of a server at a URL, run as `model-client` (the console script of the package) or
 `python -m model_server.client`. In the server's environment it is `.venv/bin/model-client`; in this repository,
-`uv run --project lib/model_server model-client ...`.
+`uv run --group dev model-client ...` from the repository root (`lib/model_server` alone has no uv sources for
+`ai-models` and `plugin-settings`). Each request to a `.local` name from macOS spends about 5 s resolving it (no A
+record over mDNS), so the printed wall time of a short request is mostly that lookup.
 
 ```
 model-client [--url URL] models [ID]
